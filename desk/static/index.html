@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<title>Trading Desk</title>
+<style>
+/* Look B, "iOS Dark": Stocks-app black, charcoal cards, iOS blue as the one accent.
+   --tint (#0A84FF, iOS dark-mode blue) is for text, icons and lines on black (5.6:1 on #000, 4.6:1 on cards).
+   --btn (#0071E3) sits behind white text, where #0A84FF would only reach 3.6:1; this gives 4.7:1. */
+:root{
+  --bg:#000000; --card:#1C1C1E; --card2:#2C2C2E; --fill:#3A3A3C;
+  --label:#FFFFFF; --label2:rgba(235,235,245,.68); --sep:rgba(84,84,88,.65);
+  --tint:#0A84FF; --btn:#0071E3; --onTint:#FFFFFF;
+  --go:#30D158; --goBg:rgba(48,209,88,.15);
+  --stop:#FF6961; --stopBg:rgba(255,69,58,.15);
+  --warn:#FFB340; --warnBg:rgba(255,179,64,.14);
+  --blue:#DA8FFF;
+  --bar:rgba(22,22,24,.82);
+  --r-card:20px; --r-inner:13px;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;
+  --display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{background:var(--bg);-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--label);font:16px/1.38 var(--font);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+[hidden]{display:none!important}
+:focus-visible{outline:2px solid var(--tint);outline-offset:2px;border-radius:8px}
+.num{font-variant-numeric:tabular-nums}
+a{color:var(--tint)}
+.skip{position:absolute;left:-999px;top:8px;background:var(--btn);color:var(--onTint);padding:8px 14px;border-radius:10px;z-index:20}
+.skip:focus{left:12px}
+
+/* page frame */
+.wrap{max-width:1180px;margin:0 auto;padding:max(10px,env(safe-area-inset-top)) 16px 120px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 2px 0}
+.greet{color:var(--label2);font-size:15px;font-weight:500}
+.greet b{color:var(--label);font-weight:600}
+.mode-badge{margin-left:auto;font-size:12.5px;font-weight:700;letter-spacing:.04em;padding:5px 11px;border-radius:999px;white-space:nowrap;background:rgba(218,143,255,.16);color:var(--blue)}
+.mode-badge.live{background:var(--go);color:#00210A}
+.mark{width:38px;height:38px;border-radius:50%;background:var(--card);display:grid;place-items:center;flex:none}
+.mark svg{width:26px;height:26px}
+.large{font:700 34px/1.12 var(--display);letter-spacing:.005em;margin:2px 2px 14px}
+.clock{font-size:14px;color:var(--label2);margin:-10px 2px 14px}
+
+/* tabs: a bottom bar on phones, a floating pill on wide screens */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;justify-content:space-around;
+  padding:6px 8px max(8px,env(safe-area-inset-bottom));background:var(--bar);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-top:.5px solid var(--sep)}
+.tabs button{background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;
+  min-width:60px;flex:1;max-width:96px;min-height:48px;padding:4px 2px;font-size:11px;font-weight:500;color:var(--label2);cursor:pointer}
+.tabs button svg{width:26px;height:26px}
+.tabs button[aria-selected=true]{color:var(--tint)}
+@media(min-width:900px){
+  .tabs{position:sticky;top:12px;bottom:auto;left:auto;right:auto;margin:0 auto 18px;width:max-content;border:.5px solid var(--sep);
+    border-radius:999px;padding:5px;gap:2px}
+  .tabs button{flex-direction:row;gap:7px;min-height:38px;padding:0 16px;border-radius:999px;font-size:14.5px;font-weight:600}
+  .tabs button svg{width:19px;height:19px}
+  .tabs button[aria-selected=true]{background:var(--fill);color:var(--label)}
+  .tabs button[aria-selected=true] svg{color:var(--tint)}
+  .wrap{padding-bottom:48px}
+}
+
+.view{display:none}.view.on{display:block}
+.grid{display:grid;grid-template-columns:minmax(0,1fr);gap:0 22px;align-items:start}
+@media(min-width:900px){.grid{grid-template-columns:minmax(0,1fr) 340px}}
+
+/* cards */
+.card{background:var(--card);border-radius:var(--r-card);padding:16px;margin-bottom:12px}
+.section-title{font:600 20px/1.2 var(--display);margin:22px 2px 10px}
+.section-title:first-child{margin-top:4px}
+.foot-note{font-size:13px;color:var(--label2);margin:8px 2px 0}
+
+/* account card */
+.hero .cap{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--label2);font-size:14px;font-weight:500}
+.hero .big{font:700 40px/1.1 var(--display);letter-spacing:-.01em;margin:4px 0 2px}
+.hero .three{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.hero .three b{display:block;font-size:18px;font-weight:600}
+.hero .three span{font-size:12.5px;color:var(--label2)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--warnBg);color:var(--warn);white-space:nowrap}
+.chip.live{background:var(--goBg);color:var(--go)}
+.chip i{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+/* status line */
+.status{display:flex;gap:12px;align-items:center}
+.status .grow{flex:1;min-width:0;font-size:14.5px;color:var(--label2)}
+.status .grow b{color:var(--label);font-weight:600}
+.status.halt{background:var(--warnBg)}
+.status.halt .grow,.status.halt .grow b{color:var(--warn)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:14px;padding:12px 18px;min-height:44px;
+  font-weight:600;font-size:16px;cursor:pointer;background:var(--btn);color:var(--onTint)}
+.btn.wide{width:100%}
+.btn.gray{background:var(--fill);color:var(--label)}
+.btn.small{padding:8px 14px;min-height:36px;font-size:14.5px;border-radius:999px}
+.btn.text{background:none;color:var(--tint);padding:8px 10px;min-height:40px}
+.btn:disabled{opacity:.45;cursor:default}
+a.btn{text-decoration:none}
+a.chart-link{display:inline-flex;align-items:center;min-height:40px;margin-top:6px;color:var(--tint);font-size:14.5px;font-weight:500;text-decoration:none}
+a.chart-link:hover{text-decoration:underline}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#export-text{width:100%;margin-top:10px;font-family:ui-monospace,Menlo,monospace;font-size:14px}
+
+/* segmented control */
+.seg{display:flex;background:var(--card2);border-radius:10px;padding:2px;margin:4px 0 14px}
+.seg button{flex:1;border:0;background:none;border-radius:8px;padding:7px 4px;min-height:34px;font-size:14px;font-weight:600;color:var(--label);cursor:pointer}
+.seg button[aria-pressed=true]{background:#636366}
+
+/* signal card */
+.sig.dim{opacity:.72}
+.chead{display:flex;align-items:center;gap:12px}
+.logo{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:700;font-size:15px;flex:none;background:var(--fill);color:var(--label)}
+.sig.ready .logo{background:var(--btn);color:var(--onTint)}
+.sig.taken .logo,.sig.open .logo{background:var(--blue);color:#1D0B26}
+.ticker{font:700 21px/1.1 var(--display);letter-spacing:-.01em}
+.sub{font-size:13.5px;color:var(--label2);margin-top:2px}
+.pill{margin-left:auto;font-size:13px;font-weight:700;padding:5px 11px;border-radius:999px;white-space:nowrap;background:var(--fill);color:var(--label2)}
+.pill.go{background:var(--goBg);color:var(--go)} .pill.weak{background:var(--warnBg);color:var(--warn)} .pill.open{background:rgba(218,143,255,.15);color:var(--blue)}
+.order{font-size:18px;font-weight:600;margin:14px 0 10px;line-height:1.3}
+.order em{font-style:normal;color:var(--tint)}
+
+.list{background:var(--card2);border-radius:var(--r-inner);overflow:hidden}
+.li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 14px;font-size:15.5px;min-height:44px}
+.li + .li{border-top:.5px solid var(--sep)}
+.li > span{color:var(--label2)} .li > b{font-weight:600;text-align:right}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:9px;vertical-align:1px}
+
+.pl{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.pl div{border-radius:var(--r-inner);padding:10px 13px}
+.pl .l{background:var(--stopBg)} .pl .w{background:var(--goBg)}
+.pl small{display:block;font-size:12.5px;color:var(--label2)} .pl b{font-size:19px;font-weight:700}
+.pos{color:var(--go)} .neg{color:var(--stop)}
+
+.callout{border-radius:var(--r-inner);padding:10px 13px;margin:10px 0 0;font-size:14.5px;background:var(--warnBg);color:var(--warn)}
+.callout.bad{background:var(--stopBg);color:var(--stop)}
+
+.odds{margin-top:12px}
+.odds-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--fill)}
+.odds-bar div{height:100%}
+.odds-key{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--label2);margin-top:7px}
+.odds-key b{color:var(--label);font-weight:600}
+.verdict{font-size:14px;color:var(--label2);margin:8px 0 0}
+
+.timer{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px;color:var(--label2)}
+.timer.soon{color:var(--stop)}
+.ring{width:20px;height:20px;flex:none;color:var(--tint)}
+.timer.soon .ring{color:var(--stop)}
+
+.fill{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.field{background:var(--card2);border-radius:var(--r-inner);padding:8px 13px}
+.field span{display:block;font-size:12.5px;color:var(--label2)}
+.field input,.field select{width:100%;background:none;border:0;padding:2px 0;font-size:17px;font-weight:600;outline:none}
+.field:focus-within{box-shadow:0 0 0 2px var(--tint)}
+.actions{display:flex;gap:8px;margin-top:10px;align-items:center}
+.actions .btn:first-child{flex:1}
+
+details.disc{margin-top:10px;background:var(--card2);border-radius:var(--r-inner)}
+details.disc summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:12px 14px;min-height:44px;font-size:15.5px;font-weight:500}
+details.disc summary::-webkit-details-marker{display:none}
+details.disc summary::after{content:"";width:8px;height:8px;border-right:2px solid var(--label2);border-bottom:2px solid var(--label2);transform:rotate(-45deg);margin-right:4px}
+details.disc[open] summary::after{transform:rotate(45deg)}
+details.disc .inner{padding:0 14px 12px;font-size:14.5px;color:var(--label2)}
+pre.report{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--label)}
+dl.rule{margin:0} dl.rule div{padding:7px 0;border-top:.5px solid var(--sep)} dl.rule div:first-child{border-top:0;padding-top:0}
+dl.rule dt{font-size:12.5px;font-weight:600;color:var(--label2)} dl.rule dd{margin:1px 0 0;color:var(--label)}
+ol.steps{margin:0;padding-left:20px} ol.steps li{margin:6px 0;color:var(--label)}
+ul.plain{list-style:none;margin:0;padding:0} ul.plain li{padding:8px 0;border-top:.5px solid var(--sep)} ul.plain li:first-child{border-top:0}
+
+/* side cards */
+.meter{height:7px;background:var(--fill);border-radius:4px;overflow:hidden;margin:6px 0 12px}
+.meter i{display:block;height:100%;background:var(--tint);border-radius:4px} .meter.hot i{background:var(--stop)}
+.row-kv{display:flex;justify-content:space-between;font-size:15px}
+.row-kv span{color:var(--label2)}
+.ev{padding:10px 0;font-size:14.5px}
+.ev + .ev{border-top:.5px solid var(--sep)}
+.ev time{display:block;font-size:12.5px;color:var(--label2);margin-bottom:2px}
+.ev.stop{color:var(--stop)} .ev.target{color:var(--go)} .ev.flat{color:var(--warn)}
+.watch{display:flex;justify-content:space-between;gap:10px;padding:9px 0;font-size:15px}
+.watch + .watch{border-top:.5px solid var(--sep)}
+.watch small{display:block;font-size:12.5px;color:var(--label2)}
+.empty{color:var(--label2);font-size:15px;text-align:center;padding:26px 16px}
+.empty b{display:block;color:var(--label);font-size:17px;margin-bottom:4px}
+
+/* journal */
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:700px){.tiles{grid-template-columns:repeat(6,1fr)}}
+.tile{background:var(--card);border-radius:16px;padding:12px 14px}
+.tile b{display:block;font:700 22px/1.15 var(--display)}
+.tile span{font-size:12.5px;color:var(--label2)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{padding:11px 12px;text-align:right;white-space:nowrap}
+th{font-size:12.5px;color:var(--label2);font-weight:600;text-transform:none}
+tr + tr td{border-top:.5px solid var(--sep)}
+th:first-child,td:first-child{text-align:left;padding-left:2px}
+
+/* forms: iOS grouped list */
+.group{background:var(--card);border-radius:var(--r-card);overflow:hidden}
+.frow{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;padding:12px 16px}
+.frow + .frow{border-top:.5px solid var(--sep)}
+@media(min-width:700px){.frow{grid-template-columns:minmax(0,1fr) 240px;align-items:center}}
+.frow label{font-weight:600;font-size:15.5px}
+.frow small{display:block;font-weight:400;font-size:13px;color:var(--label2);margin-top:2px}
+.frow input,.frow select,.frow textarea,.inp{width:100%;background:var(--card2);border:0;border-radius:10px;padding:10px 12px;min-height:42px;font-size:16px}
+.frow textarea{resize:vertical}
+.frow.full{grid-template-columns:minmax(0,1fr)}
+.hrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0}
+.hrow .inp{width:auto;flex:1;min-width:150px;max-width:260px}
+
+/* demo warning: impossible to miss */
+.demo-banner{background:var(--warn);color:#1A1000;border-radius:14px;padding:12px 14px;margin:10px 0 12px;font-size:15px;line-height:1.35}
+.demo-banner b{font-weight:700}
+
+/* screenshot drop zone */
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;
+  border:1.5px dashed var(--fill);border-radius:var(--r-inner);padding:18px 14px;margin-top:12px;color:var(--label2);font-size:14.5px;cursor:pointer}
+.drop:hover,.drop.over{border-color:var(--tint);color:var(--label)}
+.drop b{color:var(--label);font-weight:600}
+.drop input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.drop:focus-within{border-color:var(--tint)}
+.found{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.found button{border:0;border-radius:999px;background:var(--card2);color:var(--label);padding:7px 12px;min-height:36px;font-size:14px;cursor:pointer}
+.found button b{color:var(--tint)}
+.read-msg{font-size:14.5px;margin-top:10px}
+.big-now{font:700 30px/1.1 var(--display)}
+
+/* iOS switch */
+.switch{position:relative;width:51px;height:31px;border-radius:999px;border:0;background:var(--fill);cursor:pointer;flex:none;padding:0}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.3)}
+.switch[aria-checked=true]{background:var(--go)}
+.switch[aria-checked=true]::after{left:22px}
+@media (prefers-reduced-motion:no-preference){.switch::after{transition:left .18s ease}.switch{transition:background-color .18s ease}}
+.callout.money{background:var(--stopBg);color:var(--label);font-weight:600}
+.swrow{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:4px 0}
+.swrow b{display:block;font-weight:600}
+.swrow small{display:block;font-size:13px;color:var(--label2)}
+.steps-plain{margin:6px 0 12px;padding-left:20px;font-size:14.5px;color:var(--label2)} .steps-plain li{margin:5px 0}
+.stack{display:grid;gap:8px;margin-top:10px}
+
+/* toast */
+#toast{position:fixed;left:50%;top:max(14px,env(safe-area-inset-top));transform:translateX(-50%);z-index:30;
+  background:var(--card2);color:var(--label);padding:11px 18px;border-radius:999px;font-size:15px;font-weight:500;
+  box-shadow:0 10px 30px rgba(0,0,0,.5);max-width:92vw;display:none}
+#toast.err{background:#3A1412;color:#FFB4AE}
+
+footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2);font-size:12.5px;line-height:1.45}
+@media(min-width:900px){footer{padding-bottom:30px}}
+@media (prefers-reduced-motion:no-preference){.seg button,.tabs button,.btn{transition:background-color .15s ease,color .15s ease}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="wrap">
+  <header class="top">
+    <span class="greet" id="greet">Trading Desk</span>
+    <span class="mode-badge" id="mode-badge" hidden></span>
+    <span class="mark" id="mark" aria-hidden="true"></span>
+  </header>
+  <div class="demo-banner" id="demo-banner" role="alert" hidden><b>Demo: not today's market.</b> Saved data from Monday, October 19, 2026, with the clock stuck at 10:15. Do not place real orders from it. Start the Trading Desk app (or <span class="num">python3 -m desk</span>) for today's signals.</div>
+  <h1 class="large" id="title">Desk</h1>
+  <p class="clock num" id="clock"></p>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" data-v="desk" aria-selected="true"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 19h16v1.6H4zM5 11h3v7H5zm5.5-5h3v12h-3zM16 8h3v10h-3z"/></svg>Desk</button>
+    <button role="tab" data-v="account" aria-selected="false" id="tab-account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M3.5 9.5h17M7 15h4"/></svg>Account</button>
+    <button role="tab" data-v="journal" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4.5" y="3.5" width="15" height="17" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Journal</button>
+    <button role="tab" data-v="research" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>Research</button>
+    <button role="tab" data-v="settings" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</button>
+  </nav>
+
+  <main id="main">
+    <section class="view on" id="v-desk" aria-label="Desk">
+      <div class="grid">
+        <div>
+          <div class="card hero">
+            <div class="cap"><span id="acct-cap">Account</span><span class="chip" id="mode-chip"><i></i><span id="mode-text">Today's market</span></span></div>
+            <div class="big num" id="f-equity">–</div>
+            <div class="three num">
+              <div><b id="f-spend">–</b><span>Can spend</span></div>
+              <div><b id="f-risk">–</b><span>Max loss a trade</span></div>
+              <div><b id="f-day">–</b><span>Today</span></div>
+            </div>
+          </div>
+          <div class="card status" id="status"></div>
+          <div class="card" id="auto-card" style="margin-top:12px"></div>
+          <div id="health-warn"></div>
+          <div class="seg" role="group" aria-label="Show">
+            <button data-f="ready" aria-pressed="true">Ready</button>
+            <button data-f="all" aria-pressed="false">All</button>
+            <button data-f="open" aria-pressed="false">Open</button>
+          </div>
+          <div id="open"></div>
+          <div id="signals"></div>
+        </div>
+        <aside>
+          <h2 class="section-title">Today's limits</h2>
+          <div class="card" id="limits"></div>
+          <h2 class="section-title">What happened</h2>
+          <div class="card" id="events"></div>
+          <h2 class="section-title">Charts to watch</h2>
+          <div class="card" id="premarket"></div>
+          <h2 class="section-title">Export watchlist</h2>
+          <div class="card" id="export">
+            <p class="foot-note" style="margin:0 0 10px">Today's signals, open trades and your watchlist as a list for thinkorswim or TradingView. The desk sends nothing anywhere: you paste or upload the list yourself.</p>
+            <div class="actions"><button class="btn small" id="copy-tos">Copy for thinkorswim</button><a class="btn small gray" id="dl-tv" href="/api/export/tradingview.txt" download>Download for TradingView</a></div>
+            <p class="foot-note" id="export-note" style="margin:8px 0 0" hidden></p>
+            <textarea id="export-text" class="inp" rows="4" readonly aria-label="Tickers to copy" hidden></textarea>
+            <details class="disc"><summary>How to import</summary><div class="inner">
+              <b>thinkorswim desktop app</b>
+              <ol class="steps"><li>Press Copy for thinkorswim.</li><li>In the left sidebar's Watchlist, open the watchlist menu and choose Import.</li><li>Set Load from to Paste symbols from clipboard, then Save.</li></ol>
+              <b style="display:block;margin-top:10px">thinkorswim Web</b>
+              <p style="margin:4px 0 0">It has no list import. Click New Watchlist, give it a name, then add the tickers one at a time.</p>
+              <b style="display:block;margin-top:10px">TradingView</b>
+              <ol class="steps"><li>Upload list needs a paid TradingView plan. On a paid plan: press Download for TradingView, then in TradingView click Watchlist (top of the right panel) and choose Upload list…, and pick the file from Downloads.</li><li>On the free plan: use the Chart in TradingView links, or add tickers one at a time with the watchlist's + button.</li></ol>
+              <p style="margin:8px 0 0">TradingView and thinkorswim Web were checked on 2026-11-10. The thinkorswim desktop steps come from its help pages.</p>
+            </div></details>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="view" id="v-account" aria-label="Account">
+      <p class="foot-note" style="margin:0 2px 12px">The desk never connects to your broker, so tell it your balance and how each trade ended. Type the numbers, or on a Mac drop in a screenshot of your broker's screen and it reads them for you. Screenshots are read on your own computer and kept in the data folder; nothing is uploaded.</p>
+      <h2 class="section-title">Balance</h2>
+      <div class="card" id="acct-balance"></div>
+      <h2 class="section-title">What happened in a trade</h2>
+      <div id="acct-trades"></div>
+    </section>
+
+    <section class="view" id="v-journal" aria-label="Journal">
+      <h2 class="section-title">Results</h2>
+      <div class="tiles" id="stats"></div>
+      <h2 class="section-title">How it is going</h2>
+      <div class="card" id="review"><p class="foot-note" style="margin:0">Loading…</p></div>
+      <h2 class="section-title">Trades</h2>
+      <div class="card scroll" id="trades"></div>
+      <h2 class="section-title">Cash</h2>
+      <div class="card">
+        <p class="foot-note" id="cashnote" style="margin:0 0 4px"></p>
+        <div class="hrow">
+          <input id="cash-amt" class="inp num" inputmode="decimal" placeholder="Amount" aria-label="Amount in dollars">
+          <button class="btn small" data-cash="deposit">Deposit</button>
+          <button class="btn small gray" data-cash="withdraw">Withdrawal</button>
+          <button class="btn small gray" data-cash="set">Set to match your broker</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="v-research" aria-label="Research">
+      <h2 class="section-title">Earnings</h2>
+      <div class="card">
+        <div class="hrow" style="margin-top:0"><input id="earn-sym" class="inp" placeholder="Ticker, like AAPL" aria-label="Ticker" autocapitalize="characters"><button class="btn small" id="earn-go">Read the last 4 quarters</button></div>
+        <div class="scroll" id="earnings"></div>
+      </div>
+      <h2 class="section-title">Congress trade filings</h2>
+      <div class="card">
+        <p class="foot-note" style="margin:0 0 10px">Public disclosures filed with the House Clerk, up to 45 days after the trade. Background only, never a signal.</p>
+        <button class="btn small gray" id="cong-go">Check for new filings</button>
+        <div id="congress" style="margin-top:10px"></div>
+      </div>
+    </section>
+
+    <section class="view" id="v-settings" aria-label="Settings">
+      <h2 class="section-title">Health</h2>
+      <div class="card" id="health"></div>
+      <h2 class="section-title">Paper or live</h2>
+      <div class="card" id="mode-card"></div>
+      <h2 class="section-title">Practice account</h2>
+      <div class="card" id="paper-card">
+        <p class="foot-note" style="margin:0">In paper mode, auto paper can trade ready signals by itself in a pretend practice account kept in the desk's data folder. It never talks to a broker. Practice orders fill from free delayed prices, so they are for practising the steps, not for measuring results.</p>
+        <div class="actions"><button class="btn text" id="paper-reset">Start the practice account over</button></div>
+      </div>
+      <h2 class="section-title">Trading rules</h2>
+      <p class="foot-note" style="margin:0 2px 12px">Limits are percentages of your account, so they grow and shrink with it.</p>
+      <div class="group" id="form"></div>
+      <div class="hrow"><button class="btn wide" id="save">Save settings</button></div>
+    </section>
+  </main>
+</div>
+<footer>This desk reads free, delayed public data and does arithmetic. It never places a real order: you place each one at your broker yourself. It is for education and is not financial advice. Most day traders lose money. A stop is a plan: in a fast market it can fill worse than its price. Check every number against your broker before you send an order.</footer>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+const $ = (s, r=document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const usd = (n, sign) => n == null ? "–" : (sign && n > 0 ? "+" : n < 0 ? "−" : "") + "$" + Math.abs(n).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+const px = n => n == null ? "–" : Number(n).toFixed(2);
+const pct = p => Math.round(p * 1000) / 10 + "%";
+const mins = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const t12 = t => { if (!t) return ""; const [h, m] = t.split(":").map(Number); return ((h + 11) % 12 + 1) + ":" + String(m).padStart(2, "0") + (h < 12 ? " AM" : " PM"); };
+let S = null, drafts = {}, formDirty = false, FILTER = "ready";
+const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Research", settings:"Settings"};
+
+// The mark: 12 overlapping circles in a ring.
+(function () {
+  const p = [];
+  for (let i = 0; i < 12; i++) {
+    const a = i / 12 * Math.PI * 2;
+    p.push(`<circle cx="${(12 + 4.6 * Math.cos(a)).toFixed(2)}" cy="${(11.5 + 4.6 * Math.sin(a)).toFixed(2)}" r="4.4" fill="none" stroke="#0A84FF" stroke-width=".7" opacity=".85"/>`);
+  }
+  $("#mark").innerHTML = `<svg viewBox="0 0 24 24">${p.join("")}</svg>`;
+})();
+
+function toast(msg, err) { const t = $("#toast"); t.textContent = msg; t.className = err ? "err" : ""; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", err ? 7000 : 3500); }
+async function api(path, body) {
+  const r = await fetch(path, body ? {method:"POST", headers:{"Content-Type":"application/json", "X-Desk":"1"}, body:JSON.stringify(body)} : {});
+  const d = await r.json().catch(() => ({error:"The desk did not answer."}));
+  if (!r.ok) throw new Error(d.error || "Something went wrong.");
+  return d;
+}
+async function act(path, body, okMsg) { try { const d = await api(path, body); if (okMsg) toast(okMsg); await load(); return d; } catch (e) { toast(e.message, true); } }
+
+const TAGS = {ready:["Ready","pill go"], weak:["Weak odds","pill weak"], blocked:["Blocked","pill"], missed:["Missed","pill"], expired:["Expired","pill"], skipped:["Skipped","pill"], taken:["Taken","pill open"]};
+const initials = s => esc(String(s).replace(/[^A-Z]/gi, "").slice(0, 2).toUpperCase());
+
+function ring(left, total) {
+  const c = 2 * Math.PI * 8, f = Math.max(0, Math.min(1, left / (total || 1)));
+  return `<svg class="ring" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="none" stroke="var(--fill)" stroke-width="3"/><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - f)).toFixed(1)}" transform="rotate(-90 10 10)"/></svg>`;
+}
+function odds(o) {
+  if (!o) return "";
+  const h = o.history || {};
+  return `<div class="odds">
+      <div class="odds-bar" role="img" aria-label="Target first ${pct(o.p_target)}, neither ${pct(o.p_neither)}, stop first ${pct(o.p_stop)}">
+        <div style="width:${o.p_target*100}%;background:var(--go)"></div><div style="width:${o.p_neither*100}%;background:var(--fill)"></div><div style="width:${o.p_stop*100}%;background:var(--stop)"></div></div>
+      <div class="odds-key num"><span><i class="dot" style="background:var(--go)"></i>Target first <b>${pct(o.p_target)}</b></span><span><i class="dot" style="background:var(--stop)"></i>Stop first <b>${pct(o.p_stop)}</b></span><span>Neither by ${esc(t12(o.until))} <b>${pct(o.p_neither)}</b></span></div>
+    </div>
+    <details class="disc"><summary>Odds detail</summary><div class="inner">
+      <div class="list num" style="margin-bottom:8px">
+        <div class="li"><span>Average result</span><b class="${o.avg_r >= 0 ? "pos" : "neg"}">${o.avg_r > 0 ? "+" : ""}${o.avg_r}R</b></div>
+        <div class="li"><span>Edge over break-even</span><b class="${o.edge_points >= 0 ? "pos" : "neg"}">${o.edge_points > 0 ? "+" : ""}${o.edge_points} pts</b></div>
+        <div class="li"><span>Same rule, last ${h.sessions} days</span><b>${h.target} wins, ${h.stop} losses of ${h.triggered}</b></div>
+      </div>
+      ${esc(o.verdict)} From ${o.replays.toLocaleString()} replays of the rest of today.</div></details>
+    ${o.thin ? `<p class="verdict">${esc(o.thin)}</p>` : ""}`;
+}
+function ruleCard(p) {
+  if (!p.rule || !p.rule.length) return "";
+  const st = p.stamp ? `<p class="num" style="margin:8px 0 0">Rule set ${esc(p.stamp.rules)} · desk ${esc(p.stamp.desk)} · skills ${esc(p.stamp.skills)}</p>` : "";
+  return `<details class="disc"><summary>The rule behind this</summary><div class="inner"><dl class="rule">${p.rule.map(r => `<div><dt>${esc(r.part)}</dt><dd>${esc(r.text)}</dd></div>`).join("")}</dl>${st}</div></details>`;
+}
+function chartLink(sym) {
+  const u = S.chart_urls && S.chart_urls[sym];
+  return u ? `<a class="chart-link" href="${esc(u)}" target="_blank" rel="noopener noreferrer">Chart in TradingView<span class="vh"> for ${esc(sym)}, opens in a new window</span>&nbsp;↗</a>` : "";
+}
+function slip(s, now) {
+  const p = s.payload, live = s.status === "ready" && !s.off;
+  const [label, cls] = s.off && ["ready","weak"].includes(s.status) ? ["Not now", "pill"] : TAGS[s.status] || [s.status, "pill"];
+  const left = p.valid_until ? mins(p.valid_until) - mins(now.slice(11)) : null;
+  const dim = s.off || ["blocked","missed","expired","skipped"].includes(s.status) ? " dim" : "";
+  const head = `<div class="chead"><div class="logo" aria-hidden="true">${initials(p.symbol)}</div>
+      <div style="min-width:0"><div class="ticker">${esc(p.symbol)}</div><div class="sub num">Broke out ${esc(p.trigger_time)} at ${px(p.trigger_price)}</div></div>
+      <span class="${cls}">${label}</span></div>`;
+  const probs = (s.off ? `<div class="callout bad">${esc(s.off)}</div>` : "") + (p.problems || []).map(x => `<div class="callout bad">${esc(x)}</div>`).join("") + (p.warnings || []).map(x => `<div class="callout">${esc(x)}</div>`).join("");
+  if (p.qty == null || !p.qty) return `<article class="card sig ${esc(s.status)}${dim}">${head}${probs}${chartLink(p.symbol)}${ruleCard(p)}</article>`;
+  const d = drafts[s.id] || {qty:p.qty, price:""};
+  const news = (p.news || []).map(n => `<li>${n.link ? `<a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>` : esc(n.title)}${(n.tags || []).length ? ` <span class="num">· ${esc(n.tags.join(", "))}</span>` : ""}</li>`).join("");
+  const timer = live && left != null ? `<div class="timer num ${left <= 3 ? "soon" : ""}">${ring(left, S.settings.signal_valid_minutes)}Good until ${esc(t12(p.valid_until))} · ${Math.max(0, left)} min left</div>` : "";
+  return `<article class="card sig ${esc(s.off ? "off" : s.status)}${dim}">${head}
+    <div class="order num">Buy ${p.qty} at <em>${px(p.limit)}</em> or lower</div>
+    <div class="list num">
+      <div class="li"><span><i class="dot" style="background:var(--go)"></i>Target</span><b>${px(p.target)}</b></div>
+      <div class="li"><span><i class="dot" style="background:var(--stop)"></i>Stop</span><b>${px(p.stop)}</b></div>
+      <div class="li"><span>Cost</span><b>${usd(p.cost)}</b></div>
+      <div class="li"><span>Reward to risk</span><b>${p.reward_risk} to 1</b></div>
+      ${p.after_cost && p.after_cost.per_share ? `<div class="li"><span>After about ${usd(p.after_cost.total)} of slippage</span><b>${p.after_cost.reward_risk} to 1</b></div>` : ""}
+      <div class="li"><span>Out by</span><b>${esc(t12(p.flat_by))}</b></div>
+    </div>
+    <div class="pl num"><div class="l"><small>If the stop fills</small><b class="neg">${usd(-p.max_loss)}</b></div><div class="w"><small>If the target fills</small><b class="pos">${usd(p.reward, true)}</b></div></div>
+    ${probs}${odds(p.odds)}
+    <p class="foot-note" style="margin:10px 0 0">Sized by your ${esc(p.bound_by || "limits")}. If the price is above ${px(p.limit)}, skip it.</p>
+    ${chartLink(p.symbol)}
+    ${timer}
+    <details class="disc" ${live ? "open" : ""}><summary>How to enter it at your broker</summary><div class="inner"><ol class="steps">${p.ticket.steps.map(x => `<li>${esc(x)}</li>`).join("")}</ol></div></details>
+    ${ruleCard(p)}
+    ${news ? `<details class="disc"><summary>Headlines</summary><div class="inner"><ul class="plain">${news}</ul><p style="margin:8px 0 0">Headlines are leads. Open the story before you act on one.</p></div></details>` : ""}
+    ${live ? `<div class="fill num">
+        <label class="field"><span>Shares</span><input inputmode="numeric" data-d="qty" data-id="${s.id}" value="${esc(d.qty)}"></label>
+        <label class="field"><span>Your fill price</span><input inputmode="decimal" data-d="price" data-id="${s.id}" value="${esc(d.price)}" placeholder="${px(p.limit)}"></label></div>
+      <div class="actions"><button class="btn" data-take="${s.id}">I placed it and it filled</button><button class="btn text" data-skip="${s.id}">Skip</button></div>` : ""}
+  </article>`;
+}
+function openTrade(t) {
+  const d = drafts["x" + t.id] || {price:"", reason:"target"};
+  return `<article class="card sig open"><div class="chead"><div class="logo" aria-hidden="true">${initials(t.symbol)}</div>
+      <div style="min-width:0"><div class="ticker">${esc(t.symbol)}</div><div class="sub num">${t.qty} shares at ${px(t.entry_price)}</div></div><span class="pill open">Open</span></div>
+    <div class="order num">${t.last ? `Last ${px(t.last)} <span class="${t.unrealised >= 0 ? "pos" : "neg"}">${usd(t.unrealised, true)}</span> <span class="sub" style="display:inline">delayed</span>` : `<span class="sub" style="display:inline;font-size:16px">Waiting for a quote</span>`}</div>
+    <div class="list num">
+      <div class="li"><span><i class="dot" style="background:var(--go)"></i>Target</span><b>${px(t.target)} <span class="pos">${usd(t.reward, true)}</span></b></div>
+      <div class="li"><span><i class="dot" style="background:var(--stop)"></i>Stop</span><b>${px(t.stop)} <span class="neg">${usd(-t.max_loss)}</span></b></div>
+      <div class="li"><span>Out by</span><b>${esc(t12(t.flat_by))}</b></div>
+    </div>
+    ${chartLink(t.symbol)}
+    <div class="fill num">
+      <label class="field"><span>Exit price</span><input inputmode="decimal" data-d="price" data-id="x${t.id}" value="${esc(d.price)}"></label>
+      <label class="field"><span>Why</span><select data-d="reason" data-id="x${t.id}">${[["target","Target filled"],["stop","Stop filled"],["flat","Closed for the day"],["manual","Closed it early"]].map(([v, l]) => `<option value="${v}" ${d.reason === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+    <div class="actions"><button class="btn" data-exit="${t.id}">Record my exit</button></div></article>`;
+}
+function greeting(now) {
+  const h = Number(now.slice(11, 13));
+  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+}
+function render() {
+  const s = S, a = s.account, L = s.limits, now = s.now;
+  $("#greet").innerHTML = `${greeting(now)}`;
+  $("#demo-banner").hidden = !s.demo;
+  const live = s.mode === "live";
+  document.title = (s.demo ? "DEMO · " : "") + (live ? "LIVE · " : "Paper · ") + "Trading Desk";
+  const mb = $("#mode-badge"); mb.hidden = false; mb.className = "mode-badge" + (live ? " live" : "");
+  mb.textContent = live ? "LIVE · real money" : "PAPER · practice";
+  $("#acct-cap").textContent = live ? "Live account" : "Paper account";
+  $("#clock").textContent = t12(now.slice(11)) + " New York · " + (s.clock.open ? "market open" : "market closed");
+  $("#mode-chip").className = "chip" + (s.demo ? "" : " live");
+  $("#mode-text").textContent = s.demo ? "Demo · " + now.slice(5, 10).replace("-", "/") : "Today's market";
+  $("#f-equity").textContent = usd(a.equity); $("#f-spend").textContent = usd(a.spendable);
+  $("#f-risk").textContent = usd(L.max_loss_per_trade);
+  $("#f-day").textContent = usd(s.day.realised, true); $("#f-day").className = s.day.realised < 0 ? "neg" : s.day.realised > 0 ? "pos" : "";
+  const ls = s.last_scan, st = $("#status");
+  st.className = "card status" + (s.halt ? " halt" : "");
+  st.innerHTML = `<div class="grow">${s.halt ? `<b>${esc(s.halt)}</b>` : `<b>Looking for setups.</b> `}
+    ${ls && !ls.halt ? (ls.error ? esc(ls.error) : `Last scan ${esc(t12(ls.at.slice(11)))}: ${ls.scanned} charts, ${ls.hits} breakouts, ${ls.stale} too old, ${ls.too_expensive} too expensive.`) : ""}</div>
+    <button class="btn small gray" id="pause" aria-pressed="${!!s.settings.paused}">${s.settings.paused ? "Resume" : "Pause"}</button>${s.settings.paused ? "" : `<button class="btn small gray" id="scan">Scan now</button>`}`;
+  const au = s.auto || {}, ac = $("#auto-card");
+  ac.innerHTML = `<div class="swrow"><div><b>Auto paper</b><small>${au.paper
+      ? (au.on ? "On. The desk takes each ready signal itself in the practice account, with the same limits as you, and sells by the stop, the target or the flat-by time. No real money."
+               : "Off. Turn it on and the desk trades ready signals itself in the practice account. No real money.")
+        + (au.working || au.open ? ` Now: ${au.working} buy${au.working === 1 ? "" : "s"} waiting, ${au.open} open.` : "")
+      : "Paper mode only. In live mode it never trades."}</small></div>
+    <button class="switch" role="switch" aria-checked="${!!au.on}" aria-label="Auto paper" id="sw-auto" ${au.paper ? "" : "disabled"}></button></div>`;
+  // filter
+  const order = {ready:0, weak:1, taken:2, blocked:3, missed:4, expired:5, skipped:6};
+  const all = [...s.signals].sort((x, y) => order[x.status] - order[y.status] || ((y.payload.odds || {}).edge_points ?? -99) - ((x.payload.odds || {}).edge_points ?? -99));
+  const isReady = x => (x.status === "ready" || x.status === "weak") && !x.off;
+  const nReady = all.filter(isReady).length;
+  const counts = {ready:nReady, all:all.length, open:s.open_trades.length};
+  document.querySelectorAll(".seg button").forEach(b => { b.textContent = `${b.dataset.f[0].toUpperCase() + b.dataset.f.slice(1)} · ${counts[b.dataset.f]}`; b.setAttribute("aria-pressed", b.dataset.f === FILTER); });
+  $("#open").innerHTML = FILTER !== "all" || s.open_trades.length ? s.open_trades.map(openTrade).join("") : "";
+  const shown = FILTER === "open" ? [] : FILTER === "ready" ? all.filter(isReady) : all;
+  const none = `<div class="card empty"><b>No signals yet today</b>The desk scans after every 5-minute candle closes, from ${esc(t12(s.settings.no_entries_before))} to ${esc(t12(s.settings.no_entries_after))} New York time. Most days have only a few. No signal is a fine day.</div>`;
+  if (FILTER === "open") $("#signals").innerHTML = s.open_trades.length ? "" : `<div class="card empty"><b>Nothing open</b>Trades you record as filled show up here until you record the exit.</div>`;
+  else $("#signals").innerHTML = shown.length ? shown.map(x => slip(x, now)).join("") : all.length ? `<div class="card empty"><b>Nothing ready right now</b>${all.length} signal${all.length === 1 ? "" : "s"} today ${all.length === 1 ? "is" : "are"} taken, blocked, missed, skipped or not affordable right now. Tap All to see why.</div>` : none;
+  // side
+  const used = s.day.trades, lost = Math.max(0, -s.day.realised);
+  $("#limits").innerHTML = `<div class="row-kv num"><span>Trades</span><b>${used} of ${s.settings.max_trades_per_day}</b></div><div class="meter"><i style="width:${Math.min(100, used / s.settings.max_trades_per_day * 100)}%"></i></div>
+    <div class="row-kv num"><span>Lost today</span><b>${usd(lost)} of ${usd(L.max_daily_loss)}</b></div><div class="meter ${lost >= L.max_daily_loss * .75 ? "hot" : ""}"><i style="width:${Math.min(100, lost / (L.max_daily_loss || 1) * 100)}%"></i></div>
+    <div class="row-kv num"><span>Settled cash</span><b>${usd(a.settled_cash)}</b></div>
+    ${a.unsettled.map(u => `<p class="foot-note num" style="margin:6px 0 0">${usd(u.amount)} settles ${esc(u.settles_on)}</p>`).join("")}`;
+  $("#events").innerHTML = s.events.length ? s.events.slice(0, 12).map(e => `<div class="ev ${esc(e.kind)}"><time class="num">${esc(e.ts.slice(5))}</time>${esc(e.message)}</div>`).join("") : `<p class="empty" style="padding:8px">Signals, fills and alerts show up here.</p>`;
+  const pm = s.premarket;
+  $("#premarket").innerHTML = pm && pm.hits && pm.hits.length ? pm.hits.slice(0, 10).map(h => `<div class="watch"><div><b>${S.chart_urls && S.chart_urls[h.symbol] ? `<a href="${esc(S.chart_urls[h.symbol])}" target="_blank" rel="noopener noreferrer" style="color:inherit">${esc(h.symbol)}<span class="vh"> chart in TradingView, opens in a new window</span></a>` : esc(h.symbol)}</b><small>${esc((h.setups || []).join(", ").replace(/_/g, " "))}</small></div><b class="num">${px(h.price)}</b></div>`).join("") + `<p class="foot-note" style="margin:8px 0 0">Daily-chart setups as of ${esc(pm.as_of)}. A list to watch, not to buy.</p>` : `<p class="empty" style="padding:8px">${pm && pm.error ? esc(pm.error) : "The pre-market scan runs once each morning."}</p>`;
+  const unk = s.export_unknown || [];
+  $("#export-note").hidden = !unk.length;
+  $("#export-note").textContent = unk.length ? `TradingView needs the exchange for ${unk.join(", ")}. After the upload, fix ${unk.length === 1 ? "it" : "them"} if TradingView marks ${unk.length === 1 ? "it" : "them"} not found.` : "";
+  // journal
+  const k = s.stats;
+  $("#stats").innerHTML = [["Closed trades", k.closed], ["Win rate", k.win_rate == null ? "–" : k.win_rate + "%"], ["Total", usd(k.total_pnl, true)], ["Average", k.avg_r == null ? "–" : k.avg_r + "R"], ["Best", usd(k.best, true)], ["Worst", usd(k.worst, true)]].map(([l, v]) => `<div class="tile"><b class="num">${v}</b><span>${l}</span></div>`).join("");
+  $("#trades").innerHTML = s.trades.length ? `<table><tr><th>Date</th><th>Stock</th><th>By</th><th>Shares</th><th>In</th><th>Out</th><th>Why</th><th>Result</th><th>R</th></tr>${s.trades.map(t => `<tr><td class="num">${esc(t.date)}</td><td style="text-align:left"><b>${esc(t.symbol)}</b></td><td>${t.note === "auto" ? "Auto" : "You"}</td><td class="num">${t.qty}</td><td class="num">${px(t.entry_price)}</td><td class="num">${t.exit_price ? px(t.exit_price) : "open"}</td><td>${esc(t.exit_reason || "")}</td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${t.pnl == null ? "" : usd(t.pnl, true)}</td><td class="num">${t.r_multiple ?? ""}</td></tr>`).join("")}</table>` : `<div class="empty"><b>No trades yet</b>When you take a signal and record the fill, it lands here.</div>`;
+  $("#cashnote").textContent = `Cash ${usd(a.cash)}, of which ${usd(a.settled_cash)} is settled.` + (a.type === "cash" ? " In a cash account, money from a sale can buy again the next business day." : "");
+  renderAccount();
+  renderMode();
+  renderHealth();
+  if (!formDirty) renderForm();
+}
+// ---- Results: fetched when the Journal tab is open (it reads the whole record)
+let RV = null;
+async function loadReview() { try { RV = await api("/api/review"); renderReview(); } catch (e) { $("#review").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; } }
+function renderReview() {
+  if (!RV) return;
+  const v = RV.summary, r = v.results, p = v.plan, sg = v.signals, box = $("#review");
+  if (box.querySelector("details[open]")) return;                 // do not close the report while it is being read
+  const n = (x, unit) => x == null ? "–" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(2) + (unit || "");
+  const li = (a, b) => `<div class="li"><span>${a}</span><b class="num">${b}</b></div>`;
+  const sigs = ["taken","skipped","expired","ready","weak","blocked","missed"].filter(k => sg[k]).map(k => `${sg[k]} ${k}`).join(", ");
+  box.innerHTML = `<p style="margin:0;font-weight:600">${esc(v.standing.label)} <span class="pill" style="margin-left:6px">${RV.mode === "live" ? "Live record" : "Paper record"}</span></p>
+    <p class="foot-note" style="margin:4px 0 10px">${esc(v.standing.note)}</p>
+    <div class="list">
+      ${li("Average win", usd(r.avg_win, true))}${li("Average loss", usd(r.avg_loss, true))}
+      ${li("Win size against loss size", r.payoff == null ? "–" : r.payoff + " to 1")}
+      ${li("Worst drawdown", usd(r.max_drawdown, true))}${li("Longest losing run", r.losing_run)}
+      ${li("Your fill against the slip's limit", p.from_signals ? n(p.avg_fill_vs_limit, " a share") : "–")}
+      ${li("Fills above the limit", p.fills_over_limit)}
+      ${li("Stop exits against the planned stop", p.stop_exits ? n(p.avg_stop_vs_plan, " a share") : "–")}
+      ${li("Closed early by hand", p.closed_early)}
+      ${li("Signals so far", v.signals_total ? esc(sigs) : "none")}
+    </div>
+    ${v.by_rules.length > 1 ? `<p class="foot-note" style="margin:10px 0 0">By rule set: ${v.by_rules.map(g => `${esc(g.rules)} ${g.closed} trades ${usd(g.total, true)}`).join(" · ")}</p>` : ""}
+    <details class="disc"><summary>Full review report</summary><div class="inner"><pre class="report num">${esc(RV.text)}</pre>
+      <p style="margin:8px 0 0">The same text prints with <span class="num">python3 -m desk review</span>. Read it, or share it with whoever helps you, before you change a rule.</p></div></details>
+    <p class="foot-note" style="margin:10px 0 0">${RV.mode === "paper" ? "Paper fills are simulated. Good paper results show the routine works; they are not proof live results will match." : "These are the trades you recorded as real money."}</p>`;
+}
+function renderHealth() {
+  const h = S.health; if (!h) return;
+  const col = {ok:"var(--go)", warn:"var(--warn)", bad:"var(--stop)"}, word = {ok:"Working", warn:"Note", bad:"Broken"};
+  $("#health-warn").innerHTML = h.trust ? `<div class="card callout bad" role="alert" style="margin:0 0 12px">${esc(h.trust)}</div>` : "";
+  $("#health").innerHTML = `<p style="margin:0 0 8px;font-weight:600">${esc(h.headline)}</p><ul class="plain">${h.items.map(i =>
+    `<li><b><i class="dot" style="background:${col[i.level]}"></i>${esc(i.name)}<span class="vh">: ${word[i.level]}</span></b><br><span class="foot-note" style="margin:0">${esc(i.detail)}</span></li>`).join("")}</ul>
+    <p class="foot-note num" style="margin:8px 0 0">Checked ${esc(t12(h.checked_at.slice(11)))} New York.</p>`;
+}
+function renderMode() {
+  const live = S.mode === "live", box = $("#mode-card");
+  if (box.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;   // do not wipe the word being typed
+  box.innerHTML = live
+    ? `<p style="margin:0 0 6px;font-weight:600">You are in LIVE mode</p>
+       <p class="foot-note" style="margin:0">Trades you record now count as real money and go in the live record. Your paper record is untouched and comes back when you switch. The desk never sends an order by itself.</p>
+       <div class="actions"><button class="btn gray" id="mode-paper">Switch back to paper</button></div>`
+    : `<p style="margin:0 0 6px;font-weight:600">You are in PAPER mode</p>
+       <p class="foot-note" style="margin:0">Use this with your broker's practice (paper) account, or turn on auto paper to let the desk practise by itself. Paper and live keep separate cash, trades and results, so practice never mixes with real money. Live starts at $0 until you type in your real cash. When to move to live is your call; the desk has no opinion.</p>
+       <div class="fill num" style="grid-template-columns:1fr auto;align-items:end">
+         <label class="field"><span>Type LIVE to switch to real-money records</span><input id="mode-word" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+         <button class="btn gray" id="mode-live">Switch to live</button></div>`;
+}
+const FIELDS = [
+  ["account_type","Account type","Cash accounts wait a day for sales to settle.","select",["cash","margin"]],
+  ["risk_per_trade_pct","Risk per trade, %","Most you can lose on one trade, as a share of the account."],
+  ["max_daily_loss_pct","Daily loss limit, %","The desk stops looking once you are down this much."],
+  ["max_trades_per_day","Trades per day","Hard cap."],
+  ["target_r","Target, in R","2 means the target is twice as far as the stop."],
+  ["stop_rule","Stop rule","or-mid, or-low, pct:1 or atr:1.5"],
+  ["chase_r","Chase room, in R","How far above the breakout close the buy limit sits."],
+  ["signal_valid_minutes","Signal life, minutes","After this a breakout is marked missed."],
+  ["min_edge_points","Lowest edge to show as ready","Time Machine points over break-even."],
+  ["est_cost_per_share","Slippage guess, $ a share","Spread and slippage, in and out together. Shown on each slip; never blocks one."],
+  ["cash_buffer_pct","Cash kept aside, %","Never invested."],
+  ["max_position_pct","Largest position, %","Share of the account in one stock."],
+  ["min_price","Lowest share price","Cheaper stocks are skipped."],
+  ["min_stop_pct","Closest stop, % of price","A stop nearer than this blocks the signal. 0 turns it off."],
+  ["min_volume_x","Breakout volume, x","0 turns it off. 1 needs the breakout candle to match the opening candles."],
+  ["no_entries_before","No entries before","New York time."],
+  ["no_entries_after","No entries after","New York time."],
+  ["flat_by","Out by","Every trade is closed by this time."],
+  ["scan_universe","Scan every US stock too","About 300 data requests a pass. Slower.","select",["false","true"]],
+  ["pdt_guard","Count day trades","Turn on if your broker still applies the pattern day trader rule to you.","select",["false","true"]],
+  ["sec_user_agent","SEC contact","Your name and email. Turns on filings and earnings. Sent only to sec.gov."],
+  ["watchlist","Stocks to scan","Tickers separated by spaces.","area"],
+  ["blocked","Never signal","Tickers separated by spaces.","area"],
+];
+function renderForm() {
+  const st = S.settings;
+  $("#form").innerHTML = FIELDS.map(([k, l, h, type, opts]) => {
+    const v = Array.isArray(st[k]) ? st[k].join(" ") : String(st[k]);
+    const id = "set-" + k;
+    const ctl = type === "select" ? `<select id="${id}" data-k="${k}">${opts.map(o => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>`
+      : type === "area" ? `<textarea id="${id}" data-k="${k}" rows="3">${esc(v)}</textarea>` : `<input id="${id}" data-k="${k}" value="${esc(v)}">`;
+    return `<div class="frow ${type === "area" ? "full" : ""}"><label for="${id}">${l}<small>${h}</small></label>${ctl}</div>`;
+  }).join("");
+}
+// ---- Account tab: typed or screenshot-read balance and trade outcomes
+const shots = {};   // per box: {busy, out, err}
+function dropZone(key, what) {
+  const sh = shots[key] || {};
+  return `<label class="drop" data-drop="${esc(key)}">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-7 7"/></svg>
+      <span><b>Drop a screenshot</b> of ${what}, or click to pick one</span><span>You can also paste one with Cmd+V. Take it with Cmd+Shift+4.</span>
+      <input type="file" accept="image/png,image/jpeg,image/heic" data-file="${esc(key)}"></label>
+    ${sh.busy ? `<p class="read-msg">Reading the screenshot… The first one takes about half a minute while the reader is set up.</p>` : ""}
+    ${sh.err ? `<div class="callout bad">${esc(sh.err)}</div>` : ""}
+    ${sh.out ? `<p class="read-msg">${esc(sh.out.message)}</p>` : ""}`;
+}
+function renderAccount() {
+  const a = S.account, b = shots.balance || {}, d = drafts.acct || {};
+  const chips = b.out && b.out.found && b.out.found.length ? `<div class="found">${b.out.found.map(f => `<button data-use-cash="${f.value}">${esc(f.label)} <b class="num">${usd(f.value)}</b></button>`).join("")}</div>` : "";
+  $("#acct-balance").innerHTML = `<div class="row-kv"><span>Cash the desk is using</span></div><div class="big-now num">${usd(a.cash)}</div>
+    <p class="foot-note" style="margin:4px 0 0">${usd(a.settled_cash)} settled. Use the cash figure your broker shows (on thinkorswim: Cash &amp; Sweep Vehicle).</p>
+    ${dropZone("balance", "your broker's balance screen")}${chips}
+    <div class="fill num" style="grid-template-columns:1fr auto;align-items:end">
+      <label class="field"><span>Cash at your broker now</span><input inputmode="decimal" data-d="cash" data-id="acct" value="${esc(d.cash ?? "")}" placeholder="${px(a.cash)}"></label>
+      <button class="btn" id="acct-save-cash">Save</button></div>`;
+  const open = S.open_trades;
+  $("#acct-trades").innerHTML = open.length ? open.map(t => {
+    const key = "trade-" + t.id, dr = drafts["x" + t.id] || {price:"", reason:"target"};
+    return `<article class="card sig open"><div class="chead"><div class="logo" aria-hidden="true">${initials(t.symbol)}</div>
+        <div style="min-width:0"><div class="ticker">${esc(t.symbol)}</div><div class="sub num">${t.qty} shares bought at ${px(t.entry_price)} · stop ${px(t.stop)} · target ${px(t.target)}</div></div><span class="pill open">Open</span></div>
+      ${dropZone(key, "the filled sell order")}
+      <div class="fill num">
+        <label class="field"><span>Sold at</span><input inputmode="decimal" data-d="price" data-id="x${t.id}" value="${esc(dr.price)}"></label>
+        <label class="field"><span>What happened</span><select data-d="reason" data-id="x${t.id}">${[["target","Target filled"],["stop","Stop filled"],["flat","Closed for the day"],["manual","Closed it early"]].map(([v, l]) => `<option value="${v}" ${dr.reason === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+      <div class="actions"><button class="btn" data-exit="${t.id}">Save what happened</button></div></article>`;
+  }).join("") : `<div class="card empty"><b>No open trades</b>When you buy from a Ready card on the Desk and press "I placed it", the trade shows up here so you can record how it ended.</div>`;
+}
+function readShot(key, file) {
+  if (!file) return;
+  if (!/^image\/(png|jpeg|heic)$/.test(file.type) && !/\.(png|jpe?g|heic)$/i.test(file.name || "")) return toast("That isn't a screenshot. Use a PNG or JPEG.", true);
+  if (file.size > 12 * 1024 * 1024) return toast("That image is too big. A screenshot is well under 12 MB.", true);
+  const fr = new FileReader();
+  fr.onload = async () => {
+    shots[key] = {busy:true}; renderAccount();
+    const isTrade = key.startsWith("trade-"), id = isTrade ? +key.slice(6) : null;
+    try {
+      const out = await api("/api/screenshot", {kind:isTrade ? "trade" : "balance", image:fr.result, trade_id:id});
+      shots[key] = {out};
+      if (!isTrade && out.suggest != null) (drafts.acct ||= {}).cash = out.suggest.toFixed(2);
+      if (isTrade && out.suggest) drafts["x" + id] = {price:out.suggest.price.toFixed(2), reason:out.suggest.reason};
+    } catch (e) { shots[key] = {err:e.message}; }
+    renderAccount();
+  };
+  fr.readAsDataURL(file);
+}
+document.addEventListener("change", e => { const t = e.target; if (t.dataset && t.dataset.file) { readShot(t.dataset.file, t.files[0]); t.value = ""; } });
+document.addEventListener("dragover", e => { const z = e.target.closest && e.target.closest(".drop"); if (z) { e.preventDefault(); z.classList.add("over"); } });
+document.addEventListener("dragleave", e => { const z = e.target.closest && e.target.closest(".drop"); if (z) z.classList.remove("over"); });
+document.addEventListener("drop", e => { const z = e.target.closest && e.target.closest(".drop"); if (!z) return; e.preventDefault(); z.classList.remove("over"); readShot(z.dataset.drop, e.dataTransfer.files[0]); });
+document.addEventListener("paste", e => {
+  if (!$("#v-account").classList.contains("on")) return;
+  const item = [...(e.clipboardData || {}).items || []].find(i => i.type.startsWith("image/")); if (!item) return;
+  const card = document.activeElement && document.activeElement.closest && document.activeElement.closest("article.sig.open");
+  const exitBtn = card && card.querySelector("[data-exit]");
+  readShot(exitBtn ? "trade-" + exitBtn.dataset.exit : "balance", item.getAsFile()); e.preventDefault();
+});
+
+async function load() { try { S = await api("/api/state"); render(); if ($("#v-journal").classList.contains("on")) loadReview(); } catch (e) { $("#clock").textContent = "The desk is not answering. Is it still running?"; } }
+
+document.addEventListener("input", e => {
+  const t = e.target;
+  if (t.dataset.d) { (drafts[t.dataset.id] ||= {})[t.dataset.d] = t.value; }
+  if (t.dataset.k) formDirty = true;
+});
+document.addEventListener("change", e => { const t = e.target; if (t.dataset.d) { (drafts[t.dataset.id] ||= {})[t.dataset.d] = t.value; } });
+async function copyForTos() {
+  let b;
+  try { b = await api("/api/export"); } catch (e) { return toast(e.message, true); }
+  const ta = $("#export-text");
+  try {
+    await navigator.clipboard.writeText(b.thinkorswim);
+    ta.hidden = true;
+    toast(`Copied ${b.count} tickers. In thinkorswim: watchlist menu, Import, paste from clipboard.`);
+  } catch (e) {
+    ta.value = b.thinkorswim; ta.hidden = false; ta.focus(); ta.select();
+    toast("Couldn't copy by itself. The tickers are selected below: press Cmd+C.", true);
+  }
+}
+document.addEventListener("click", async e => {
+  if (e.target.closest && e.target.closest("#copy-tos")) return copyForTos();
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.v) {
+    document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b === t));
+    document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + t.dataset.v));
+    $("#title").textContent = TITLES[t.dataset.v];
+    window.scrollTo(0, 0);
+    if (t.dataset.v === "research") congress(false);
+    if (t.dataset.v === "journal") loadReview();
+  }
+  else if (t.dataset.useCash) { (drafts.acct ||= {}).cash = Number(t.dataset.useCash).toFixed(2); renderAccount(); }
+  else if (t.id === "acct-save-cash") { const v = (drafts.acct || {}).cash; if (!v) return toast("Type your cash, or drop a screenshot of it.", true); const d = await act("/api/cash", {kind:"set", amount:v}, "Saved your balance."); if (d) { drafts.acct = {}; shots.balance = null; render(); } }
+  else if (t.id === "sw-auto") { const on = t.getAttribute("aria-checked") !== "true";
+    await act("/api/settings", {changes:{auto_paper: on}}, on ? "Auto paper is on. It trades ready signals in the practice account." : "Auto paper is off. Trades it already has finish by their own rules."); }
+  else if (t.id === "paper-reset") {
+    if (!confirm("Start the practice account over? Its practice cash goes back to your starting balance and its practice positions and orders are removed. Your journal is not touched.")) return;
+    try { await api("/api/paper/reset", {}); toast("The practice account starts over."); } catch (e) { toast(e.message, true); } }
+  else if (t.dataset.f) { FILTER = t.dataset.f; if (S) render(); }
+  else if (t.dataset.take) { const id = +t.dataset.take, sig = S.signals.find(x => x.id === id), d = drafts[id] || {}; if (!d.price) return toast("Type the price you were filled at.", true); await act("/api/take", {signal_id:id, qty:d.qty ?? sig.payload.qty, price:d.price}, "Recorded your fill."); }
+  else if (t.dataset.skip) await act("/api/skip", {signal_id:+t.dataset.skip}, "Skipped.");
+  else if (t.dataset.exit) { const d = drafts["x" + t.dataset.exit] || {}; if (!d.price) return toast("Type the price you sold at.", true); await act("/api/exit", {trade_id:+t.dataset.exit, price:d.price, reason:d.reason || "target"}, "Recorded your exit."); }
+  else if (t.dataset.cash) { await act("/api/cash", {kind:t.dataset.cash, amount:$("#cash-amt").value}, "Cash updated."); $("#cash-amt").value = ""; }
+  else if (t.id === "mode-live") { const d = await act("/api/mode", {mode:"live", confirm:$("#mode-word").value}, "Now in LIVE mode. Enter your real cash in the Account tab."); if (d) { document.activeElement.blur(); renderMode(); } }
+  else if (t.id === "mode-paper") await act("/api/mode", {mode:"paper"}, "Back in paper mode.");
+  else if (t.id === "pause") await act("/api/settings", {changes:{paused: !S.settings.paused}}, S.settings.paused ? "Resumed. The desk is looking for setups again." : "Paused. No new signals until you resume.");
+  else if (t.id === "scan") { await act("/api/scan", {}, "Scanning."); setTimeout(load, 4000); }
+  else if (t.id === "save") {
+    const ch = {}; document.querySelectorAll("[data-k]").forEach(el => { const k = el.dataset.k, cur = S.settings[k]; let v = el.value.trim();
+      ch[k] = Array.isArray(cur) ? v.split(/[\s,]+/).filter(Boolean) : typeof cur === "boolean" ? v === "true" : typeof cur === "number" ? Number(v) : v; });
+    formDirty = false; const d = await act("/api/settings", {changes:ch}, "Saved settings."); if (!d) formDirty = true;
+  }
+  else if (t.id === "earn-go") { try { const d = await api("/api/earnings?symbol=" + encodeURIComponent($("#earn-sym").value));
+      const big = n => n == null ? "–" : "$" + (n / 1e9).toFixed(2) + "B", g = n => n == null ? "–" : (n > 0 ? "+" : "") + n + "%";
+      $("#earnings").innerHTML = `<p style="margin:4px 0 8px"><b>${esc(d.entity)}</b></p><table><tr><th>Quarter</th><th>Revenue</th><th>vs last year</th><th>Profit</th><th>vs last year</th><th>EPS</th><th>Net margin</th><th>Filed</th></tr>${d.rows.map(r => `<tr><td>${esc(r.fiscal)}</td><td class="num">${big(r.revenue)}</td><td class="num">${g(r.revenue_yoy)}</td><td class="num">${big(r.net_income)}</td><td class="num">${g(r.net_income_yoy)}</td><td class="num">${r.eps_diluted ?? "–"}</td><td class="num">${r.net_margin ?? "–"}%</td><td class="num">${esc(r.filed)}</td></tr>`).join("")}</table>`; } catch (err) { toast(err.message, true); } }
+  else if (t.id === "cong-go") congress(true);
+});
+async function congress(refresh) { try { const d = await api("/api/congress" + (refresh ? "?refresh=1" : ""));
+  $("#congress").innerHTML = d.filings.length ? `<ul class="plain">${d.filings.map(f => `<li><span class="num">${esc(f.filed)}</span> <b>${esc(f.name)}</b> ${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.type)}</a>` : esc(f.type)}</li>`).join("")}</ul>` : `<div class="empty">${esc(d.error || "No filings found for the members in your settings.")}</div>`; } catch (err) { toast(err.message, true); } }
+// refresh every 10 s, but not while you are typing in a field (it would wipe what you typed)
+const typing = () => { const a = document.activeElement; return !!(a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) && a.type !== "file"); };
+load(); setInterval(() => { if (!document.hidden && !typing()) load(); }, 10000);
+</script>
+</body>
+</html>

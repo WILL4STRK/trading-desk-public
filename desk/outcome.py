@@ -1,0 +1,60 @@
+"""How a signal would have done, taken or not (docs/AUDIT-2026-11-11.md, gap 3).
+
+After the close the desk replays every signal of the day against that day's 5-minute candles, with the
+slip's own numbers: buy at the limit or lower while the signal was good, then the stop, the target or
+the flat-by time, whichever comes first. The answer is stored beside the signal so a later review can
+ask "what did I skip, and was skipping right?". It is an estimate from candles, not a fill: inside one
+candle the order of the high and the low is unknown, so when a candle reaches both the stop and the
+target the stop is counted (the careful answer). Nothing here changes a signal or a trade.
+"""
+
+NO_PLAN, NO_FILL, TARGET, STOP, FLAT, OPEN = "no plan", "no fill", "target", "stop", "flat", "open"
+
+
+def _minute(hhmm):
+    h, m = str(hhmm).split(":")
+    return int(h) * 60 + int(m)
+
+
+def replay(p, bars):
+    """p: a signal's payload. bars: that day's regular-session 5-minute bars (desk/charts.py), oldest first.
+    Returns {result, entry, exit, exit_time, r, note}."""
+    try:
+        limit, stop, target = float(p["limit"]), float(p["stop"]), float(p["target"])
+        start = _minute(p.get("trigger_close_time") or p["valid_until"])
+        until = _minute(p["valid_until"])
+        flat = _minute(p.get("flat_by") or "15:55")
+    except (KeyError, TypeError, ValueError):
+        return {"result": NO_PLAN, "entry": None, "exit": None, "exit_time": None, "r": None,
+                "note": "The signal stopped before a plan was made."}
+    if not stop < limit < target:
+        return {"result": NO_PLAN, "entry": None, "exit": None, "exit_time": None, "r": None,
+                "note": "The plan's numbers are not usable."}
+    after = [b for b in bars if b["minute"] >= start]
+    entry, i = None, None
+    for k, b in enumerate(after):
+        if b["minute"] >= until:
+            break
+        if b["l"] <= limit + 1e-9:
+            entry, i = round(min(limit, b["o"]), 2), k     # a gap down fills at the open, under the limit
+            break
+    if entry is None:
+        return {"result": NO_FILL, "entry": None, "exit": None, "exit_time": None, "r": None,
+                "note": "The price never came back to the limit while the signal was good."}
+    risk = entry - stop
+
+    def done(result, price, b, note):
+        price = round(price, 2)
+        return {"result": result, "entry": entry, "exit": price, "exit_time": b["start"],
+                "r": round((price - entry) / risk, 2) if risk > 0 else None, "note": note}
+
+    for k, b in enumerate(after[i:]):
+        if b["minute"] >= flat:
+            return done(FLAT, b["o"], b, "Still open at the flat-by time.")
+        if b["l"] <= stop + 1e-9:
+            gap = k > 0 and b["o"] < stop                   # opened under the stop: a stop fills at the open
+            return done(STOP, b["o"] if gap else stop, b, "Hit the stop." + (" Gapped through it." if gap else ""))
+        if k > 0 and b["h"] >= target - 1e-9:               # not in the fill candle: its order is unknown
+            return done(TARGET, max(target, b["o"]) if b["o"] > target else target, b, "Reached the target.")
+    last = after[-1]
+    return done(OPEN, last["c"], last, "The candles end before the trade did.")

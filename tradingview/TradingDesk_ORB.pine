@@ -1,0 +1,97 @@
+//@version=6
+// Trading Desk: opening-range breakout (TradingView version)
+// A port of thinkorswim/TradingDesk_ORB.ts. It draws the same levels the Trading Desk
+// dashboard uses, so the chart and the signal agree: the opening range, the breakout
+// candle, the buy-limit ceiling, the stop and the target.
+// It is an indicator, not a strategy: it draws lines only and cannot place an order.
+//
+// Use it on a 5-minute chart (the desk reads 5-minute candles).
+// Keep the inputs equal to the same settings in the dashboard.
+indicator("Trading Desk ORB", shorttitle = "TD ORB", overlay = true)
+
+// ---- Inputs (defaults mirror desk/settings.py) ----
+orMinutes      = input.int(15, "Opening range, minutes", minval = 5, maxval = 60, tooltip = "Dashboard: or_minutes")
+targetR        = input.float(2.0, "Target, in R", minval = 0.5, maxval = 10, step = 0.1, tooltip = "Dashboard: Target (target_r)")
+chaseR         = input.float(0.2, "Chase room, in R", minval = 0, maxval = 1, step = 0.05, tooltip = "Dashboard: Chase room (chase_r)")
+lastEntryTime  = input.int(1530, "No entries after (HHMM, New York)", minval = 930, maxval = 1600, tooltip = "Dashboard: No entries after (no_entries_after), written as 1530 for 15:30")
+stopAtRangeLow = input.bool(false, "Stop at range low", tooltip = "Off = stop at the range midpoint (or-mid). On = stop at the range low (or-low).")
+showLabels     = input.bool(true, "Show the info box")
+
+// ---- New York clock ----
+// time is the bar's opening time. 570 = 9:30 in minutes after midnight, 960 = 16:00.
+nyMinute     = hour(time, "America/New_York") * 60 + minute(time, "America/New_York")
+sinceOpen    = nyMinute - 570
+inRange      = sinceOpen >= 0 and sinceOpen < orMinutes
+rangeStart   = inRange and not inRange[1]
+afterRange   = sinceOpen >= orMinutes and nyMinute < 960
+lastEntryMin = int(lastEntryTime / 100) * 60 + lastEntryTime % 100
+canEnter     = afterRange and nyMinute < lastEntryMin
+
+// ---- Opening range ----
+var float orHigh = na
+var float orLow  = na
+if rangeStart
+    orHigh := high
+    orLow  := low
+else if inRange
+    orHigh := math.max(high, orHigh)
+    orLow  := math.min(low, orLow)
+orMid = (orHigh + orLow) / 2
+
+// ---- The trigger ----
+// The first COMPLETED candle after the range that CLOSES above the range high.
+// A wick above the high is not a trigger, and a live candle counts only once it closes.
+// state: 0 = waiting, 1 = this is the trigger candle, 2 = triggered earlier today.
+var int state = 0
+var float entryPrice = na
+bool isTrigger = false
+if inRange
+    state      := 0
+    entryPrice := na
+else if state == 0 and canEnter and barstate.isconfirmed and close > orHigh
+    state      := 1
+    isTrigger  := true
+    entryPrice := close
+else if state >= 1
+    state := 2
+
+stopPrice    = stopAtRangeLow ? orLow : math.floor(orMid * 100) / 100
+riskPerShare = entryPrice - stopPrice
+targetPrice  = math.round(entryPrice + targetR * riskPerShare, 2)
+limitPrice   = math.floor((entryPrice + chaseR * riskPerShare) * 100) / 100
+tradeOn      = state >= 1 and afterRange
+
+// ---- Drawing ----
+colRange  = #0A84FF
+colStop   = #FF453A
+colLimit  = #FF9F0A
+colTarget = #30D158
+
+plot(afterRange ? orHigh : na, "Range high", color = colRange, style = plot.style_linebr)
+plot(afterRange ? orLow : na, "Range low", color = colRange, style = plot.style_linebr)
+pStop   = plot(tradeOn ? stopPrice : na, "Stop", color = colStop, linewidth = 2, style = plot.style_linebr)
+pLimit  = plot(tradeOn ? limitPrice : na, "Buy limit", color = colLimit, style = plot.style_linebr)
+pTarget = plot(tradeOn ? targetPrice : na, "Target", color = colTarget, linewidth = 2, style = plot.style_linebr)
+fill(pTarget, pLimit, color = color.new(colTarget, 85), title = "Reward zone")
+fill(pLimit, pStop, color = color.new(colStop, 85), title = "Risk zone")
+plotshape(isTrigger, "Breakout", style = shape.triangleup, location = location.belowbar, color = colTarget, size = size.small, text = "ORB", textcolor = colTarget)
+
+// ---- Info box (the thinkScript's labels) ----
+var table info = table.new(position.top_right, 1, 6, bgcolor = color.new(color.black, 15), border_width = 1)
+if showLabels and barstate.islast
+    table.clear(info, 0, 0, 0, 5)
+    row = 0
+    if timeframe.in_seconds() != 300
+        table.cell(info, 0, row, "Use a 5-minute chart: the desk reads 5-minute candles", text_color = colLimit, text_halign = text.align_left)
+        row += 1
+    if afterRange and state == 0
+        table.cell(info, 0, row, "Range " + str.tostring(orLow, format.mintick) + " to " + str.tostring(orHigh, format.mintick) + ": waiting for a close above " + str.tostring(orHigh, format.mintick), text_color = colRange, text_halign = text.align_left)
+    else if tradeOn
+        table.cell(info, 0, row,     "Buy at " + str.tostring(limitPrice, "#.00") + " or lower", text_color = colLimit, text_halign = text.align_left)
+        table.cell(info, 0, row + 1, "Stop " + str.tostring(stopPrice, "#.00"), text_color = colStop, text_halign = text.align_left)
+        table.cell(info, 0, row + 2, "Target " + str.tostring(targetPrice, "#.00"), text_color = colTarget, text_halign = text.align_left)
+        table.cell(info, 0, row + 3, "Risk a share " + str.tostring(riskPerShare, "#.00"), text_color = color.gray, text_halign = text.align_left)
+
+// ---- Alert ----
+// Pick this in TradingView's Create Alert window. It only notifies you; it orders nothing.
+alertcondition(isTrigger, title = "Trading Desk breakout", message = "Opening-range breakout on {{ticker}} (close {{close}}): check the Trading Desk. Nothing was ordered.")

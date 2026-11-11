@@ -1,0 +1,7 @@
+data/
+data-demo/
+__pycache__/
+*.pyc
+build/
+.DS_Store
+*.tmp
