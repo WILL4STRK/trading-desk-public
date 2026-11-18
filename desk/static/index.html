@@ -731,6 +731,8 @@ const FIELDS = [
   ["auto_watchlist","Daily watchlist research","9:00 AM New York: scan list = your core tickers + the day's most volatile movers from Yahoo's screeners.","select",["true","false"]],
   ["watchlist_agent","Watchlist agent (Claude)","Claude reads the candidates and their headlines and picks the movers, with a reason each. Uses your Claude plan via the claude command. Off = the formula picks.","select",["true","false"]],
   ["auto_watchlist_movers","Movers added each day","High-fluctuation stocks that join the core list. 0 = core only."],
+  ["breaking_news","Breaking news (Claude)","While the market is open, Claude reads the new headlines for your watchlist, your trades and the market. On news that can move a stock hard it adds it to today's list (the usual rules still decide), closes auto paper's trade, or drops it, and alerts your phone. Never trades live money.","select",["true","false"]],
+  ["breaking_news_minutes","Breaking news every (min)","How often it reads the new headlines. Claude is only asked when a heavy headline (earnings, deal, halt, FDA, lawsuit, macro) is new."],
   ["core_watchlist","Core tickers (the usuals)","Always scanned. Tickers separated by spaces.","area"],
   ["watchlist","Stocks to scan today","Rewritten at 9:00 AM while daily research is on. Tickers separated by spaces.","area"],
   ["blocked","Never signal","Tickers separated by spaces.","area"],

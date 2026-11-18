@@ -69,14 +69,14 @@ def prompt(cands, news, n, core):
             % (n, " ".join(core), "\n".join(json.dumps(r, ensure_ascii=True) for r in rows)))
 
 
-def ask_claude(text, run=subprocess.run):
+def ask_claude(text, run=subprocess.run, system=SYSTEM, schema=SCHEMA):
     """One headless Claude Code call. Returns the structured answer, or raises RuntimeError."""
     exe = shutil.which("claude")
     if not exe:
         raise RuntimeError("the claude command is not installed")
     cmd = [exe, "-p", "--model", MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
            "--no-session-persistence", "--disable-slash-commands", "--output-format", "json",
-           "--system-prompt", SYSTEM, "--json-schema", json.dumps(SCHEMA)]
+           "--system-prompt", system, "--json-schema", json.dumps(schema)]
     with tempfile.TemporaryDirectory(prefix="desk-agent-") as cwd:      # no project files for it to read
         p = run(cmd, input=text, capture_output=True, text=True, timeout=TIMEOUT, cwd=cwd,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))   # no console flash on Windows

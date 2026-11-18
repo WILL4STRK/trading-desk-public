@@ -1,5 +1,6 @@
 """The background loop: a scan after every 5-minute bar closes, a check on open
-trades every minute, the watchlist research and pre-market scan once a day at 9:00 AM."""
+trades every minute, a look at breaking news every few minutes while the market
+is open, the watchlist research and pre-market scan once a day at 9:00 AM."""
 import threading
 import time
 import traceback
@@ -18,6 +19,7 @@ class Scheduler(threading.Thread):
         self.last_monitor = 0.0
         self.premarket_day = None
         self.last_paper = 0.0
+        self.last_news = 0.0
         self.wake = threading.Event()
 
     def stop(self):
@@ -46,6 +48,16 @@ class Scheduler(threading.Thread):
                     now, len(w["core"]), len(w["picks"]), w["by"], " (failed, kept yesterday's)" if w["kept_old"] else ""))
             self._safe("pre-market scan", self.desk.premarket)
             self._safe("congress", self.desk.congress)
+        # breaking news (desk/breaking.py): a stock it adds to the watchlist is scanned at once
+        if (not self.desk.src.demo and st["breaking_news"] and wall - self.last_news >= st["breaking_news_minutes"] * 60):
+            self.last_news = wall
+            if self.desk.clock(now).get("open"):
+                b = self._safe("breaking news", self.desk.breaking_news)
+                if b and (b["calls"] or b["errors"]):
+                    self.log("%s breaking news: %s" % (now, "; ".join(
+                        ["%s %s" % (c["action"], c["symbol"]) for c in b["calls"]] + b["errors"])))
+                if b and b["added"]:
+                    self.last_scan_slot = None
         # scan once per slot; in live a slot starts 25 seconds after each bar closes
         every = st["scan_every_seconds"]
         slot = "demo-" + now if self.desk.src.demo else int((wall - 25) // every)

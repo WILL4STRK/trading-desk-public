@@ -132,6 +132,13 @@ dropped; it never stops a scan. Weak and blocked signals are not pushed.
 
 - **Watchlist agent**: `python3 -m desk agent` is a dry run; add `--apply` to write the watchlist.
   Settings > **Watchlist agent**: on, Claude picks at 9:00 AM New York; off, the formula picks.
+- **Breaking news**: while the market is open, every 10 minutes (Settings > **Breaking news**),
+  the desk reads new headlines for the watchlist, open trades, SPY and QQQ. Only heavy ones
+  (earnings, deals, halts, FDA, lawsuits, macro) go to Claude, which rates the impact and picks
+  buy, short, exit, avoid or nothing. On high impact: buy or short adds the stock to today's
+  watchlist (the next scan still applies every rule), exit closes auto paper's trade and tells
+  you to close yours, avoid drops it from today's list. Each call is pushed to your phone with
+  the article. It never trades live money.
   Uses the signed-in `claude` command on your Claude plan, with Haiku, no tools and no MCP.
   Claude can only pick from the screener candidates; if Claude fails, it falls back to the formula.
 - **Daily watchlist research** (on by default, live data only): at 9:00 AM New

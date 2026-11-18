@@ -239,6 +239,33 @@ class AutoPaper:
             self._event("cancelled the buy for %s (%s)." % (e["symbol"], why), self.d.src.now(), e["symbol"])
             return True
 
+    def news_exit(self, symbol, why, close_open=True):
+        """Breaking news turned against auto paper's trade in symbol (desk/breaking.py): cancels a waiting buy
+        and sells (or covers) an open one at the market. Paper mode, practice account only. Returns how many."""
+        with self.d.lock:
+            if S.load()["mode"] != "paper":
+                return 0
+            acct, now = self.d.paper, self.d.src.now()
+            if not isinstance(acct, P.PaperAccount) or acct.account_hash() != P.ACCOUNT:
+                raise RuntimeError("auto paper only trades the practice account")
+            book, rows, n = self.book(), None, 0
+            for e in book.values():
+                if e.get("symbol") != symbol:
+                    continue
+                if e.get("state") == "working":
+                    self._cancel(acct, e["order_id"])
+                    e["state"] = "cancelled"
+                    n += 1
+                    self._event("cancelled the buy for %s (%s)." % (symbol, why), now, symbol)
+                elif close_open and e.get("state") == "open" and not e.get("flat_order") and self.d.clock(now).get("open"):
+                    rows = rows or self._rows(acct)
+                    if self._flatten(acct, e, rows):        # the next pass records the fill as a "flat" exit
+                        n += 1
+                        self._event("%s %s at the market (%s)." % ("buying to cover" if e.get("side") == "short"
+                                                                   else "selling", symbol, why), now, symbol)
+            self.d.j.put(KEY, book)
+            return n
+
     def cancel_working(self, why):
         """Cancels every waiting buy (before a switch to live). Returns how many."""
         with self.d.lock:

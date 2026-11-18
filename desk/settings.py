@@ -46,6 +46,8 @@ DEFAULTS = {
                        "DAL", "PYPL", "DKNG", "MARA", "SMCI", "NVDA", "AAPL", "TSLA", "AMZN", "MU"],
     "watchlist_agent": True,         # Claude (claude -p, your plan) picks the movers from the candidates and headlines (desk/agent.py)
     "auto_watchlist_movers": 15,     # how many high-fluctuation movers join the core list each day
+    "breaking_news": True,           # market hours: act on news that can move a stock or the market hard (desk/breaking.py)
+    "breaking_news_minutes": 10,     # how often it reads the new headlines
     "watchlist": ["F", "SOFI", "PLTR", "AAL", "T", "INTC", "PFE", "BAC", "SNAP", "RIVN",
                   "HOOD", "UBER", "AMD", "NIO", "CCL", "KO", "CSCO", "VZ", "GM",
                   "DAL", "PYPL", "DKNG", "MARA", "SMCI", "NVDA", "AAPL", "TSLA", "AMZN", "MU"],
@@ -73,6 +75,7 @@ _RANGES = {
     "min_volume_x": (0, 20), "min_stop_pct": (0, 10), "est_cost_per_share": (0, 5), "min_edge_points": (-100, 100), "replays": (1000, 100000),
     "universe_scan_every_min": (5, 390), "scan_every_seconds": (60, 3600),
     "monitor_every_seconds": (20, 3600), "news_hours": (1, 240), "auto_watchlist_movers": (0, 40),
+    "breaking_news_minutes": (5, 120),
 }
 
 
@@ -143,7 +146,7 @@ def validate(raw):
         raise SettingsError("max_daily_loss_pct cannot be under risk_per_trade_pct")
     if s["directions"] not in ("long", "short", "both"):
         raise SettingsError("directions must be long, short or both")
-    for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak", "auto_watchlist", "watchlist_agent"):
+    for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak", "auto_watchlist", "watchlist_agent", "breaking_news"):
         if not isinstance(s[k], bool):
             raise SettingsError("%s must be true or false" % k)
     s["blocked"] = _tickers(s["blocked"], "blocked")

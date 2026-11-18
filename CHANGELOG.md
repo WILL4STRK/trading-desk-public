@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Breaking news watch: during market hours Claude rates fresh heavy headlines and the desk
+  acts on high-impact ones (add to today's watchlist, close auto paper's trade, or drop the
+  stock), with a phone alert and the article. Settings > Breaking news.
 - Claude watchlist agent picks the day's movers from screener candidates with reasons;
   supports dry runs, `--apply`, and a 9:00 AM Settings toggle, with formula fallback.
 - Phone alerts through ntfy: each new Ready slip, with its headlines, is

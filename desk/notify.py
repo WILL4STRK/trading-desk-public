@@ -1,4 +1,4 @@
-"""Phone alerts through ntfy (https://ntfy.sh): one push per ready signal.
+"""Phone alerts through ntfy (https://ntfy.sh): one push per ready signal and per breaking-news call.
 
 Off until you set an ntfy topic in Settings. The demo never pushes. A push
 that fails is logged and dropped: it never breaks or slows a scan. Anyone
@@ -56,6 +56,20 @@ def message(sig, mode):
             "priority": 4}
 
 
+def news_message(call, did, mode):
+    """The ntfy JSON body for one breaking-news call (desk/breaking.py)."""
+    tag = ("LIVE" if mode == "live" else "PAPER") + (" " + account_name() if account_name() else "")
+    act = call["action"].upper()
+    lines = [call["why"], "", "%s (%s)" % (call["title"], call["source"] or "news")]
+    if call.get("link"):
+        lines.append(call["link"])
+    lines += ["", did]
+    actions = [{"action": "view", "label": "Article", "url": call["link"]}] if call.get("link") else []
+    actions.append({"action": "view", "label": "Chart", "url": "https://finance.yahoo.com/quote/%s" % call["symbol"]})
+    return {"title": "[%s] NEWS: %s %s" % (tag, act, call["symbol"]), "message": "\n".join(lines),
+            "click": call.get("link") or DASHBOARD, "actions": actions, "tags": ["rotating_light"], "priority": 5}
+
+
 def post(st, body):
     """Sends one push now. Raises on any failure."""
     data = json.dumps(dict(body, topic=st["ntfy_topic"])).encode()
@@ -78,6 +92,19 @@ def send_signal(sig, st, mode, demo):
         if demo or not st.get("ntfy_topic"):
             return None
         t = threading.Thread(target=_post_quietly, args=(dict(st), message(sig, mode)), daemon=True)
+        t.start()
+        return t
+    except Exception as e:
+        log.warning("ntfy alert not sent: %s", e)
+        return None
+
+
+def send_news(call, did, st, mode, demo):
+    """Pushes one breaking-news call in the background. Never raises. Returns the thread, or None."""
+    try:
+        if demo or not st.get("ntfy_topic"):
+            return None
+        t = threading.Thread(target=_post_quietly, args=(dict(st), news_message(call, did, mode)), daemon=True)
         t.start()
         return t
     except Exception as e:

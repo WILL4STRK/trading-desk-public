@@ -374,6 +374,9 @@ class Journal:
         except sqlite3.IntegrityError:
             return None
 
+    def has_event(self, key):
+        return bool(self._all("SELECT 1 FROM events WHERE key=? LIMIT 1", (key,)))
+
     def events(self, date=None, limit=60):
         if date:
             return self._all("SELECT * FROM events WHERE date=? ORDER BY id DESC LIMIT ?", (date, limit))

@@ -11,6 +11,7 @@ import threading
 from . import decide
 from . import agent as AG
 from . import auto as A
+from . import breaking as BN
 from . import breaker
 from . import changes
 from . import charts
@@ -188,6 +189,51 @@ class Desk:
                    ", ".join("%s (moves %.1f%% a day)" % (p["symbol"], p["atr_pct"]) for p in r["picks"]) or "none today"))
         self.j.add_event("watchlist", msg, now, key="watchlist-%s" % now[:10])
         return out
+
+    def breaking_news(self):
+        """Market hours, every few minutes: acts on news that can move a stock or the market hard today
+        (desk/breaking.py). Buy or short adds the stock to today's watchlist, so the next scan grades it with
+        your usual rules; exit closes auto paper's trade and alerts you for yours; avoid drops it from today's
+        list. Never trades live money. Live data only. Returns {calls, heavy, errors, added} or None when off."""
+        st, now = S.load(), self.src.now()
+        if self.src.demo or not st["breaking_news"]:
+            return None
+        held = {t["symbol"]: t.get("side") or "long" for t in self.j.open_trades()}
+        r = BN.check(st, st["watchlist"], held, data_dir() / "news-watch")
+        added = []
+        for c in r["calls"]:
+            sym, act = c["symbol"], c["action"]
+            key = "news-%s-%s-%s" % (now[:10], sym, act)
+            if self.j.has_event(key):                       # once per stock and action a day
+                continue
+            head = "Breaking news on %s: %s (%s). Claude says %s: %s" % (sym, c["title"], c["source"], act, c["why"])
+            st = S.load()
+            if act in ("buy", "short") and sym in st["blocked"]:
+                did = "It is on your blocked list, so nothing was done."
+            elif act in ("buy", "short"):
+                if sym not in st["watchlist"]:
+                    S.update({"watchlist": st["watchlist"] + [sym]})
+                    added.append(sym)
+                did = ("Added to today's watchlist: the next scan grades it with your usual rules."
+                       if sym in added else "Already on your watchlist: the next scan grades it.")
+                if act == "short" and st["directions"] == "long":
+                    did += " Shorts are off (Settings > Directions), so only a breakout buy can come of it."
+            elif act == "exit":
+                n = self.auto.news_exit(sym, "breaking news") if st["mode"] == "paper" else 0
+                mine = any(t["symbol"] == sym and t.get("note") != A.AUTO for t in self.j.open_trades())
+                did = " ".join(x for x in ("Auto paper is closing its trade." if n else "",
+                                           "Close your trade at your broker, then record the exit here." if mine else "") if x) \
+                    or "Nothing is open in it any more."
+            else:                                           # avoid
+                if sym in st["watchlist"]:
+                    S.update({"watchlist": [s for s in st["watchlist"] if s != sym]})
+                if st["mode"] == "paper":
+                    self.auto.news_exit(sym, "breaking news: avoid", close_open=False)
+                did = "Dropped from today's watchlist (it comes back with tomorrow's research if it is a core ticker)."
+            text = "%s %s" % (head, did)
+            if self.j.add_event("news", text, now, sym, key=key):
+                notify.send_news(c, did, st, st["mode"], self.src.demo)
+        return dict(r, added=added)
 
     def _universe_due(self, st, now):
         if self.src.demo or not st["scan_universe"]:
