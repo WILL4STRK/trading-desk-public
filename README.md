@@ -130,6 +130,10 @@ dropped; it never stops a scan. Weak and blocked signals are not pushed.
 
 ## Daily watchlist, graph and extra paper accounts
 
+- **Watchlist agent**: `python3 -m desk agent` is a dry run; add `--apply` to write the watchlist.
+  Settings > **Watchlist agent**: on, Claude picks at 9:00 AM New York; off, the formula picks.
+  Uses the signed-in `claude` command on your Claude plan, with Haiku, no tools and no MCP.
+  Claude can only pick from the screener candidates; if Claude fails, it falls back to the formula.
 - **Daily watchlist research** (on by default, live data only): at 9:00 AM New
   York the desk reads Yahoo's free most-active, gainers and losers screeners,
   keeps liquid stocks you can afford, ranks them by average daily range (ATR %

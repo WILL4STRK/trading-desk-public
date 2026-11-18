@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Claude watchlist agent picks the day's movers from screener candidates with reasons;
+  supports dry runs, `--apply`, and a 9:00 AM Settings toggle, with formula fallback.
 - Phone alerts through ntfy: each new Ready slip, with its headlines, is
   pushed to an ntfy topic set in Settings (off by default, never in the demo),
   plus a **Send test alert** button.

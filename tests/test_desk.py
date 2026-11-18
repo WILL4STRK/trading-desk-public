@@ -231,15 +231,15 @@ class Server(DemoCase):
         self.assertEqual(self.call("/api/skip", {"signal_id": 1}, headers={"Content-Type": "application/json"})[0], 403)
         self.assertEqual(self.call("/api/skip", {"signal_id": 1}, headers={"Content-Type": "text/plain", "X-Desk": "1"})[0], 403)
         self.assertEqual(self.call("/api/state", headers={"Host": "evil.example"})[0], 403)
+        self.assertEqual(self.call("/../desk/server.py")[0], 404)
+        self.assertEqual(self.call("/api/settings", {"changes": {"risk_per_trade_pct": 90}})[0], 400)
+        self.assertEqual(self.call("/api/nope", {})[0], 404)
 
     def test_a_named_proxy_host_is_let_in(self):
         import desk.server as srv
         with mock.patch.object(srv, "EXTRA_HOSTS", ("mypc.tail1234.ts.net",)):
             self.assertEqual(self.call("/api/state", headers={"Host": "MyPC.tail1234.ts.net"})[0], 200)
             self.assertEqual(self.call("/api/state", headers={"Host": "evil.example"})[0], 403)
-        self.assertEqual(self.call("/../desk/server.py")[0], 404)
-        self.assertEqual(self.call("/api/settings", {"changes": {"risk_per_trade_pct": 90}})[0], 400)
-        self.assertEqual(self.call("/api/nope", {})[0], 404)
 
     def test_a_bad_event_id_is_a_plain_400_not_a_crash(self):
         code, body = self.call("/api/seen", {"id": "abc"})
