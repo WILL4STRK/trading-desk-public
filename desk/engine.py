@@ -649,7 +649,7 @@ class Desk:
             lines = screenshot.ocr(path)
         except screenshot.ScreenshotError as e:
             raise DeskError(str(e))
-        out = {"kind": kind, "image": str(path.relative_to(data_dir())), "text": "\n".join(l["text"] for l in lines[:80]),
+        out = {"kind": kind, "image": path.relative_to(data_dir()).as_posix(), "text": "\n".join(l["text"] for l in lines[:80]),
                "suggest": None}
         if kind == "balance":
             found = screenshot.read_balance(lines)
