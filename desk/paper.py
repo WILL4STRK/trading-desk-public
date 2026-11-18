@@ -11,6 +11,12 @@ minutes), looked at about every half minute by the desk:
   sell LIMIT    fills when the price is at or over the limit
   sell STOP     fills when the price is at or under the stop
   sell MARKET   fills at the price
+Practice shorts (docs/SHORTING.md), placed only in this account, never at a broker:
+  SELL_SHORT LIMIT      fills when the price is at or over the limit; the short's full value is set aside
+  BUY_TO_COVER STOP     fills when the price is at or over the stop
+  BUY_TO_COVER LIMIT    fills when the price is at or under the limit
+  BUY_TO_COVER MARKET   fills at the price
+A stock is never long and short here at once, and a cover never buys more than is short.
 If the day's low or high moved past a limit or stop between two looks, the order fills at its own
 price. Orders fill whole, only while the market is open, and every order ends at the close like a DAY
 order. Money from a sale can be spent the next trading day, like a cash account. Real fills differ:
@@ -143,6 +149,8 @@ class PaperAccount:
         sym, side, qty = leg["instrument"]["symbol"], leg["instruction"], int(o["quantity"])
         px = round(float(px), 2)
         pos = s["positions"].get(sym) or {"qty": 0, "cost": 0.0}
+        if side in ("SELL_SHORT", "BUY_TO_COVER") or (side == "BUY" and pos["qty"] < 0):
+            return self._fill_short(s, o, sym, side, qty, px, pos, now)
         if side == "BUY":
             s["cash"] = round(s["cash"] - qty * px, 2)
             pos = {"qty": pos["qty"] + qty, "cost": round(pos["cost"] + qty * px, 2)}
@@ -168,6 +176,33 @@ class PaperAccount:
             pass
         return True
 
+    def _fill_short(self, s, o, sym, side, qty, px, pos, now):
+        """A practice short. Selling short sets the full value aside, like the journal does (no leverage);
+        covering returns it plus or minus the result. A short position is a negative qty; its cost is the
+        cash set aside. A plain BUY never covers: a cover must say BUY_TO_COVER."""
+        if side == "SELL_SHORT" and pos["qty"] <= 0 and s["cash"] * S.leverage(S.load()) + 1e-9 >= qty * px:
+            s["cash"] = round(s["cash"] - qty * px, 2)
+            pos = {"qty": pos["qty"] - qty, "cost": round(pos["cost"] + qty * px, 2)}
+        elif side == "BUY_TO_COVER" and -pos["qty"] >= qty:
+            held = -pos["qty"]
+            aside = pos["cost"] * qty / held
+            back = round(2 * aside - qty * px, 2)          # the value set aside, plus (entry - cover) x shares
+            s["cash"] = round(s["cash"] + back, 2)
+            if back > 0:
+                s["unsettled"].append({"amount": back, "until": self.d.settle_date(now)})
+            left = held - qty
+            pos = {"qty": -left, "cost": round(pos["cost"] - aside, 2)}
+        else:                                   # long and short at once, a cover with nothing short, or no cash
+            o["status"] = "REJECTED"
+            return False
+        if pos["qty"]:
+            s["positions"][sym] = pos
+        else:
+            s["positions"].pop(sym, None)
+        o.update(status="FILLED", filledQuantity=qty, remainingQuantity=0,
+                 orderActivityCollection=[{"executionLegs": [{"quantity": qty, "price": px}]}])
+        return True
+
     @staticmethod
     def _fill_price(o, quote, mark):
         """The price this working order fills at now, or None."""
@@ -176,10 +211,13 @@ class PaperAccount:
         new_low = quote["low"] if mark and quote["low"] < mark["low"] - 1e-9 else None
         new_high = quote["high"] if mark and quote["high"] > mark["high"] + 1e-9 else None
         if kind == "MARKET":
-            return p if side == "SELL" else None
+            return p if side in ("SELL", "BUY_TO_COVER") else None
+        if kind == "STOP" and side == "BUY_TO_COVER":
+            stop = float(o["stopPrice"])
+            return p if p >= stop - 1e-9 else stop if new_high is not None and new_high >= stop - 1e-9 else None
         if kind == "LIMIT":
             lim = float(o["price"])
-            if side == "BUY":
+            if side in ("BUY", "BUY_TO_COVER"):
                 return p if p <= lim + 1e-9 else lim if new_low is not None and new_low <= lim + 1e-9 else None
             return p if p >= lim - 1e-9 else lim if new_high is not None and new_high >= lim - 1e-9 else None
         if kind == "STOP" and side == "SELL":
@@ -280,16 +318,22 @@ class PaperAccount:
             quotes = self._look(set(s["positions"])) if s["positions"] else {}
             positions, worth = [], 0.0
             for sym, p in sorted(s["positions"].items()):
-                avg = round(p["cost"] / p["qty"], 4) if p["qty"] else None
+                avg = round(p["cost"] / abs(p["qty"]), 4) if p["qty"] else None
                 px = (quotes.get(sym) or {}).get("price") or avg or 0
-                value = round(p["qty"] * px, 2)
+                if p["qty"] < 0:                # a practice short: what is set aside, plus or minus the result
+                    value = round(2 * p["cost"] + p["qty"] * px, 2)
+                else:
+                    value = round(p["qty"] * px, 2)
                 worth += value
-                positions.append({"symbol": sym, "qty": p["qty"], "avg_price": avg, "value": value})
+                positions.append({"symbol": sym, "qty": p["qty"], "avg_price": avg, "value": value,
+                                  "side": "short" if p["qty"] < 0 else "long"})
             tied = sum(float(o.get("price") or 0) * int(o.get("remainingQuantity") or 0)
-                       for o in s["orders"] if _legs(o) and _legs(o)["instruction"] == "BUY" and o.get("status") in O.OPEN)
+                       for t in s["orders"] for o in _walk(t)
+                       if _legs(o) and _legs(o)["instruction"] in ("BUY", "SELL_SHORT") and o.get("status") in O.OPEN)
             waiting = round(sum(float(u.get("amount") or 0) for u in s["unsettled"]), 2)
             return {"account": "Paper (practice)", "type": "CASH", "value": round(s["cash"] + worth, 2),
-                    "cash": s["cash"], "available": round(max(0.0, s["cash"] - waiting - tied), 2),
+                    "cash": s["cash"],   # paper buys with leverage x the account (settings.PAPER_LEVERAGE); 1x it is plain cash
+                    "available": round(max(0.0, S.leverage(S.load()) * (s["cash"] + worth) - worth - waiting - tied), 2),
                     "unsettled": waiting, "positions": positions, "accounts": [], "at": self.clock()}
 
     def place_order(self, account_hash, order):
@@ -352,3 +396,46 @@ class PaperAccount:
                         self._save(s)
                         return
             raise PaperError("That order is not in the paper account.")
+
+
+# ---- practice shorts -------------------------------------------------------------
+def short_bracket(symbol, qty, limit, stop, target):
+    """A practice short in the common order shape, for THIS account only: SELL_SHORT at limit (DAY); when it
+    fills, BUY_TO_COVER at the stop (above) or at the target (below), one cancelling the other.
+    desk/orders.py has no short order, so a short can only ever be practice."""
+    sym = str(symbol or "").upper()
+    if not O.TICKER.match(sym):
+        raise ValueError("not a stock ticker: %r" % (symbol,))
+    if isinstance(qty, bool) or not isinstance(qty, int) or qty < 1:
+        raise ValueError("shares must be a whole number of 1 or more")
+    lim, stp, tgt = (round(float(x), 2) for x in (limit, stop, target))
+    if not 0 < tgt < lim < stp:
+        raise ValueError("a short needs the target under the sell price and the stop over it")
+
+    def leg(ins):
+        return [{"instruction": ins, "quantity": qty, "instrument": {"symbol": sym, "assetType": "EQUITY"}}]
+    cover_stop = {"orderType": "STOP", "session": "NORMAL", "stopPrice": "%.2f" % stp, "duration": "DAY",
+                  "orderStrategyType": "SINGLE", "orderLegCollection": leg("BUY_TO_COVER")}
+    cover_target = {"orderType": "LIMIT", "session": "NORMAL", "price": "%.2f" % tgt, "duration": "DAY",
+                    "orderStrategyType": "SINGLE", "orderLegCollection": leg("BUY_TO_COVER")}
+    return {"orderType": "LIMIT", "session": "NORMAL", "price": "%.2f" % lim, "duration": "DAY",
+            "orderStrategyType": "TRIGGER", "orderLegCollection": leg("SELL_SHORT"),
+            "childOrderStrategies": [{"orderStrategyType": "OCO", "childOrderStrategies": [cover_stop, cover_target]}]}
+
+
+PRACTICE_SIDES = ("BUY", "SELL", "SELL_SHORT", "BUY_TO_COVER")
+
+
+def rows(raw):
+    """The practice account's orders as flat rows, practice shorts included (desk/auto.py reads these)."""
+    return O.rows(raw, PRACTICE_SIDES)
+
+
+def cover_market(symbol, qty):
+    """Buy back a practice short at the market (flat by the close). Practice account only."""
+    sym = str(symbol or "").upper()
+    if not O.TICKER.match(sym) or isinstance(qty, bool) or not isinstance(qty, int) or qty < 1:
+        raise ValueError("a cover needs a ticker and a whole number of shares")
+    return {"orderType": "MARKET", "session": "NORMAL", "duration": "DAY", "orderStrategyType": "SINGLE",
+            "orderLegCollection": [{"instruction": "BUY_TO_COVER", "quantity": qty,
+                                    "instrument": {"symbol": sym, "assetType": "EQUITY"}}]}

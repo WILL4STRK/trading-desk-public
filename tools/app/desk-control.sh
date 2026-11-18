@@ -39,6 +39,8 @@ case "${1:-}" in
     echo "---- $(date '+%Y-%m-%d %H:%M:%S') starting on port $PORT" >>"$LOG"
     nohup "$PY" -m desk --no-browser --port "$PORT" $EXTRA </dev/null >>"$LOG" 2>&1 &
     echo $! >"$PIDFILE"
+    # keep the Mac from idle-sleeping while the desk runs (ends with it); a closed lid still sleeps
+    nohup /usr/bin/caffeinate -i -w "$(cat "$PIDFILE")" </dev/null >/dev/null 2>&1 &
     echo "$PORT" >"$PORTFILE"
     for _ in $(seq 1 60); do
       if answers "$PORT"; then echo "$PORT"; exit 0; fi

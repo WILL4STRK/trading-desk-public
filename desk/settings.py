@@ -16,6 +16,9 @@ DEFAULTS = {
     "account_type": "cash",          # "cash" (sales settle next business day) or "margin"
     "risk_per_trade_pct": 2.0,       # max loss per trade, % of the account
     "max_daily_loss_pct": 4.0,       # stop trading for the day after this
+    "max_weekly_loss_pct": 8.0,      # no new entries for the rest of the week after this (0 = off; desk/breaker.py)
+    "max_drawdown_pct": 15.0,        # no new entries once this far under the best point, until Reset stops (0 = off)
+    "max_losing_streak": 0,          # no new entries after this many losers in a row, until Reset stops (0 = off)
     "max_trades_per_day": 2,
     "cash_buffer_pct": 5.0,          # never invested
     "max_position_pct": 95.0,        # of the account, in one stock
@@ -47,11 +50,15 @@ DEFAULTS = {
     "news_hours": 18,
     "sec_user_agent": "",            # "Your Name you@example.com" turns on SEC filings
     "congress_members": ["pelosi"],
+    "directions": "long",            # "long" | "short" | "both": which signals the desk looks for (docs/SHORTING.md)
+    "short_approved": False,         # your broker approved this account for short selling; off = shorts are paper only
     "auto_paper": False,             # paper mode only: the desk takes ready signals itself in the practice account (desk/auto.py)
+    "auto_paper_weak": False,        # auto paper also takes "weak" signals (odds under the floor), to learn from more trades
 }
 
 _RANGES = {
     "starting_balance": (1, 1e9), "risk_per_trade_pct": (0.1, 10), "max_daily_loss_pct": (0.2, 30),
+    "max_weekly_loss_pct": (0, 50), "max_drawdown_pct": (0, 90), "max_losing_streak": (0, 20),
     "max_trades_per_day": (1, 50), "cash_buffer_pct": (0, 90), "max_position_pct": (1, 100),
     "min_reward_risk": (0.5, 10), "target_r": (0.5, 10), "chase_r": (0, 1),
     "signal_valid_minutes": (1, 120), "or_minutes": (5, 60), "min_price": (0, 1e6),
@@ -126,7 +133,9 @@ def validate(raw):
             raise SettingsError("stop_rule must be or-mid, or-low, pct:X or atr:K")
     if s["max_daily_loss_pct"] < s["risk_per_trade_pct"]:
         raise SettingsError("max_daily_loss_pct cannot be under risk_per_trade_pct")
-    for k in ("pdt_guard", "scan_universe", "paused", "auto_paper"):
+    if s["directions"] not in ("long", "short", "both"):
+        raise SettingsError("directions must be long, short or both")
+    for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak"):
         if not isinstance(s[k], bool):
             raise SettingsError("%s must be true or false" % k)
     s["blocked"] = _tickers(s["blocked"], "blocked")
@@ -163,20 +172,48 @@ def update(changes):
     return save(cur)
 
 
+PAPER_TRADES_CAP = 50   # paper mode: no practical trades-a-day cap, so auto paper can learn; loss and cash limits still apply
+
+
+def trades_cap(s):
+    """Trades a day the desk allows: your setting in live mode, effectively none in paper mode."""
+    return PAPER_TRADES_CAP if s.get("mode") == "paper" else s["max_trades_per_day"]
+
+
+# Paper mode trades boldly so the log shows what bigger bets would do. Live keeps your settings.
+PAPER_BOLD = {"risk_per_trade_pct": 5.0, "max_daily_loss_pct": 20.0, "max_weekly_loss_pct": 0.0,
+              "max_drawdown_pct": 50.0, "cash_buffer_pct": 0.0, "max_position_pct": 100.0}
+
+
+PAPER_LEVERAGE = 4.0    # paper mode buys with 4x the account, like a margin account's day-trading power
+
+
+def leverage(s):
+    return PAPER_LEVERAGE if s.get("mode") == "paper" else 1.0
+
+
+def risk(s):
+    """The risk settings in force: PAPER_BOLD in paper mode, your own in live mode."""
+    return dict(s, **PAPER_BOLD) if s.get("mode") == "paper" else s
+
+
 def limits(s, equity):
     """The dollar limits at this account size."""
+    s = risk(s)
     eq = max(0.0, float(equity))
     return {
         "equity": round(eq, 2),
         "max_loss_per_trade": round(eq * s["risk_per_trade_pct"] / 100, 2),
         "max_daily_loss": round(eq * s["max_daily_loss_pct"] / 100, 2),
         "cash_buffer": round(eq * s["cash_buffer_pct"] / 100, 2),
-        "max_position": round(eq * s["max_position_pct"] / 100, 2),
+        "max_position": round(eq * s["max_position_pct"] / 100 * leverage(s), 2),
+        "trades_cap": trades_cap(s),
     }
 
 
 def skills_config(s, equity):
     """The trader/config.json the day-trader-skill tools read, scaled to the account."""
+    s = risk(s)
     lim = limits(s, equity)
     cfg = {
         "budget": lim["equity"],
@@ -186,8 +223,8 @@ def skills_config(s, equity):
         "min_order_usd": 5,
         "max_loss_per_trade_usd": lim["max_loss_per_trade"],
         "max_daily_loss_usd": lim["max_daily_loss"],
-        "max_trades_per_day": s["max_trades_per_day"],
-        "max_orders_per_day": max(10, s["max_trades_per_day"] * 3),
+        "max_trades_per_day": trades_cap(s),
+        "max_orders_per_day": max(10, trades_cap(s) * 3),
         "min_reward_risk": s["min_reward_risk"],
         "require_stop": True,
         "no_entries_before": s["no_entries_before"],

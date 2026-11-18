@@ -12,6 +12,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 
+from . import settings as S
 from .paths import data_dir
 
 SCHEMA = """
@@ -31,12 +32,22 @@ CREATE TABLE IF NOT EXISTS events(
   id INTEGER PRIMARY KEY, ts TEXT NOT NULL, date TEXT NOT NULL, kind TEXT NOT NULL,
   symbol TEXT, message TEXT NOT NULL, key TEXT UNIQUE, seen INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS decisions(
+  id INTEGER PRIMARY KEY, ts TEXT NOT NULL, date TEXT NOT NULL, symbol TEXT NOT NULL, decision TEXT NOT NULL,
+  long TEXT, short TEXT, long_signal INTEGER, short_signal INTEGER);
+CREATE INDEX IF NOT EXISTS decisions_date ON decisions(date);
 CREATE TABLE IF NOT EXISTS scans(
   id INTEGER PRIMARY KEY, ts TEXT NOT NULL, date TEXT NOT NULL, summary TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS outcomes(
   signal_id INTEGER PRIMARY KEY, date TEXT NOT NULL, symbol TEXT NOT NULL, status TEXT NOT NULL,
   result TEXT NOT NULL, entry REAL, exit REAL, exit_time TEXT, r REAL, note TEXT, at TEXT NOT NULL);
 """
+
+# Columns added after the first release. Each is added only when it is missing and has a default,
+# so an old journal keeps working and the order other migrations run in does not matter.
+ADDED_COLUMNS = (
+    ("trades", "side", "TEXT NOT NULL DEFAULT 'long'"),      # 'long' or 'short'
+)
 
 SIGNAL_STATUSES = ("ready", "blocked", "weak", "missed", "taken", "skipped", "expired")
 EXIT_REASONS = ("target", "stop", "flat", "manual")
@@ -53,6 +64,18 @@ class Journal:
         self._db = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self):
+        with self._lock:
+            for table, column, spec in ADDED_COLUMNS:
+                have = {r["name"] for r in self._db.execute("PRAGMA table_info(%s)" % table).fetchall()}
+                if column not in have:
+                    try:
+                        self._db.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, spec))
+                    except sqlite3.OperationalError as e:      # another process added it first
+                        if "duplicate column" not in str(e).lower():
+                            raise
 
     def close(self):
         self._db.close()
@@ -128,6 +151,13 @@ class Journal:
         r = self._one("SELECT COALESCE(SUM(amount),0) s FROM ledger WHERE settles_on<=?", (today,))
         return round(r["s"], 2)
 
+    def buying_power(self, today):
+        """Settled cash, or in paper mode leverage x the account less what is already held (it can go below zero)."""
+        lev = S.leverage(S.load())
+        if lev == 1:
+            return self.settled_cash(today)
+        return round(max(0.0, lev * self.equity() - self.positions_cost()), 2)
+
     def unsettled(self, today):
         return self._all("SELECT settles_on, ROUND(SUM(amount),2) amount FROM ledger WHERE settles_on>? "
                          "GROUP BY settles_on ORDER BY settles_on", (today,))
@@ -188,27 +218,48 @@ class Journal:
             return cur.rowcount == 1
 
     # ---- trades ------------------------------------------------------
-    def open_trade(self, symbol, qty, price, stop, target, now, signal_id=None, flat_by=None, note=""):
+    def open_trade(self, symbol, qty, price, stop, target, now, signal_id=None, flat_by=None, note="",
+                   side="long"):
+        """Records a fill. side="short" is a sell to open: the stop sits above the fill, and the full
+        value of the short is set aside in cash until it is covered (no leverage)."""
         qty = int(qty)
+        if side not in ("long", "short"):
+            raise JournalError("side must be long or short")
+        short = side == "short"
         if qty <= 0 or price <= 0:
             raise JournalError("shares and price must be more than zero")
-        if not stop < price:
+        if short and not stop > price:
+            raise JournalError("the stop on a short must be above your fill price")
+        if not short and not stop < price:
             raise JournalError("the stop must be under your fill price")
         cost = round(qty * price, 2)
-        if cost > self.settled_cash(now[:10]) + 1e-9:
-            raise JournalError("that costs $%.2f and you have $%.2f of settled cash" % (cost, self.settled_cash(now[:10])))
+        if cost > self.buying_power(now[:10]) + 1e-9:
+            raise JournalError(("a short of that size needs $%.2f set aside and you have $%.2f to trade with" if short
+                                else "that costs $%.2f and you have $%.2f to trade with")
+                               % (cost, self.buying_power(now[:10])))
         with self._tx() as db:
-            cur = db.execute("INSERT INTO trades(signal_id,date,symbol,qty,entry_price,entry_at,stop,target,flat_by,status,note) "
-                             "VALUES(?,?,?,?,?,?,?,?,?,'open',?)",
-                             (signal_id, now[:10], symbol.upper(), qty, price, now, stop, target, flat_by, note))
+            if short and db.execute("SELECT 1 FROM trades WHERE status='open' AND symbol=? AND side='long'",
+                                    (symbol.upper(),)).fetchone():
+                raise JournalError("you have an open long in %s: selling would close it, not open a short" % symbol.upper())
+            if not short and db.execute("SELECT 1 FROM trades WHERE status='open' AND symbol=? AND side='short'",
+                                        (symbol.upper(),)).fetchone():
+                raise JournalError("you have an open short in %s: buying would cover it, not open a long" % symbol.upper())
+            cur = db.execute("INSERT INTO trades(signal_id,date,symbol,qty,entry_price,entry_at,stop,target,flat_by,status,note,"
+                             "side) VALUES(?,?,?,?,?,?,?,?,?,'open',?,?)",
+                             (signal_id, now[:10], symbol.upper(), qty, price, now, stop, target, flat_by, note,
+                              side))
             tid = cur.lastrowid
             db.execute("INSERT INTO ledger(ts,date,kind,amount,settles_on,trade_id,note) VALUES(?,?,?,?,?,?,?)",
-                       (now, now[:10], "buy", -cost, now[:10], tid, "buy %d %s at %.2f" % (qty, symbol.upper(), price)))
+                       (now, now[:10], "short" if short else "buy", -cost, now[:10], tid,
+                        ("sell short %d %s at %.2f (cash set aside)" if short else "buy %d %s at %.2f")
+                        % (qty, symbol.upper(), price)))
             if signal_id:
                 db.execute("UPDATE signals SET status='taken' WHERE id=?", (signal_id,))
         return tid
 
     def close_trade(self, tid, price, reason, now, settles_on):
+        """Records the exit. A short is bought to cover: P&L = (entry - cover) x shares, and the cash
+        set aside comes back plus or minus that P&L."""
         if reason not in EXIT_REASONS:
             raise JournalError("exit reason must be one of %s" % ", ".join(EXIT_REASONS))
         if price <= 0:
@@ -217,14 +268,17 @@ class Journal:
             r = db.execute("SELECT * FROM trades WHERE id=?", (tid,)).fetchone()
             if not r or r["status"] != "open":
                 raise JournalError("no open trade with that id")
-            pnl = round((price - r["entry_price"]) * r["qty"], 2)
-            risk = (r["entry_price"] - r["stop"]) * r["qty"]
+            short = r["side"] == "short"
+            sign = -1 if short else 1
+            pnl = round(sign * (price - r["entry_price"]) * r["qty"], 2)
+            risk = sign * (r["entry_price"] - r["stop"]) * r["qty"]
             rmult = round(pnl / risk, 2) if risk > 0 else None
+            back = round(r["entry_price"] * r["qty"] + pnl, 2) if short else round(price * r["qty"], 2)
             db.execute("UPDATE trades SET status='closed', exit_price=?, exit_at=?, exit_reason=?, pnl=?, r_multiple=? WHERE id=?",
                        (price, now, reason, pnl, rmult, tid))
             db.execute("INSERT INTO ledger(ts,date,kind,amount,settles_on,trade_id,note) VALUES(?,?,?,?,?,?,?)",
-                       (now, now[:10], "sell", round(price * r["qty"], 2), settles_on, tid,
-                        "sell %d %s at %.2f" % (r["qty"], r["symbol"], price)))
+                       (now, now[:10], "cover" if short else "sell", back, settles_on, tid,
+                        ("buy to cover %d %s at %.2f" if short else "sell %d %s at %.2f") % (r["qty"], r["symbol"], price)))
         return pnl
 
     def trade(self, tid):
@@ -242,7 +296,7 @@ class Journal:
         """Today's count, realised result and the loss still at risk at the stops."""
         rows = self.trades(date)
         realised = round(sum(r["pnl"] or 0 for r in rows if r["status"] == "closed"), 2)
-        at_risk = round(sum((r["entry_price"] - r["stop"]) * r["qty"] for r in rows if r["status"] == "open"), 2)
+        at_risk = round(sum(abs(r["entry_price"] - r["stop"]) * r["qty"] for r in rows if r["status"] == "open"), 2)
         return {"trades": len(rows), "realised": realised, "open_risk": at_risk,
                 "open": sum(1 for r in rows if r["status"] == "open")}
 
@@ -258,7 +312,22 @@ class Journal:
                 "best": max((r["pnl"] for r in rows), default=None),
                 "worst": min((r["pnl"] for r in rows), default=None)}
 
-    # ---- scans and outcomes (for the review: docs/AUDIT-2026-11-11.md) ----
+    # ---- decisions: one row per stock per scan (desk/decide.py) ---------
+    def add_decisions(self, rows, now):
+        if not rows:
+            return
+        with self._tx() as db:
+            db.executemany("INSERT INTO decisions(ts,date,symbol,decision,long,short,long_signal,short_signal) "
+                           "VALUES(?,?,?,?,?,?,?,?)",
+                           [(now, now[:10], r["symbol"], r["decision"], r["long"], r["short"],
+                             r["long_signal"], r["short_signal"]) for r in rows])
+
+    def decisions(self, date=None, limit=5000):
+        if date:
+            return self._all("SELECT * FROM decisions WHERE date=? ORDER BY id DESC LIMIT ?", (date, limit))
+        return self._all("SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,))
+
+    # ---- scans and outcomes (for the review) ----
     def add_scan(self, summary):
         with self._tx() as db:
             db.execute("INSERT INTO scans(ts,date,summary) VALUES(?,?,?)",
@@ -272,6 +341,13 @@ class Journal:
         for r in rows:
             r["summary"] = json.loads(r["summary"])
         return rows
+
+    def outcome_gaps(self, date=None):
+        """Replays that got no candles: their dates (last 30 days), or with date, that day's signal ids."""
+        if date:
+            return {r["signal_id"] for r in self._all("SELECT signal_id FROM outcomes WHERE result='no data' AND date=?", (date,))}
+        return [r["date"] for r in self._all("SELECT DISTINCT date FROM outcomes WHERE result='no data' "
+                                             "AND date >= date('now','-30 day') ORDER BY date")]
 
     def set_outcome(self, signal_id, date, symbol, status, o, now):
         with self._tx() as db:

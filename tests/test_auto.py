@@ -1,3 +1,4 @@
+from unittest import mock
 """Auto paper (desk/auto.py) and the review log it feeds (desk/outcome.py, scans, practice fills).
 
 The hard rules: it trades only in paper mode, only the practice account, never a broker, with the same
@@ -90,6 +91,7 @@ class Trading(AutoBase):
 
 
 class SameLimitsAsYou(AutoBase):
+    @mock.patch.object(S, "trades_cap", lambda st: st["max_trades_per_day"])   # live-mode cap; paper has none
     def test_trades_per_day_counting_its_own_waiting_buys(self):
         self.d.j.open_trade("T", 1, 12.0, 11.5, 13.0, self.d.src.now(), note="")      # one you took
         self.tick()                                                                     # KO: the second
@@ -125,6 +127,19 @@ class SameLimitsAsYou(AutoBase):
         self.d.skip(self.sid)                            # skipping cancels its waiting buy
         self.assertEqual(self.entry()["state"], "cancelled")
         self.assertEqual(self.d.j.signal(self.sid)["status"], "skipped")
+
+
+class WeakSignals(AutoBase):
+    def test_weak_signals_only_when_switched_on(self):
+        self.tick()                                     # the ready KO slip is placed first
+        sid = self.d.j.add_signal("2026-10-19", "PEP", "orb", "weak", dict(SIG, symbol="PEP"), self.d.src.now())
+        self.px["PEP"] = q(60.50)
+        self.tick()
+        self.assertNotIn(str(sid), self.d.auto.book())
+        S.update({"auto_paper_weak": True})
+        self.tick()
+        self.assertIn(str(sid), self.d.auto.book())     # looked at now (placed, or declined by the same limits as you)
+        self.assertNotIn("weak", self.entry(sid).get("why", ""))
 
 
 class NeverLiveNeverBroker(AutoBase):

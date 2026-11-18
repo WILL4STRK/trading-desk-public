@@ -1,3 +1,4 @@
+from unittest import mock
 import pathlib
 """The whole desk on the skills' saved data from 2026-10-19: no network."""
 import json
@@ -91,6 +92,7 @@ class Engine(DemoCase):
         self.assertIn("before", self.desk(now="2026-10-19 09:40").scan()["halt"])
         self.assertIn("late", self.desk(now="2026-10-19 15:31").scan()["halt"])
 
+    @mock.patch.object(S, "trades_cap", lambda st: st["max_trades_per_day"])   # live-mode cap; paper has none
     def test_take_then_exit_then_the_day_is_done(self):
         d = self.desk(max_trades_per_day=1)
         d.scan()
@@ -112,7 +114,7 @@ class Engine(DemoCase):
         self.assertTrue(all(s["off"] for s in d.state()["signals"] if s["status"] == "ready"))
         self.assertEqual(d.exit(tid, p["stop"], "stop"), round((p["stop"] - p["limit"]) * p["qty"], 2))
         st = d.state()
-        self.assertEqual(st["account"]["unsettled"][0]["settles_on"], "2026-10-20")
+        self.assertEqual(st["account"]["unsettled"], [])                  # paper mode: a sale is usable at once
         self.assertEqual(st["stats"]["losses"], 1)
         with self.assertRaises(DeskError):
             d.exit(tid, p["stop"], "stop")
@@ -140,6 +142,8 @@ class Engine(DemoCase):
 
     def test_settlement_skips_the_weekend_and_margin_settles_at_once(self):
         d = self.desk()
+        self.assertEqual(d.settle_date("2026-10-23 11:00"), "2026-10-23")   # paper mode: no wait
+        S.save(dict(S.load(), mode="live"))                                 # live: the cash-account wait
         self.assertEqual(d.settle_date("2026-10-23 11:00"), "2026-10-26")   # Friday -> Monday
         S.update({"account_type": "margin"})
         self.assertEqual(d.settle_date("2026-10-23 11:00"), "2026-10-23")

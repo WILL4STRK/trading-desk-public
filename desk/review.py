@@ -44,6 +44,11 @@ def results(trades):
         streak = streak + 1 if t["pnl"] < 0 else 0
         worst_streak = max(worst_streak, streak)
     avg_win, avg_loss = _mean(wins), _mean(losses)
+    days = {}
+    for t in rows:
+        d = (t.get("exit_at") or t.get("date") or "")[:10]
+        days[d] = round(days.get(d, 0.0) + t["pnl"], 2)
+    worst_day = min(days.items(), key=lambda kv: (kv[1], kv[0])) if days else None
     return {
         "closed": len(rows), "wins": len(wins), "losses": len(losses), "even": len(rows) - len(wins) - len(losses),
         "win_rate": round(100.0 * len(wins) / len(rows), 1) if rows else None,
@@ -52,6 +57,10 @@ def results(trades):
         "avg_win": _r2(avg_win), "avg_loss": _r2(avg_loss),
         "payoff": _r2(avg_win / -avg_loss) if avg_win is not None and avg_loss else None,
         "max_drawdown": round(drawdown, 2), "losing_run": worst_streak,
+        # from CloddsBot's backtest report: money won for each dollar lost (None until there is a loser)
+        "profit_factor": _r2(sum(wins) / -sum(losses)) if losses else None,
+        "best": max((t["pnl"] for t in rows), default=None), "worst": min((t["pnl"] for t in rows), default=None),
+        "worst_day": {"date": worst_day[0], "pnl": worst_day[1]} if worst_day else None,
     }
 
 
@@ -93,22 +102,41 @@ def by_rules(trades, sig_by_id, rulesets=None):
     return sorted(out, key=lambda g: g["first_seen"] or "")
 
 
+def _side(t):
+    return "short" if t.get("side") == "short" else "long"
+
+
+def by_side(trades):
+    """Longs and shorts read apart, so a review can compare them."""
+    out = {}
+    for side in ("long", "short"):
+        rows = [t for t in trades if _side(t) == side]
+        r = results(rows)
+        out[side] = {"closed": r["closed"], "total": r["total"], "avg_r": r["avg_r"], "win_rate": r["win_rate"],
+                     "open": sum(1 for t in rows if t.get("status") == "open")}
+    return out
+
+
 def plan_vs_actual(trades, sig_by_id):
-    """What the slip said against what was recorded. Positive slip = you paid more than planned."""
+    """What the slip said against what was recorded, in the trader's favour or against it.
+    Positive fill slip = a worse fill than planned (paid more on a buy, got less on a short sale).
+    Stop and target gaps: minus = worse than planned, for longs and shorts alike."""
     fill_slip, over, fewer, stop_gap, target_gap = [], 0, 0, [], []
     planned = 0
     for t in trades:
         p = (sig_by_id.get(t.get("signal_id")) or {}).get("payload") or {}
         if p.get("limit") is not None:
             planned += 1
-            fill_slip.append(t["entry_price"] - p["limit"])
-            over += 1 if t["entry_price"] > p["limit"] + 0.005 else 0
+            sign = -1 if _side(t) == "short" else 1
+            fill_slip.append(sign * (t["entry_price"] - p["limit"]))
+            over += 1 if sign * (t["entry_price"] - p["limit"]) > 0.005 else 0
             fewer += 1 if p.get("qty") and t["qty"] < p["qty"] else 0
         if t.get("status") == "closed" and t.get("exit_price") is not None:
+            sign = -1 if _side(t) == "short" else 1
             if t.get("exit_reason") == "stop":
-                stop_gap.append(t["exit_price"] - t["stop"])
+                stop_gap.append(sign * (t["exit_price"] - t["stop"]))
             elif t.get("exit_reason") == "target":
-                target_gap.append(t["exit_price"] - t["target"])
+                target_gap.append(sign * (t["exit_price"] - t["target"]))
     done = closed(trades)
     return {
         "from_signals": planned, "avg_fill_vs_limit": _r2(_mean(fill_slip)), "fills_over_limit": over, "took_fewer_shares": fewer,
@@ -120,19 +148,24 @@ def plan_vs_actual(trades, sig_by_id):
 
 
 def by_source(trades):
-    """The desk's own paper trades (auto paper, note "auto") against the ones you recorded."""
+    """The desk's own paper trades (auto paper, note "auto") against the ones you recorded, longs and
+    shorts apart ("auto short", "you short")."""
     groups = {}
     for t in closed(trades):
-        groups.setdefault("auto" if t.get("note") == "auto" else "you", []).append(t)
+        who = "auto" if t.get("note") == "auto" else "you"
+        groups.setdefault(who + (" short" if t.get("side") == "short" else ""), []).append(t)
     return {k: {"closed": r["closed"], "total": r["total"], "avg_r": r["avg_r"], "win_rate": r["win_rate"]}
             for k, r in ((k, results(v)) for k, v in sorted(groups.items()))}
 
 
-def outcome_table(outcomes):
-    """Per signal status (taken, skipped, expired, weak, blocked...): how the replays came out."""
+def outcome_table(outcomes, sig_by_id=None):
+    """Per signal status (taken, skipped, expired, weak, blocked...): how the replays came out.
+    Short signals are grouped apart ("short skipped", ...) so longs and shorts can be compared."""
     out = {}
     for o in outcomes:
-        g = out.setdefault(o["status"], {"n": 0, "results": {}, "rs": []})
+        p = ((sig_by_id or {}).get(o.get("signal_id")) or {}).get("payload") or {}
+        key = ("short " + o["status"]) if p.get("side") == "short" else o["status"]
+        g = out.setdefault(key, {"n": 0, "results": {}, "rs": []})
         g["n"] += 1
         g["results"][o["result"]] = g["results"].get(o["result"], 0) + 1
         if o.get("r") is not None:
@@ -153,6 +186,73 @@ def odds_check(signals, outcomes):
             "predicted_stop": _r2(100 * _mean([r[1] for r in rows])),
             "actual_target": _r2(100.0 * sum(1 for r in rows if r[2] == "target") / len(rows)),
             "actual_stop": _r2(100.0 * sum(1 for r in rows if r[2] == "stop") / len(rows))}
+
+
+JUDGED = ("target", "stop", "flat", "open")      # replay results that say how a trade would have gone
+EDGE_BUCKETS = (("under -10", None, -10), ("-10 to -5", -10, -5), ("-5 to 0", -5, 0), ("0 to +5", 0, 5), ("+5 and up", 5, None))
+
+
+def odds_by_edge(signals, outcomes):
+    """CloddsBot's ledger checks its confidence bucket by bucket. Here: the Time Machine's edge points, in
+    bands, against what the day's replay did. If a higher edge does no better, the floor
+    (min_edge_points) is not sorting good from bad."""
+    by = {o["signal_id"]: o for o in outcomes}
+    groups = {}
+    for s in signals:
+        odds = (s.get("payload") or {}).get("odds") or {}
+        o = by.get(s["id"])
+        if o is None or odds.get("edge_points") is None:
+            continue
+        e = float(odds["edge_points"])
+        name = next(b for b, lo, hi in EDGE_BUCKETS if (lo is None or e >= lo) and (hi is None or e < hi))
+        g = groups.setdefault(name, {"judged": [], "no_fill": 0})
+        if o["result"] in JUDGED:
+            g["judged"].append((odds.get("p_target"), o["result"], o.get("r")))
+        elif o["result"] == "no_fill":
+            g["no_fill"] += 1
+    out = []
+    for name, _, _ in EDGE_BUCKETS:
+        if name not in groups:
+            continue
+        rows, n = groups[name]["judged"], len(groups[name]["judged"])
+        out.append({"bucket": name, "n": n, "no_fill": groups[name]["no_fill"],
+                    "predicted_target": _r2(100 * _mean([r[0] for r in rows])) if n else None,
+                    "actual_target": _r2(100.0 * sum(1 for r in rows if r[1] == "target") / n) if n else None,
+                    "avg_r": _r2(_mean([r[2] for r in rows]))})
+    return out
+
+
+HELD = ("weak", "blocked", "missed")
+REASONS = (("Time Machine edge is", "edge under your floor"), ("No Time Machine odds", "no odds"),
+           ("The stop is only", "stop too close"), ("Budget", "budget or cash"),
+           ("Risk check could not run", "risk check did not run"), ("Risk:", "risk manager"),
+           ("Exit planner refused", "exit planner refused"))
+
+
+def _reason(problems):
+    first = str((problems or [""])[0])
+    if "Too late to chase" in first:
+        return "too late to chase"
+    return next((name for head, name in REASONS if first.startswith(head)), "other")
+
+
+def held_back(signals, outcomes=()):
+    """CloddsBot's ledger counts why it said no. Here: why a signal was weak, blocked or missed, and how the
+    held-back ones would have done on the day's replay. Most common first."""
+    by = {o["signal_id"]: o for o in outcomes}
+    groups = {}
+    for s in signals:
+        if s.get("status") not in HELD:
+            continue
+        g = groups.setdefault(_reason((s.get("payload") or {}).get("problems")), {"n": 0, "rs": [], "replayed": 0})
+        g["n"] += 1
+        o = by.get(s["id"])
+        if o and o["result"] in JUDGED:
+            g["replayed"] += 1
+            if o.get("r") is not None:
+                g["rs"].append(o["r"])
+    rows = [{"reason": k, "n": g["n"], "replayed": g["replayed"], "avg_r": _r2(_mean(g["rs"]))} for k, g in groups.items()]
+    return sorted(rows, key=lambda h: (-h["n"], h["reason"]))
 
 
 def scan_stats(scans):
@@ -178,14 +278,16 @@ def summary(trades, signals, events=(), rulesets=None, min_trades=MIN_TRADES, ou
     res = results(trades)
     return {
         "results": res, "standing": standing(res, min_trades), "min_trades": min_trades,
-        "by_exit": by_exit(trades), "by_rules": by_rules(trades, sig_by_id, rulesets),
+        "by_exit": by_exit(trades), "by_rules": by_rules(trades, sig_by_id, rulesets), "by_side": by_side(trades),
         "plan": plan_vs_actual(trades, sig_by_id),
         "signals": signal_counts(signals), "signals_total": len(signals),
         "open": sum(1 for t in trades if t.get("status") == "open"),
         "settings_changes": [{"ts": e["ts"], "message": e["message"]} for e in events if e.get("kind") == "settings"][:50],
-        "by_source": by_source(trades), "outcomes": outcome_table(outcomes), "odds_check": odds_check(signals, outcomes),
+        "by_source": by_source(trades), "outcomes": outcome_table(outcomes, sig_by_id), "odds_check": odds_check(signals, outcomes),
         "scans": scan_stats(scans), "rulesets": rulesets or {},
         "practice_fills": sum(1 for e in events if e.get("kind") == "paper"),
+        "odds_by_edge": odds_by_edge(signals, outcomes), "held_back": held_back(signals, outcomes),
+        "stops_log": [{"ts": e["ts"], "message": e["message"]} for e in events if e.get("kind") == "stops"][:30],
     }
 
 
@@ -217,6 +319,20 @@ def day_summary(date, trades, signals):
     return text
 
 
+def _decision_lines(d):
+    """What every scan decided per stock: long, short, both or nothing, and the commonest reasons for nothing."""
+    if not d or not d.get("rows"):
+        return []
+    by = d["by_decision"]
+    L = ["SCAN DECISIONS (%d stock-scans)" % d["rows"],
+         "  " + ", ".join("%s %d" % (k, by[k]) for k in ("long", "short", "both", "nothing") if by.get(k))]
+    for side in ("long", "short"):
+        top = d["top_reasons"].get(side) or []
+        if top:
+            L.append("  No %s, commonest reasons: %s" % (side, "; ".join("%s (%d)" % kv for kv in top)))
+    return L + [""]
+
+
 # ---- the plain-text review report ------------------------------------
 def report(mode, s, now, rules_hash=None):
     r, st, p = s["results"], s["standing"], s["plan"]
@@ -232,11 +348,19 @@ def report(mode, s, now, rules_hash=None):
               "  Average win %s, average loss %s, payoff %s." % ("n/a" if r["avg_win"] is None else _usd(r["avg_win"]),
                                                                "n/a" if r["avg_loss"] is None else _usd(r["avg_loss"]), f(r["payoff"], "%.2f")),
               "  Worst drawdown %s. Longest losing run %d." % (_usd(r["max_drawdown"]), r["losing_run"]),
+              "  Profit factor %s (won for each $1 lost). Best trade %s, worst %s. Worst day %s%s."
+              % (f(r.get("profit_factor"), "%.2f"), "n/a" if r.get("best") is None else _usd(r["best"]),
+                 "n/a" if r.get("worst") is None else _usd(r["worst"]),
+                 "n/a" if not r.get("worst_day") else _usd(r["worst_day"]["pnl"]),
+                 " (%s)" % r["worst_day"]["date"] if r.get("worst_day") else ""),
               "  By exit: " + (", ".join("%s %d (%s)" % (k, v["n"], _usd(v["total"])) for k, v in sorted(s["by_exit"].items())) or "none")]
+        L += ["  %s: %d closed, %s, average R %s, win rate %s%%." % (side.capitalize(), v["closed"], _usd(v["total"]), f(v["avg_r"]),
+                                                                   f(v["win_rate"], "%.1f"))
+              for side, v in s["by_side"].items() if v["closed"] or v["open"]]
     L += ["", "PLAN AGAINST WHAT HAPPENED",
-          "  Fills from a signal: %d. Average fill against the slip's limit: %s a share (plus = paid more)."
+          "  Fills from a signal: %d. Average fill against the slip's limit: %s a share (plus = worse: paid more, or shorted lower)."
           % (p["from_signals"], f(p["avg_fill_vs_limit"])),
-          "  Fills above the limit (the slip says skip those): %d. Took fewer shares than sized: %d." % (p["fills_over_limit"], p["took_fewer_shares"]),
+          "  Fills worse than the limit (the slip says skip those): %d. Took fewer shares than sized: %d." % (p["fills_over_limit"], p["took_fewer_shares"]),
           "  Stop exits: %d, average %s a share against the planned stop (minus = worse)." % (p["stop_exits"], f(p["avg_stop_vs_plan"])),
           "  Target exits: %d, average %s a share against the planned target." % (p["target_exits"], f(p["avg_target_vs_plan"])),
           "  Closed early by hand: %d. Closed at the end of the day: %d." % (p["closed_early"], p["closed_end_of_day"]),
@@ -255,12 +379,22 @@ def report(mode, s, now, rules_hash=None):
           "  %d replays with odds: Time Machine said target first %s%%, stop first %s%%; the day gave %s%% and %s%%."
           % (oc["n"], f(oc["predicted_target"], "%.1f"), f(oc["predicted_stop"], "%.1f"), f(oc["actual_target"], "%.1f"),
              f(oc["actual_stop"], "%.1f")) if oc else "  none yet"]
+    fr = lambda x: "n/a" if x is None else "%+.2fR" % x
+    L += ["", "ODDS BY EDGE (Time Machine edge points against the replays; if higher bands do no better, the floor does not sort)"]
+    L += ["  %s: %d judged, said target first %s%%, the day gave %s%%, average %s (%d never filled)"
+          % (b["bucket"], b["n"], f(b["predicted_target"], "%.1f"), f(b["actual_target"], "%.1f"), fr(b["avg_r"]), b["no_fill"])
+          for b in s.get("odds_by_edge") or []] or ["  none yet"]
+    L += ["", "WHY SIGNALS WERE HELD BACK (weak, blocked or missed; how they would have done on the replay)"]
+    L += ["  %s %d (replayed %d, average %s)" % (h["reason"], h["n"], h["replayed"], fr(h["avg_r"]))
+          for h in s.get("held_back") or []] or ["  none"]
+    L += ["", "RISK STOPS (weekly loss, drop from the best point, losers in a row; newest first)"]
+    L += ["  %s  %s" % (e["ts"], e["message"]) for e in s.get("stops_log") or []] or ["  none tripped"]
     sc = s.get("scans")
     L += ["", "SCANS",
           "  %d scans over %d days, %d failed. Average %s charts read, %s left out for gaps. %d breakouts, %d new signals."
           % (sc["scans"], sc["days"], sc["failed"], f(sc["avg_charts"], "%.1f"), f(sc["avg_gaps"], "%.1f"), sc["breakouts"],
              sc["new_signals"]) if sc else "  none logged yet"]
-    L += ["", "BY RULE SET"]
+    L += [""] + _decision_lines(s.get("decisions")) + ["BY RULE SET"]
     L += ["  %s%s: %d closed, %s, average R %s" % (g["rules"], " (since %s)" % g["first_seen"] if g["first_seen"] else "",
                                                   g["closed"], _usd(g["total"]), f(g["avg_r"])) for g in s["by_rules"]] or ["  none"]
     for h, v in sorted((s.get("rulesets") or {}).items(), key=lambda kv: kv[1].get("first_seen") or ""):

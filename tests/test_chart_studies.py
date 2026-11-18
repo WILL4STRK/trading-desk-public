@@ -74,6 +74,40 @@ class StudyDefaults(unittest.TestCase):
             self.assertEqual(as_value(got[name]), want, "Pine %s" % name)
 
 
+class ShortSide(unittest.TestCase):
+    """The short side is drawn by the same two studies, off by default, mirrored from the long rule."""
+
+    def test_short_side_is_off_by_default_in_both(self):
+        self.assertEqual(DEFAULTS["directions"], "long")
+        self.assertIs(as_value(tos_inputs()["showShorts"]), False)
+        self.assertIs(as_value(pine_inputs()["showShorts"]), False)
+
+    def test_both_trigger_on_a_close_below_the_range_low(self):
+        for path, comment in ((TOS, "#"), (PINE, "//")):
+            code = _code(path.read_text(), comment)
+            self.assertIn("close < orLow", code, path.name)
+            self.assertIn("close > orHigh", code, path.name)        # the long rule is still there
+
+    def test_short_stop_rounds_up_and_sits_at_the_mirrored_level(self):
+        tos, pine = _code(TOS.read_text(), "#"), _code(PINE.read_text(), "//")
+        self.assertIn("if stopAtRangeLow then orHigh else Ceil(orMid * 100 - 0.000001) / 100", tos)
+        self.assertIn("stopAtRangeLow ? orHigh : math.ceil(orMid * 100 - 0.000001) / 100", pine)
+        self.assertIn("sEntry - targetR * sRisk", tos)
+        self.assertIn("sEntry - targetR * sRisk", pine)
+
+    def test_pine_has_the_breakdown_alert_and_waits_for_a_closed_candle(self):
+        code = _code(PINE.read_text(), "//")
+        self.assertRegex(code, r'alertcondition\(isBreakdown,\s*title\s*=\s*"Trading Desk breakdown"')
+        self.assertIn("barstate.isconfirmed and close < orLow", code)
+        self.assertIn("isBreakdown := showShorts", code)
+
+    def test_nothing_short_is_drawn_unless_switched_on(self):
+        tos, pine = _code(TOS.read_text(), "#"), _code(PINE.read_text(), "//")
+        self.assertIn("def shortOn = showShorts and", tos)
+        self.assertIn("def isBreakdown = showShorts and", tos)
+        self.assertIn("shortOn = showShorts and", pine)
+
+
 class StudiesDrawOnly(unittest.TestCase):
     def test_no_order_calls(self):
         for path, comment in ((TOS, "#"), (PINE, "//")):

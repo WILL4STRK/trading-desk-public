@@ -2,7 +2,8 @@
 
 A local day-trading **signal desk** for learning, built on the 11 skills in
 [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) by
-Jake Schincariol. It finds opening-range breakouts in US stocks, works out the
+Jake Schincariol. It finds opening-range breakouts in US stocks (and, if you
+switch it on, breakdowns for practice shorts), works out the
 exact order (shares, buy limit, stop, target, how long the signal is good
 for), checks it against your own limits, and shows you how to enter it at your
 broker. It keeps a journal of what you did, can practise by itself on a
@@ -95,6 +96,16 @@ review can compare its trades with yours.
 
 - It never trades in live mode and never talks to a broker (`desk/auto.py`,
   tests in `tests/test_auto.py`).
+- **Take weak signals too** (switch under Auto paper, off by default): auto
+  paper also practises signals whose Time Machine odds are under your floor,
+  so the review can show how they would have done.
+- **Paper mode trades boldly so the record has more to learn from.** In paper
+  mode only: 5 % risk a trade, 20 % daily loss, no weekly stop, a 50 % drop
+  stop, no cash buffer, no trades-a-day cap, sales settle at once, and 4x the
+  account as buying power (like a margin account's day-trading power). Live
+  mode always uses your own settings and plain settled cash. The profile is
+  `PAPER_BOLD` and `PAPER_LEVERAGE` in `desk/settings.py`; each signal's rule
+  stamp records the paper rules in force.
 - Practice fills from delayed quotes are not real fills. Use it to see what
   the rules do, not to predict live results.
 - Settings > **Practice account** starts it over.
@@ -117,7 +128,11 @@ brokers may need more label words in `desk/screenshot.py`. Details:
 - **`python3 -m desk review`** prints the record as plain text for both modes,
   including every scan, every practice fill, and an after-the-close replay of
   every signal of the day (taken or not) on that day's candles
-  (`desk/outcome.py`). It changes nothing.
+  (`desk/outcome.py`; a replay that got no candles, say because the computer
+  was offline, is retried later). It also shows whether the Time Machine's
+  odds held up, those odds by edge band, why signals were held back, every
+  risk-stop trip and reset, profit factor and the worst day. It changes
+  nothing.
 - Every signal carries a **rule set** code, so results can be read per set of
   rules. Every settings change is logged; write rule changes up in
   [docs/CHANGES.md](docs/CHANGES.md).
@@ -128,12 +143,48 @@ brokers may need more label words in `desk/screenshot.py`. Details:
 - **Health** (Settings): the clock, the last scan, the data, the skills copy
   and which record is in use. After three failed scans in a row the Desk tab
   says "Do not trust the list right now".
+- **Risk stops over more than a day** (Settings, under the daily loss limit;
+  `desk/breaker.py`): a **weekly loss limit** (default 8 % of the account,
+  clears on Monday), a **drop from your best point** (default 15 %) and
+  **losers in a row** (off until you set a number). The last two stay on until
+  you read the review and press **Reset stops** under Today's limits. Like the
+  daily limit they stop new entries only, for you and auto paper; open trades
+  keep their stop, target and flat-by time. Ideas from the CloddsBot project,
+  rebuilt in Python: [docs/CLODDSBOT.md](docs/CLODDSBOT.md).
 - **Closest stop** (`min_stop_pct`, default 0.3 %): a stop nearer the entry
   than that blocks the signal.
 - **Slippage guess** (`est_cost_per_share`, default $0.01): each slip also
   shows reward to risk after it.
 - The desk can only ever run the Order Executor skill's `show` command (the
   ticket text). Every other command is refused in `desk/guards.py`.
+
+## The short side (off by default)
+
+Settings, **Signals to look for**, can add short signals: opening-range
+breakdowns, the long rule mirrored. Per stock the desk decides long, short or
+nothing. A short slip reads
+*Sell short 5 IONQ at 30.11 or higher. Buy stop 31.59. Target 27.87.*
+and is marked **SHORT** in red.
+
+- Shorts are **practice only** (labelled PRACTICE ONLY) unless the account
+  type is margin, the account has $2,000 or more, and "My broker approved this
+  account for short selling" is on. In live mode a practice-only short is
+  shown but cannot be recorded.
+- In paper mode, auto paper can practise short signals in the practice
+  account. The desk still never sends any order anywhere.
+- Every scan logs one row per stock: long, short, both or nothing, and why.
+  The review shows those counts and results for longs and shorts apart.
+- The loss on a short is not capped, shares may not be available to borrow,
+  and a short-sale restriction applies after a 10 % drop. The dashboard says
+  so on the Desk tab, on every short slip and in Settings.
+- The desk blocks a short when the stock is already down 10 % on the day, or
+  is above its 200-day average, and wants the short's full value in settled
+  cash. Shorts are closed by the flat-by time, never held overnight.
+- Four of the skills are long-only, so the short maths is the desk's own code
+  in `desk/shorts.py`. No real short order has been placed from a slip: treat
+  your first practice short as the test.
+
+Sources, rules and limits: [docs/SHORTING.md](docs/SHORTING.md).
 
 ## How the money rules scale
 
@@ -145,6 +196,9 @@ Every limit is a percentage of the account:
 | daily loss limit | 4 % | $16 | $1,600 |
 | cash kept aside | 5 % | $20 | $2,000 |
 | trades per day | 2 | 2 | 2 |
+
+These are your settings, used in live mode. Paper mode uses the bolder
+practice profile described under Auto paper.
 
 In a cash account, money from a sale cannot buy again until the next business
 day. The desk tracks settled cash and sizes only against that.
@@ -175,7 +229,9 @@ day. The desk tracks settled cash and sizes only against that.
   alerts need a paid TradingView plan). Steps: `tradingview/INSTALL.md`.
 
 Both are indicators: they cannot place orders. `tests/test_chart_studies.py`
-checks that their defaults equal `desk/settings.py`.
+checks that their defaults equal `desk/settings.py`. Both have a "show shorts"
+input, off by default, that also draws the breakdown, the sell limit, the buy
+stop and the short target.
 
 ## Export watchlist
 
@@ -205,7 +261,11 @@ desk/settings.py    settings, validated, scaled to the account
 desk/journal.py     SQLite: cash ledger with settlement, signals, trades
 desk/skills.py      runs the vendored skill scripts
 desk/source.py      live clock and data, or the demo's saved data
-desk/pipeline.py    one stock through every skill -> one signal
+desk/pipeline.py    one stock through every skill -> one signal (long, and short)
+desk/shorts.py      the short side's maths: breakdown, stop, target, size, gate
+desk/charts.py      5-minute and daily candles for the short side (read-only)
+desk/decide.py      one row per stock per scan: long, short, both or nothing, and why
+desk/breaker.py     risk stops over more than a day: weekly loss, drop from the best point, losers in a row
 desk/engine.py      scan, watch, record fills and exits
 desk/paper.py       the pretend practice account
 desk/auto.py        auto paper: the desk trades the practice account itself

@@ -117,3 +117,74 @@ class OnTheDesk(DemoCase):
             main.main(["review", "--demo"])
         self.assertIn("Trading Desk review: LIVE record", out.getvalue())
         self.assertIn("RESULTS (0 closed, 0 open)", out.getvalue())
+
+
+def sig(i, status, edge=None, p_target=None, problems=()):
+    p = {"problems": list(problems)}
+    if edge is not None:
+        p["odds"] = {"edge_points": edge, "p_target": p_target if p_target is not None else 0.3, "p_stop": 0.5}
+    return {"id": i, "status": status, "payload": p}
+
+
+def out(i, result, r=None, status="ready"):
+    return {"signal_id": i, "status": status, "result": result, "r": r}
+
+
+class FromCloddsBot(DemoCase):
+    """Ideas taken from CloddsBot's trade ledger (calibration, block reasons) and backtest (profit factor)."""
+
+    def test_profit_factor_best_worst_and_worst_day(self):
+        rows = [trade(1, 10, r=2), trade(2, -5, "stop", r=-1), trade(3, -4, "stop", r=-1, date="2026-10-20"),
+                trade(4, -3, "stop", r=-1, date="2026-10-20")]
+        r = R.results(rows)
+        self.assertEqual(r["profit_factor"], 0.83)                         # 10 won / 12 lost
+        self.assertEqual((r["best"], r["worst"]), (10.0, -5.0))
+        self.assertEqual(r["worst_day"], {"date": "2026-10-20", "pnl": -7.0})
+        self.assertIsNone(R.results([trade(1, 10, r=2)])["profit_factor"])   # no losers: nothing to divide by
+        self.assertIsNone(R.results([])["worst_day"])
+
+    def test_odds_by_edge_bucket(self):
+        sigs = [sig(1, "weak", -12, 0.10), sig(2, "weak", -11, 0.12), sig(3, "ready", 2, 0.40), sig(4, "taken", 3, 0.42),
+                sig(5, "ready", 7, 0.5), sig(6, "ready")]                  # 6 has no odds
+        outs = [out(1, "stop", -1.0), out(2, "target", 2.0), out(3, "target", 2.0), out(4, "stop", -1.0),
+                out(5, "no_fill"), out(6, "target", 2.0)]
+        rows = {b["bucket"]: b for b in R.odds_by_edge(sigs, outs)}
+        self.assertEqual(set(rows), {"under -10", "0 to +5", "+5 and up"})
+        lo = rows["under -10"]
+        self.assertEqual((lo["n"], lo["predicted_target"], lo["actual_target"], lo["avg_r"]), (2, 11.0, 50.0, 0.5))
+        self.assertEqual(rows["+5 and up"]["n"], 0)                         # a replay that never filled is not judged
+        self.assertEqual(rows["+5 and up"]["no_fill"], 1)
+        self.assertEqual([b["bucket"] for b in R.odds_by_edge(sigs, outs)], ["under -10", "0 to +5", "+5 and up"])
+
+    def test_why_signals_were_held_back(self):
+        sigs = [sig(1, "weak", -8, problems=["Time Machine edge is -8.0 points, under your floor of -5.0."]),
+                sig(2, "weak", -9, problems=["Time Machine edge is -9.0 points, under your floor of -5.0."]),
+                sig(3, "weak", problems=["No Time Machine odds for this one, so the desk cannot grade it."]),
+                sig(4, "blocked", problems=["The stop is only 0.20% under the entry (0.02 a share). Your floor is 0.30%: x"]),
+                sig(5, "blocked", problems=["Budget: not enough settled cash"]),
+                sig(6, "blocked", problems=["Risk: max loss over limit"]),
+                sig(7, "missed", problems=["It triggered at 10:05, 25 minutes ago. Too late to chase."]),
+                sig(8, "blocked", problems=["Exit planner refused: no stop"]),
+                sig(9, "blocked", problems=["Something new"]),
+                sig(10, "ready")]
+        outs = [out(1, "target", 2.0, "weak"), out(2, "stop", -1.0, "weak")]
+        rows = {h["reason"]: h for h in R.held_back(sigs, outs)}
+        self.assertEqual(rows["edge under your floor"]["n"], 2)
+        self.assertEqual((rows["edge under your floor"]["replayed"], rows["edge under your floor"]["avg_r"]), (2, 0.5))
+        for reason in ("no odds", "stop too close", "budget or cash", "risk manager", "too late to chase",
+                       "exit planner refused", "other"):
+            self.assertEqual(rows[reason]["n"], 1, reason)
+        self.assertEqual(sum(h["n"] for h in rows.values()), 9)            # the ready one is not held back
+        self.assertEqual(R.held_back(sigs, outs)[0]["reason"], "edge under your floor")   # most common first
+
+    def test_the_report_prints_the_new_sections(self):
+        trades = [trade(1, 10, r=2), trade(2, -5, "stop", r=-1)]
+        sigs = [sig(1, "weak", -12, 0.1, problems=["Time Machine edge is -12.0 points, under your floor of -5.0."])]
+        events = [{"kind": "stops", "ts": "2026-10-19 11:00", "message": "Down $60.00 (15.0%) from your best point"}]
+        s = R.summary(trades, sigs, events, outcomes=[out(1, "stop", -1.0, "weak")])
+        text = R.report("paper", s, "2026-10-19 16:10")
+        for line in ("Profit factor 2.00", "Best trade +$10.00, worst -$5.00", "WHY SIGNALS WERE HELD BACK",
+                     "edge under your floor 1", "ODDS BY EDGE", "under -10: 1 judged", "RISK STOPS",
+                     "from your best point"):
+            self.assertIn(line, text)
+        self.assertNotIn("n/aR", R.report("paper", R.summary([], [sig(1, "weak", -12, problems=["x"])], []), "2026-10-19 16:10"))

@@ -10,7 +10,9 @@ Rules that never bend:
   a review can compare the desk's own trades with yours.
 
 How a trade runs: the slip's bracket order (BUY LIMIT, then a STOP and a target LIMIT) goes into the
-practice account, which fills it from free delayed quotes. A buy not filled by the slip's good-until time
+practice account, which fills it from free delayed quotes. A short slip (docs/SHORTING.md) goes in as
+its mirror: SELL_SHORT LIMIT, then a BUY_TO_COVER STOP above and LIMIT below (paper.short_bracket),
+only while short signals are switched on; it is covered at the market at the flat-by time. A buy not filled by the slip's good-until time
 is cancelled. At the flat-by time an open trade is sold at the market. Turning the switch off stops new
 trades; the ones already running are finished by these same rules.
 """
@@ -22,6 +24,10 @@ from .journal import JournalError
 AUTO = "auto"           # trades.note for the desk's own trades
 KEY = "auto_paper"      # the paper journal's record of every signal auto paper looked at
 LIVE_STATES = ("working", "open")
+
+
+def _closed_word(e):
+    return "bought to cover" if e.get("side") == "short" else "sold"
 
 
 class AutoPaper:
@@ -67,7 +73,7 @@ class AutoPaper:
             return out
 
     def _rows(self, acct):
-        return {r["id"]: r for r in O.rows(acct.orders(P.ACCOUNT))}
+        return {r["id"]: r for r in P.rows(acct.orders(P.ACCOUNT))}
 
     def _follow(self, acct, book, st, now, out):
         mine = {sid: e for sid, e in book.items() if e.get("state") in LIVE_STATES}
@@ -95,7 +101,7 @@ class AutoPaper:
                 price = round(buy["avg_fill"] or p["limit"], 2)
                 try:
                     tid = self.d.j.open_trade(sym, e["qty"], price, p["stop"], p["target"], now, int(sid),
-                                              p.get("flat_by"), note=AUTO)
+                                              p.get("flat_by"), note=AUTO, side=e.get("side") or "long")
                 except JournalError as err:              # cannot happen after the checks below; never leave it
                     e.update(state="refused", why=str(err))
                     self._flatten(acct, e, rows)
@@ -104,8 +110,9 @@ class AutoPaper:
                     continue
                 e.update(state="open", trade_id=tid, entry=price, filled_at=now)
                 out["filled"] += 1
-                self._event("bought %d %s at %.2f. Stop %.2f, target %.2f, out by %s."
-                            % (e["qty"], sym, price, p["stop"], p["target"], p.get("flat_by")), now, sym)
+                self._event("%s %d %s at %.2f. Stop %.2f, target %.2f, out by %s."
+                            % ("sold short" if e.get("side") == "short" else "bought", e["qty"], sym, price,
+                               p["stop"], p["target"], p.get("flat_by")), now, sym)
             if e["state"] != "open":
                 continue
             kids = [r for r in rows.values() if r["parent"] == str(e["order_id"])]
@@ -117,15 +124,16 @@ class AutoPaper:
                 pnl = self.d.j.close_trade(e["trade_id"], price, reason, now, self.d.settle_date(now))
                 e.update(state="closed", exit=price, reason=reason, pnl=pnl, closed_at=now)
                 out["closed"] += 1
-                self._event("sold %d %s at %.2f (%s). %s $%.2f." % (e["qty"], sym, price, reason,
-                                                                   "Made" if pnl >= 0 else "Lost", abs(pnl)), now, sym)
+                self._event("%s %d %s at %.2f (%s). %s $%.2f." % (_closed_word(e), e["qty"], sym, price, reason,
+                                                                 "Made" if pnl >= 0 else "Lost", abs(pnl)), now, sym)
                 continue
             flat_by = str(p.get("flat_by") or st["flat_by"])
             late = now[:10] > str(e.get("filled_at") or e["at"])[:10] or now[11:16] >= flat_by
             if late and not e.get("flat_order") and self.d.clock(now).get("open"):
                 oid = self._flatten(acct, e, rows)
                 if oid:
-                    self._event("%s is still open at %s: selling at the market." % (sym, flat_by), now, sym)
+                    self._event("%s is still open at %s: %s at the market."
+                                % (sym, flat_by, "buying to cover" if e.get("side") == "short" else "selling"), now, sym)
                     rows = self._rows(acct)
                     fo = rows.get(str(oid))
                     if fo and fo["status"] == "FILLED":
@@ -133,8 +141,9 @@ class AutoPaper:
                         pnl = self.d.j.close_trade(e["trade_id"], price, "flat", now, self.d.settle_date(now))
                         e.update(state="closed", exit=price, reason="flat", pnl=pnl, closed_at=now)
                         out["closed"] += 1
-                        self._event("sold %d %s at %.2f (flat by the close). %s $%.2f."
-                                    % (e["qty"], sym, price, "Made" if pnl >= 0 else "Lost", abs(pnl)), now, sym)
+                        self._event("%s %d %s at %.2f (flat by the close). %s $%.2f."
+                                    % (_closed_word(e), e["qty"], sym, price, "Made" if pnl >= 0 else "Lost", abs(pnl)),
+                                    now, sym)
 
     def _cancel(self, acct, order_id):
         try:
@@ -143,12 +152,15 @@ class AutoPaper:
             pass
 
     def _flatten(self, acct, e, rows):
-        """Cancels the stop and target, then sells the shares at the market. Returns the sell's id or None."""
+        """Cancels the stop and target, then sells the shares (or covers the short) at the market.
+        Returns that order's id or None."""
         for r in rows.values():
             if r["parent"] == str(e["order_id"]) and r["open"]:
                 self._cancel(acct, r["id"])
+        out = P.cover_market(e["symbol"], int(e["qty"])) if e.get("side") == "short" \
+            else O.single(e["symbol"], "SELL", int(e["qty"]), "MARKET")
         try:
-            oid = acct.place_order(P.ACCOUNT, O.single(e["symbol"], "SELL", int(e["qty"]), "MARKET"))
+            oid = acct.place_order(P.ACCOUNT, out)
         except P.PaperError:                           # no price right now: try again on the next pass
             return None
         e["flat_order"] = oid
@@ -160,21 +172,28 @@ class AutoPaper:
         working = [e for e in book.values() if e.get("state") == "working"]
         held = round(sum(float(e.get("cost") or 0) for e in working), 2)
         lim = S.limits(st, self.d.j.equity())
-        for s in sorted(self.d.j.signals(date=now[:10], statuses=("ready",)), key=lambda s: s["id"]):
+        # weak = the Time Machine odds are under your floor; practice only, so it may take them to learn
+        statuses = ("ready", "weak") if st["auto_paper_weak"] else ("ready",)
+        for s in sorted(self.d.j.signals(date=now[:10], statuses=statuses), key=lambda s: s["id"]):
             sid, p = str(s["id"]), s["payload"]
             if sid in book:
                 continue
             sym = p["symbol"]
             if p.get("valid_until") and now[11:16] > str(p["valid_until"]):
                 continue                                # the monitor marks it expired
+            short = p.get("side") == "short"
+            if short and st["directions"] == "long":
+                continue                                # short signals switched off: leave it, the slip says so
             why = None
             day = self.d.j.day(now[:10])
             qty = int(p.get("qty") or 0)
-            cost, risk = round(qty * p["limit"], 2), round(qty * (p["limit"] - p["stop"]), 2)
+            # a short sets aside its value at the stop, the most it can be worth before it is out (desk/shorts.py)
+            cost = round(qty * (p["stop"] if short else p["limit"]), 2)
+            risk = round(qty * abs(p["limit"] - p["stop"]), 2)
             if self.d.halt_reason(st, now):
                 return
-            if day["trades"] + len(working) >= st["max_trades_per_day"]:
-                why = "%d of %d trades today already" % (day["trades"] + len(working), st["max_trades_per_day"])
+            if day["trades"] + len(working) >= S.trades_cap(st):
+                why = "%d of %d trades today already" % (day["trades"] + len(working), S.trades_cap(st))
             elif qty < 1:
                 why = "no size"
             elif risk > lim["max_loss_per_trade"] + 0.005:
@@ -187,17 +206,24 @@ class AutoPaper:
                 self._event("left %s alone: %s." % (sym, why), now, sym)
                 continue
             try:
-                oid = acct.place_order(P.ACCOUNT, O.bracket(sym, qty, p["limit"], p["stop"], p["target"]))
+                order = P.short_bracket(sym, qty, p["limit"], p["stop"], p["target"]) if short \
+                    else O.bracket(sym, qty, p["limit"], p["stop"], p["target"])
+                oid = acct.place_order(P.ACCOUNT, order)
             except (ValueError, P.PaperError) as err:
                 self._event("could not place %s (%s). It tries again on the next pass." % (sym, err), now, sym,
                             key="auto-noplace-%s" % sid)
                 continue
-            book[sid] = {"state": "working", "order_id": str(oid), "symbol": sym, "qty": qty, "cost": cost, "at": now}
+            book[sid] = {"state": "working", "order_id": str(oid), "symbol": sym, "qty": qty, "cost": cost, "at": now,
+                         "side": "short" if short else "long"}
             working.append(book[sid])
             held = round(held + cost, 2)
             out["placed"] += 1
-            self._event("placed BUY %d %s LIMIT %.2f, then STOP %.2f / LIMIT %.2f, good until %s."
-                        % (qty, sym, p["limit"], p["stop"], p["target"], p.get("valid_until")), now, sym)
+            if short:
+                self._event("placed a practice SELL SHORT %d %s LIMIT %.2f, then BUY TO COVER STOP %.2f / LIMIT %.2f, "
+                            "good until %s." % (qty, sym, p["limit"], p["stop"], p["target"], p.get("valid_until")), now, sym)
+            else:
+                self._event("placed BUY %d %s LIMIT %.2f, then STOP %.2f / LIMIT %.2f, good until %s."
+                            % (qty, sym, p["limit"], p["stop"], p["target"], p.get("valid_until")), now, sym)
 
     # ---- when a person steps in ------------------------------------------------------
     def release(self, signal_id, why):

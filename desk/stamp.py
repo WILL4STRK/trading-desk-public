@@ -10,6 +10,7 @@ import hashlib
 import json
 
 from . import __version__
+from . import settings as S
 from .paths import ROOT
 
 RULE_KEYS = (
@@ -18,11 +19,20 @@ RULE_KEYS = (
     "chase_r", "signal_valid_minutes", "or_minutes", "min_price", "min_stop_pct",
     "min_volume_x", "no_entries_before", "no_entries_after", "flat_by",
     "min_edge_points", "replays", "pdt_guard",
+    "max_weekly_loss_pct", "max_drawdown_pct", "max_losing_streak",
+    "directions", "short_approved",          # turning shorts on starts a new rule set (docs/SHORTING.md)
 )
 
 
 def rules(st):
-    return {k: st[k] for k in RULE_KEYS if k in st}
+    """The rules in force, so paper mode's bold limits, leverage and trade cap show in the review."""
+    eff = S.risk(st)
+    r = {k: eff[k] for k in RULE_KEYS if k in eff}
+    if "mode" in st:
+        r.update(max_trades_per_day=S.trades_cap(st), leverage=S.leverage(st))
+    if st.get("auto_paper_weak") and st.get("mode") == "paper":
+        r["auto_paper_weak"] = True
+    return r
 
 
 def rules_hash(st):

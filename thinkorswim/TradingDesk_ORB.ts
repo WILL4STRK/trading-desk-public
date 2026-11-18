@@ -13,6 +13,7 @@ input lastEntryTime = 1530;  # dashboard: No entries after (New York time)
 input stopAtRangeLow = no;   # no = stop at the range midpoint (or-mid), yes = range low (or-low)
 input showLabels = yes;
 input soundAlert = yes;
+input showShorts = no;       # dashboard: Signals to look for = short or both. Draws the short side too.
 
 def sinceOpen = SecondsFromTime(0930);
 def inRange = sinceOpen >= 0 and sinceOpen < orMinutes * 60;
@@ -70,3 +71,44 @@ AddLabel(showLabels and tradeOn, "Target " + AsText(targetPrice), CreateColor(47
 AddLabel(showLabels and tradeOn, "Risk a share " + AsText(riskPerShare), Color.GRAY);
 
 Alert(soundAlert and isTrigger, "Opening-range breakout: check the Trading Desk", Alert.BAR, Sound.Ding);
+
+# ---- Short side: opening-range breakdown. Drawn only when showShorts = yes. ----
+# The long rule mirrored: the first candle after the range that CLOSES below the range low.
+# The stop is ABOVE the entry and rounds up to the cent, the target is below, and the
+# sell limit is the lowest price worth selling at. Lines only. It cannot place an order.
+def sState = if rangeStart or inRange then 0
+             else if sState[1] == 0 and canEnter and close < orLow then 1
+             else if sState[1] >= 1 then 2
+             else 0;
+def isBreakdown = showShorts and sState == 1;
+def sEntry = if rangeStart or inRange then Double.NaN else if sState == 1 then close else sEntry[1];
+def sStop = if stopAtRangeLow then orHigh else Ceil(orMid * 100 - 0.000001) / 100;
+def sRisk = sStop - sEntry;
+def sTarget = Round(sEntry - targetR * sRisk, 2);
+def sLimit = Ceil((sEntry - chaseR * sRisk) * 100 - 0.000001) / 100;
+def shortOn = showShorts and sState >= 1 and afterRange;
+
+plot ShortStop = if shortOn then sStop else Double.NaN;
+plot SellLimit = if shortOn then sLimit else Double.NaN;
+plot ShortTarget = if shortOn then sTarget else Double.NaN;
+plot Breakdown = if isBreakdown then high else Double.NaN;
+
+ShortStop.SetDefaultColor(CreateColor(150, 57, 44));
+ShortStop.SetLineWeight(2);
+ShortStop.SetStyle(Curve.LONG_DASH);
+SellLimit.SetDefaultColor(CreateColor(168, 101, 10));
+SellLimit.SetStyle(Curve.MEDIUM_DASH);
+ShortTarget.SetDefaultColor(CreateColor(47, 93, 58));
+ShortTarget.SetLineWeight(2);
+ShortTarget.SetStyle(Curve.LONG_DASH);
+Breakdown.SetPaintingStrategy(PaintingStrategy.ARROW_DOWN);
+Breakdown.SetDefaultColor(CreateColor(150, 57, 44));
+Breakdown.SetLineWeight(3);
+
+AddLabel(showLabels and showShorts and afterRange and sState == 0, "Short side: waiting for a close below " + AsText(orLow), CreateColor(27, 42, 74));
+AddLabel(showLabels and shortOn, "SHORT: sell at " + AsText(sLimit) + " or higher", CreateColor(168, 101, 10));
+AddLabel(showLabels and shortOn, "Buy stop " + AsText(sStop), CreateColor(150, 57, 44));
+AddLabel(showLabels and shortOn, "Short target " + AsText(sTarget), CreateColor(47, 93, 58));
+AddLabel(showLabels and shortOn, "Short risk a share " + AsText(sRisk) + " (not capped if it gaps)", Color.GRAY);
+
+Alert(soundAlert and isBreakdown, "Opening-range breakdown: check the Trading Desk", Alert.BAR, Sound.Ding);

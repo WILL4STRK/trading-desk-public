@@ -38,6 +38,16 @@ class Cash(DeskCase):
             self.j.open_trade("F", 10, 12.00, 11.80, 12.40, T)
         self.j.open_trade("F", 10, 12.00, 11.80, 12.40, "2026-10-20 10:00")
 
+    def test_paper_buys_with_4x_the_account(self):
+        from unittest import mock
+        from desk import settings as S
+        with mock.patch.object(S, "PAPER_LEVERAGE", 4.0):
+            self.assertEqual(self.j.buying_power(T[:10]), 1600.0)
+            self.j.open_trade("W", 10, 110.00, 108.00, 114.00, T)          # $1,100 on a $400 account
+            self.assertEqual(self.j.buying_power(T[:10]), 500.0)
+            with self.assertRaises(JournalError):
+                self.j.open_trade("F", 50, 12.00, 11.80, 12.40, T)       # $600 is over what is left
+
     def test_loss_and_r_multiple(self):
         tid = self.j.open_trade("W", 3, 110.70, 108.91, 113.56, T)
         self.assertEqual(self.j.close_trade(tid, 108.91, "stop", T, "2026-10-20"), -5.37)
@@ -112,3 +122,17 @@ class Signals(DeskCase):
         self.assertEqual(len(j2.signals()), 1)
         self.assertEqual(j2.cash(), 400)
         self.j = j2
+
+
+class OutcomeGaps(DeskCase):
+    def test_replays_without_candles_are_found_for_a_retry(self):
+        j = Journal()
+        self.addCleanup(j.close)
+        today = __import__("datetime").date.today().isoformat()
+        a = j.add_signal(today, "W", "orb", "weak", {"symbol": "W"}, today + " 10:00")
+        b = j.add_signal(today, "F", "orb", "weak", {"symbol": "F"}, today + " 10:00")
+        nodata = {"result": "no data", "entry": None, "exit": None, "exit_time": None, "r": None, "note": "offline"}
+        j.set_outcome(a, today, "W", "weak", nodata, today + " 16:05")
+        j.set_outcome(b, today, "F", "weak", dict(nodata, result="flat", r=0.1), today + " 16:05")
+        self.assertEqual(j.outcome_gaps(), [today])
+        self.assertEqual(j.outcome_gaps(today), {a})

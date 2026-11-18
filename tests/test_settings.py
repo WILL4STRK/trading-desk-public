@@ -1,3 +1,4 @@
+import unittest
 from desk import settings as S
 from tests.base import DeskCase
 
@@ -48,3 +49,30 @@ class Settings(DeskCase):
         self.assertEqual(c["budget"], 400)
         self.assertEqual(c["max_loss_per_trade_usd"], 8.0)
         self.assertNotIn("sec_user_agent", c)
+
+
+class TradesCap(unittest.TestCase):
+    def test_live_uses_the_setting_paper_has_none(self):
+        self.assertEqual(S.trades_cap({"mode": "live", "max_trades_per_day": 2}), 2)
+        self.assertEqual(S.trades_cap({"mode": "paper", "max_trades_per_day": 2}), S.PAPER_TRADES_CAP)
+        self.assertGreaterEqual(S.PAPER_TRADES_CAP, 50)
+
+
+class PaperBold(unittest.TestCase):
+    def test_paper_bets_bigger_live_keeps_your_limits(self):
+        st = S.validate({})
+        live = S.limits(dict(st, mode="live"), 400)
+        paper = S.limits(dict(st, mode="paper"), 400)
+        self.assertEqual(live["max_loss_per_trade"], 8.0)
+        self.assertEqual(paper["max_loss_per_trade"], 20.0)
+        self.assertEqual(paper["cash_buffer"], 0.0)
+        self.assertGreater(paper["max_daily_loss"], live["max_daily_loss"])
+        self.assertEqual(S.risk(dict(st, mode="live"))["risk_per_trade_pct"], st["risk_per_trade_pct"])
+        self.assertEqual(S.skills_config(dict(st, mode="paper"), 400)["max_loss_per_trade_usd"], 20.0)
+
+    def test_paper_buys_with_4x_the_account(self):
+        st = S.validate({})
+        self.assertEqual(S.leverage(dict(st, mode="live")), 1.0)
+        self.assertEqual(S.leverage(dict(st, mode="paper")), 4.0)
+        self.assertEqual(S.limits(dict(st, mode="paper"), 400)["max_position"], 1600.0)
+        self.assertEqual(S.limits(dict(st, mode="live"), 400)["max_position"], 380.0)

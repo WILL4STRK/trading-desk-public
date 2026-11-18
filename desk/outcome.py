@@ -1,8 +1,9 @@
-"""How a signal would have done, taken or not (docs/AUDIT-2026-11-11.md, gap 3).
+"""How a signal would have done, taken or not.
 
 After the close the desk replays every signal of the day against that day's 5-minute candles, with the
 slip's own numbers: buy at the limit or lower while the signal was good, then the stop, the target or
-the flat-by time, whichever comes first. The answer is stored beside the signal so a later review can
+the flat-by time, whichever comes first. A short slip is the mirror: sell short at the limit or higher,
+then the buy stop above, the target below or the flat-by time. The answer is stored beside the signal so a later review can
 ask "what did I skip, and was skipping right?". It is an estimate from candles, not a fill: inside one
 candle the order of the high and the low is unknown, so when a candle reaches both the stop and the
 target the stop is counted (the careful answer). Nothing here changes a signal or a trade.
@@ -27,6 +28,8 @@ def replay(p, bars):
     except (KeyError, TypeError, ValueError):
         return {"result": NO_PLAN, "entry": None, "exit": None, "exit_time": None, "r": None,
                 "note": "The signal stopped before a plan was made."}
+    if p.get("side") == "short":
+        return _replay_short(limit, stop, target, start, until, flat, bars)
     if not stop < limit < target:
         return {"result": NO_PLAN, "entry": None, "exit": None, "exit_time": None, "r": None,
                 "note": "The plan's numbers are not usable."}
@@ -56,5 +59,40 @@ def replay(p, bars):
             return done(STOP, b["o"] if gap else stop, b, "Hit the stop." + (" Gapped through it." if gap else ""))
         if k > 0 and b["h"] >= target - 1e-9:               # not in the fill candle: its order is unknown
             return done(TARGET, max(target, b["o"]) if b["o"] > target else target, b, "Reached the target.")
+    last = after[-1]
+    return done(OPEN, last["c"], last, "The candles end before the trade did.")
+
+
+def _replay_short(limit, stop, target, start, until, flat, bars):
+    """The short mirror of replay(): fills at the limit or higher, stop above, target below."""
+    if not target < limit < stop:
+        return {"result": NO_PLAN, "entry": None, "exit": None, "exit_time": None, "r": None,
+                "note": "The plan's numbers are not usable."}
+    after = [b for b in bars if b["minute"] >= start]
+    entry, i = None, None
+    for k, b in enumerate(after):
+        if b["minute"] >= until:
+            break
+        if b["h"] >= limit - 1e-9:
+            entry, i = round(max(limit, b["o"]), 2), k     # a gap up fills at the open, over the limit
+            break
+    if entry is None:
+        return {"result": NO_FILL, "entry": None, "exit": None, "exit_time": None, "r": None,
+                "note": "The price never came back up to the limit while the signal was good."}
+    risk = stop - entry
+
+    def done(result, price, b, note):
+        price = round(price, 2)
+        return {"result": result, "entry": entry, "exit": price, "exit_time": b["start"],
+                "r": round((entry - price) / risk, 2) if risk > 0 else None, "note": note}
+
+    for k, b in enumerate(after[i:]):
+        if b["minute"] >= flat:
+            return done(FLAT, b["o"], b, "Still open at the flat-by time.")
+        if b["h"] >= stop - 1e-9:
+            gap = k > 0 and b["o"] > stop                   # opened over the stop: a buy stop fills at the open
+            return done(STOP, b["o"] if gap else stop, b, "Hit the buy stop." + (" Gapped through it." if gap else ""))
+        if k > 0 and b["l"] <= target + 1e-9:
+            return done(TARGET, min(target, b["o"]), b, "Reached the target.")
     last = after[-1]
     return done(OPEN, last["c"], last, "The candles end before the trade did.")

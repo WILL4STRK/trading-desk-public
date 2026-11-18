@@ -8,15 +8,18 @@ reasons if anything refused it. Nothing here places an order.
 import datetime
 import math
 
+from . import charts
 from . import guards
 from . import mode as M
 from . import settings as S
+from . import shorts
 from . import skills
 from . import slipinfo
 
 
-def workdir(date, symbol):
-    return M.work_root(S.load()["mode"]) / date / symbol          # paper and live never share a folder
+def workdir(date, symbol, side="long"):
+    """Each signal's own folder: paper and live never share one, and a short never shares a long's."""
+    return M.work_root(S.load()["mode"]) / date / (symbol if side == "long" else "%s.short" % symbol)
 
 
 def _hhmm_add(hhmm, minutes):
@@ -37,17 +40,18 @@ def write_account(wd, st, journal, now):
     positions = [{"ticker": t["symbol"], "shares": t["qty"],
                   "lots": [{"id": "%s-%d" % (t["symbol"], t["id"]), "date": t["date"], "shares": t["qty"],
                             "cost": round(t["qty"] * t["entry_price"], 2)}]}
-                 for t in journal.open_trades()]
+                 for t in journal.open_trades() if t.get("side", "long") == "long"]   # a short is not shares held
     skills.write_json(wd / "trader" / "portfolio.json",
-                      {"cash": journal.settled_cash(today), "positions": positions})
+                      {"cash": journal.buying_power(today), "positions": positions})
     orders = []
     for t in journal.trades(today):
+        opened, closed = ("sell", "buy") if t.get("side") == "short" else ("buy", "sell")
         orders.append({"at": t["entry_at"], "date": t["date"], "status": "placed", "kind": "entry",
-                       "symbol": t["symbol"], "side": "buy", "qty": str(t["qty"]), "stop": t["stop"],
-                       "max_loss": round((t["entry_price"] - t["stop"]) * t["qty"], 2)})
+                       "symbol": t["symbol"], "side": opened, "qty": str(t["qty"]), "stop": t["stop"],
+                       "max_loss": round(abs(t["entry_price"] - t["stop"]) * t["qty"], 2)})
         if t["status"] == "closed":
             orders.append({"at": t["exit_at"], "date": t["exit_at"][:10], "status": "filled", "kind": "exit",
-                           "symbol": t["symbol"], "side": "sell", "qty": str(t["qty"]), "price": t["exit_price"]})
+                           "symbol": t["symbol"], "side": closed, "qty": str(t["qty"]), "price": t["exit_price"]})
     skills.write_json(wd / "trader" / "state" / "broker.json", {"orders": orders})
     return cfg
 
@@ -218,3 +222,157 @@ def news(symbol, st, source, wd, limit=5):
                     "kind": it.get("kind"), "tags": it.get("tags") or [],
                     "link": link if link.startswith("https://") else ""})
     return out
+
+
+# ---------------------------------------------------------------- the short side (docs/SHORTING.md)
+
+_TM_STOP_RULE = {"or-mid": "or_mid", "or-low": "or_high"}
+
+
+def evaluate_short(symbol, st, journal, source, chart=None):
+    """The short side's evaluate(): the same stamp, cost line and rule card as a long slip."""
+    status, sig = _evaluate_short(symbol, st, journal, source, chart)
+    if status is not None:
+        slipinfo.finish(sig, st, journal, source.now())
+    return status, sig
+
+
+def _evaluate_short(symbol, st, journal, source, chart=None):
+    """One symbol through the short side: an opening-range breakdown. Same return as evaluate().
+
+    The Entry Timer, Exit Planner and Budget Manager skills are long-only, so the trigger, the stop,
+    the target and the size come from desk/shorts.py. The Time Machine, the Risk Manager and the
+    News Monitor take a sell as they are and are run unchanged. Nothing here places an order."""
+    now = source.now()
+    today = now[:10]
+    wd = workdir(today, symbol, "short")
+    na = source.now_args()
+    try:
+        chart = chart or charts.intraday(source, symbol)
+    except charts.ChartError as e:
+        return None, "chart: %s" % e
+    bars = charts.session_bars(chart, now)
+    rng, trig, reason = shorts.breakdown(bars, st["or_minutes"], st["no_entries_after"], st["min_volume_x"])
+    if not trig:
+        return None, reason
+    equity = journal.equity()
+    acct = shorts.status(st, equity)
+    now_min = int(now[11:13]) * 60 + int(now[14:16])
+    age = now_min - (int(trig["close_time"][:2]) * 60 + int(trig["close_time"][3:]))
+    sig = {
+        "symbol": symbol, "setup": shorts.SETUP, "side": "short", "date": today, "created": now,
+        "paper_only": acct["paper_only"], "paper_why": acct["why"],
+        "trigger_time": trig["time"], "trigger_close_time": trig["close_time"],
+        "trigger_price": trig["price"], "volume_x": trig.get("volume_x"),
+        "opening_range": {"high": round(rng["high"], 2), "low": round(rng["low"], 2)},
+        "prev_close": chart.get("prev_close"), "reason": reason,
+        "valid_until": _hhmm_add(trig["close_time"], st["signal_valid_minutes"]),
+        "problems": [], "warnings": [], "workdir": str(wd), "flat_by": st["flat_by"],
+    }
+    if age > st["signal_valid_minutes"]:
+        sig["problems"].append("It triggered at %s, %d minutes ago. Too late to chase." % (trig["time"], age))
+        return "missed", sig
+
+    # stop, target and the lowest price worth selling at
+    try:
+        pl = shorts.plan(trig["price"], rng, st["stop_rule"], st["target_r"], st["chase_r"])
+    except shorts.ShortError as e:
+        sig["problems"].append("No plan: %s" % e)
+        return "blocked", sig
+    sig.update({k: pl[k] for k in ("entry", "stop", "target", "limit", "risk_per_share", "stop_label", "target_label")})
+    if st.get("min_stop_pct") and 100.0 * pl["risk_per_share"] / pl["entry"] + 1e-9 < st["min_stop_pct"]:
+        sig["problems"].append("The stop is only %.2f%% above the entry (%.2f a share). Your floor is %.2f%%: "
+                               "a stop that close is hit by normal wiggle."
+                               % (100.0 * pl["risk_per_share"] / pl["entry"], pl["risk_per_share"], st["min_stop_pct"]))
+
+    # the short-sale restriction, and the trend
+    day_low = min(b["l"] for b in bars)
+    if shorts.restricted(day_low, chart.get("prev_close")):
+        sig["problems"].append("Short-sale restriction: %s is down %.0f%% or more from yesterday's close (%.2f). "
+                               "Shorts can only fill above the best bid for the rest of today and tomorrow."
+                               % (symbol, shorts.SSR_DROP_PCT, chart["prev_close"]))
+    try:
+        direction, avg = shorts.trend(charts.daily_closes(source, symbol), pl["entry"])
+    except charts.ChartError as e:
+        direction, avg = None, None
+        sig["warnings"].append("Daily history could not be read (%s)." % e)
+    sig["trend"] = {"direction": direction, "average": avg, "days": shorts.TREND_DAYS}
+    if direction == "up":
+        sig["problems"].append("%s is above its %d-day average (%.2f): an uptrend. The desk only shorts below it."
+                               % (symbol, shorts.TREND_DAYS, avg))
+    elif direction is None and source.demo:
+        sig["warnings"].append("The demo files have no daily history, so the %d-day trend check did not run." % shorts.TREND_DAYS)
+    elif direction is None:
+        sig["problems"].append("No %d days of history for %s, so the desk cannot check the trend. No short."
+                               % (shorts.TREND_DAYS, symbol))
+
+    # time machine: it replays a sell as it is
+    sig["odds"] = None
+    if source.has_history(symbol):
+        args = ["run", "--symbol", symbol, "--side", "sell", "--date", today, "--entry", "%.2f" % pl["entry"],
+                "--stop", "%.2f" % pl["stop"], "--target", "%.2f" % pl["target"], "--entry-time", trig["time"],
+                "--setup", "orb", "--or-minutes", st["or_minutes"],
+                "--stop-rule", _TM_STOP_RULE.get(st["stop_rule"], "pct"),
+                "--replays", st["replays"], "--until", st["flat_by"], "--json"]
+        r = skills.run("timemachine", args + na + source.history_offline(symbol), wd, timeout=300)
+        tm = r.json
+        if isinstance(tm, dict) and "mc" in tm:
+            mc, hist = tm["mc"], tm.get("history") or {}
+            sig["odds"] = {
+                "p_target": mc["p_target"], "p_stop": mc["p_stop"], "p_neither": mc["p_neither"],
+                "p_green": mc["p_green"], "avg_r": mc["avg_R"], "replays": mc["replays"],
+                "sessions": mc["pool_sessions"], "median_close": mc["median_close"],
+                "p5_close": mc["p5_close"], "p95_close": mc["p95_close"], "until": mc["until"],
+                "edge_points": edge_points(mc["p_target"], mc["p_stop"], pl["target_r"]),
+                "verdict": tm.get("verdict"), "notes": tm.get("verdict_notes") or [],
+                "history": {k: hist.get(k) for k in ("sessions", "triggered", "target", "stop", "close", "avg_R")},
+            }
+            sig["warnings"] += tm.get("warnings") or []
+        else:
+            sig["warnings"].append("Time Machine could not run: %s" % r.message)
+    else:
+        sig["warnings"].append("No 60-day history in the demo files for %s, so no odds." % symbol)
+
+    # size: the same percentage limits as a long
+    lim = S.limits(st, equity)
+    sz = shorts.size(pl, lim, journal.buying_power(today))
+    sig.update({"qty": sz["qty"], "cost": sz["cost"], "max_loss": sz["max_loss"], "reward": sz["reward"],
+                "reward_risk": sz["reward_risk"], "bound_by": sz["bound_by"], "sizing_limits": sz["limits"]})
+    if sz["refusal"]:
+        sig["problems"].append("Size: %s" % sz["refusal"])
+        return "blocked", sig
+
+    # risk manager: a sell with a stop above it, allowed only in this short's own folder
+    cfg = write_account(wd, st, journal, now)
+    cfg.update({"allow_short": True, "allow_margin": True})
+    skills.write_json(wd / "trader" / "config.json", cfg)
+    skills.write_json(wd / "trader" / "orders.json", {"orders": [shorts.order(sig)]})
+    r = skills.run("risk", ["--json", "--no-write"] + na, wd)
+    res = ((r.json or {}).get("results") or [None])[0] if isinstance(r.json, dict) else None
+    if not res:
+        sig["problems"].append("Risk check could not run: %s" % r.message)
+        return "blocked", sig
+    sig["risk"] = {"verdict": res["verdict"], "reasons": res.get("reasons") or [], "info": res.get("info") or []}
+    sig["warnings"] += res.get("warnings") or []
+
+    sig["ticket"] = {"plain": "SELL SHORT %d %s, limit %.2f or higher, good for today / buy stop %.2f / buy limit (target) "
+                              "%.2f / loss about $%.2f at the stop" % (sig["qty"], symbol, sig["limit"], sig["stop"],
+                                                                         sig["target"], sig["max_loss"]),
+                     "ready": res["verdict"] == "PASS" and not sig["problems"], "steps": shorts.tos_steps(sig)}
+
+    sig["news"] = news(symbol, st, source, wd)
+    if any("earnings" in (n.get("tags") or []) for n in sig["news"]):
+        sig["warnings"].append("Earnings are in the headlines for %s. Good news can send a short up fast." % symbol)
+
+    if res["verdict"] != "PASS":
+        sig["problems"] += ["Risk: %s" % x for x in sig["risk"]["reasons"]]
+    if sig["problems"]:
+        return "blocked", sig
+    ep = (sig["odds"] or {}).get("edge_points")
+    if sig["odds"] is None and not source.demo:
+        sig["problems"].append("No Time Machine odds for this one, so the desk cannot grade it.")
+        return "weak", sig
+    if ep is not None and ep < st["min_edge_points"]:
+        sig["problems"].append("Time Machine edge is %+.1f points, under your floor of %+.1f." % (ep, st["min_edge_points"]))
+        return "weak", sig
+    return "ready", sig

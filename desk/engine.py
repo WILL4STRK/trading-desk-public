@@ -8,7 +8,9 @@ import math
 import re
 import threading
 
+from . import decide
 from . import auto as A
+from . import breaker
 from . import changes
 from . import charts
 from . import exports
@@ -19,6 +21,7 @@ from . import pipeline
 from . import review as R
 from . import screenshot
 from . import settings as S
+from . import shorts
 from . import skills
 from . import stamp
 from .journal import Journal, JournalError
@@ -69,8 +72,9 @@ class Desk:
         return c
 
     def settle_date(self, now):
-        """When money from a sale made now can be used again."""
-        if S.load()["account_type"] == "margin":
+        """When money from a sale made now can be used again. Paper mode: at once, so auto paper can keep learning."""
+        st = S.load()
+        if st["account_type"] == "margin" or st["mode"] == "paper":
             return now[:10]
         c = self.clock(now[:10] + " 23:59")
         nxt = str(c.get("next_open") or "")[:10]
@@ -84,7 +88,7 @@ class Desk:
     # ---- can the desk look for entries right now? --------------------
     def spendable(self, st, now):
         lim = S.limits(st, self.j.equity())
-        return round(max(0.0, min(self.j.settled_cash(now[:10]) - lim["cash_buffer"], lim["max_position"])), 2)
+        return round(max(0.0, min(self.j.buying_power(now[:10]) - lim["cash_buffer"], lim["max_position"])), 2)
 
     def halt_reason(self, st, now):
         if st.get("paused"):
@@ -100,15 +104,39 @@ class Desk:
             return "No new entries this late in the day."
         day = self.j.day(now[:10])
         lim = S.limits(st, self.j.equity())
-        if day["trades"] >= st["max_trades_per_day"]:
-            return "You have taken %d of %d trades today. Done for the day." % (day["trades"], st["max_trades_per_day"])
+        if day["trades"] >= S.trades_cap(st):
+            return "You have taken %d of %d trades today. Done for the day." % (day["trades"], S.trades_cap(st))
         if day["realised"] <= -lim["max_daily_loss"] < 0:
             return "Down $%.2f today, at your daily loss limit of $%.2f. Done for the day." % (-day["realised"], lim["max_daily_loss"])
+        stop = self.stops(st, now)["tripped"]
+        if stop:
+            self._note_stop(stop, now)
+            return stop["reason"]
         if st["mode"] == "live" and self.j.cash() <= 0:
             return "Live mode has no cash yet. Enter your real cash in the Account tab first."
         if self.spendable(st, now) < max(st["min_price"], 1):
             return "No settled cash to trade with until your last sale settles."
         return None
+
+    # ---- risk stops over more than one day (desk/breaker.py) --------
+    def stops(self, st=None, now=None):
+        st, now = st or S.load(), now or self.src.now()
+        return breaker.status(st, self.j.trades(limit=100000), self.j.equity(), now[:10], self.j.get(breaker.RESET_KEY))
+
+    def _note_stop(self, stop, now):
+        """Logs a trip once: per week for the weekly stop, per reset for the others."""
+        when = breaker.week_start(now) if stop["key"] == "weekly" else (self.j.get(breaker.RESET_KEY) or "start")
+        self.j.add_event("stops", stop["reason"], now, key="stop-%s-%s" % (stop["key"], when))
+
+    def reset_stops(self):
+        """You read the record and want the desk to carry on: the losing run and the drawdown count from now.
+        The weekly stop is a calendar limit and is not reset."""
+        with self.lock:
+            now = self.src.now()
+            self.j.put(breaker.RESET_KEY, now)
+            self.j.add_event("stops", "Risk stops reset by you. The losing run and the drop from the best point "
+                                      "count again from here.", now)
+            return self.stops(S.load(), now)
 
     # ---- scanning ----------------------------------------------------
     def premarket(self):
@@ -159,75 +187,165 @@ class Desk:
                             skills.TOOLS)
 
     def _scan(self):
-        """One pass: opening-range breakouts so far, then the full pipeline on the fresh ones."""
+        """One pass. Longs: opening-range breakouts from the Chart Scanner skill. Shorts (when switched on):
+        opening-range breakdowns from each stock's own candles. Then one row per stock saying long, short,
+        both or nothing, and why (desk/decide.py)."""
         with self.lock:
             st, now = S.load(), self.src.now()
             summary = {"at": now, "scanned": 0, "hits": 0, "fresh": 0, "evaluated": 0, "too_expensive": 0,
-                       "stale": 0, "already": 0, "new_signals": 0, "halt": self.halt_reason(st, now), "error": None}
+                       "stale": 0, "already": 0, "new_signals": 0, "halt": self.halt_reason(st, now), "error": None,
+                       "directions": st["directions"], "short_hits": 0, "short_new": 0}
             if summary["halt"]:
                 self.j.put("last_scan", summary)
                 return summary
-            wd = self.scan_dir(now)
-            args = ["orb", "--or-minutes", st["or_minutes"], "--min-price", st["min_price"],
-                    "--json", "--no-write", "--quiet"] + self.src.now_args()
-            if self.src.demo:
-                args += self.src.scan_offline()
-            elif self._universe_due(st, now):
-                uni = wd.parent.parent / "universe.txt"
-                if not uni.exists() or (datetime.date.today().toordinal() - datetime.date.fromtimestamp(uni.stat().st_mtime).toordinal()) >= 7:
-                    skills.run("scanner", universe_args(uni), wd, timeout=120)
-                args += ["--universe", uni]
-                self.j.put("universe_scan_at", now)
-            else:
-                args += ["--symbols", ",".join(st["watchlist"])]
-            r = skills.run("scanner", args, wd, timeout=900)
-            d = r.json if isinstance(r.json, dict) else None
-            if d is None:
-                summary["error"] = "Scanner: %s" % r.message
-                self.j.put("last_scan", summary)
-                return summary
-            hits = d.get("hits", [])
-            counts = d.get("counts") if isinstance(d.get("counts"), dict) else {}
-            # unusable: charts the scanner left out because a 5-minute candle is missing from the free data
-            summary.update({"scanned": d.get("scanned", 0), "hits": len(hits), "failed": d.get("failed", 0),
-                            "unusable": int(counts.get("unusable") or 0)})
-            now_min, spend = _minutes(now[11:16]), self.spendable(st, now)
-            fresh, fate = [], {}
-            for h in hits:
-                sym = h["symbol"]
-                if sym in st["blocked"]:
-                    fate[sym] = "blocked list"
-                    continue
-                if self.j.has_signal(now[:10], sym, "orb"):
-                    summary["already"] += 1
-                    fate[sym] = "signal already made"
-                elif now_min - _at_minutes(h["at"]) > st["signal_valid_minutes"]:
-                    summary["stale"] += 1
-                    fate[sym] = "too old"
-                elif h["price"] > spend:
-                    summary["too_expensive"] += 1
-                    fate[sym] = "too expensive"
-                else:
-                    fresh.append(h)
-                    fate[sym] = "waiting: only %d graded a scan" % MAX_EVALS_PER_SCAN
-            summary["fresh"] = len(fresh)
-            fresh.sort(key=lambda h: (-_at_minutes(h["at"]), -h.get("pct_over", 0)))
-            for h in fresh[:MAX_EVALS_PER_SCAN]:
-                status, sig = pipeline.evaluate(h["symbol"], st, self.j, self.src, hit=h)
-                summary["evaluated"] += 1
-                fate[h["symbol"]] = status or "no trigger: %s" % str(sig)[:120]
-                if status is None:
-                    continue
-                sid = self.j.add_signal(now[:10], h["symbol"], "orb", status, sig, now)
-                if sid and status == "ready":
-                    summary["new_signals"] += 1
-                    self.j.add_event("signal", "%s: buy %d at %.2f or lower, stop %.2f, target %.2f. Good until %s."
-                                     % (h["symbol"], sig["qty"], sig["limit"], sig["stop"], sig["target"], sig["valid_until"]),
-                                     now, h["symbol"], key="signal-%d" % sid)
-            summary["detail"] = [{"symbol": h["symbol"], "at": h["at"], "price": h["price"], "fate": fate.get(h["symbol"])}
-                                 for h in hits]
+            # Practice-only shorts are looked for in paper mode only; in live mode they would sit next to real slips.
+            practice = shorts.status(st, self.j.equity())["paper_only"]
+            shorts_on = st["directions"] != "long" and not (practice and st["mode"] == "live")
+            summary["shorts_skipped"] = None if shorts_on or st["directions"] == "long" else \
+                "Short signals are practice only on this account, so the desk looks for them in paper mode only."
+            long_notes = self._scan_longs(st, now, summary) if st["directions"] != "short" else {}
+            short_notes = self._scan_shorts(st, now, summary) if shorts_on else {}
+            if long_notes is not None:
+                symbols = list(dict.fromkeys(list(long_notes) + list(short_notes)))
+                off = None if shorts_on else decide.note(reason=decide.OFF if st["directions"] == "long"
+                                                         else "practice only: looked for in paper mode only")
+                self.j.add_decisions([decide.row(sym, long_notes.get(sym) if st["directions"] != "short" else None,
+                                                 short_notes.get(sym) if shorts_on else off)
+                                      for sym in symbols], now)
             self.j.put("last_scan", summary)
             return summary
+
+    def _scan_longs(self, st, now, summary):
+        """Opening-range breakouts so far, then the full pipeline on the fresh ones. Returns {symbol: note},
+        or None when the scanner itself failed (summary["error"] says why)."""
+        wd = self.scan_dir(now)
+        args = ["orb", "--or-minutes", st["or_minutes"], "--min-price", st["min_price"],
+                "--json", "--no-write", "--quiet"] + self.src.now_args()
+        if self.src.demo:
+            args += self.src.scan_offline()
+        elif self._universe_due(st, now):
+            uni = wd.parent.parent / "universe.txt"
+            if not uni.exists() or (datetime.date.today().toordinal() - datetime.date.fromtimestamp(uni.stat().st_mtime).toordinal()) >= 7:
+                skills.run("scanner", universe_args(uni), wd, timeout=120)
+            args += ["--universe", uni]
+            self.j.put("universe_scan_at", now)
+        else:
+            args += ["--symbols", ",".join(st["watchlist"])]
+        r = skills.run("scanner", args, wd, timeout=900)
+        d = r.json if isinstance(r.json, dict) else None
+        if d is None:
+            summary["error"] = "Scanner: %s" % r.message
+            return None
+        hits = d.get("hits", [])
+        counts = d.get("counts") if isinstance(d.get("counts"), dict) else {}
+        # unusable: charts the scanner left out because a 5-minute candle is missing from the free data
+        summary.update({"scanned": d.get("scanned", 0), "hits": len(hits), "failed": d.get("failed", 0),
+                        "unusable": int(counts.get("unusable") or 0)})
+        fate = {}       # what happened to each breakout, for the scan log (summary["detail"])
+        notes = {sym: decide.note(reason="no close above the range high, or the scanner left the chart out")
+                 for sym in st["watchlist"]}
+        now_min, spend = _minutes(now[11:16]), self.spendable(st, now)
+        fresh = []
+        for h in hits:
+            sym = h["symbol"]
+            if sym in st["blocked"]:
+                notes[sym] = decide.note(reason="on your blocked list")
+                fate[sym] = "blocked list"
+            elif self.j.has_signal(now[:10], sym, "orb"):
+                summary["already"] += 1
+                notes[sym] = decide.note(reason="already signalled today")
+                fate[sym] = "signal already made"
+            elif now_min - _at_minutes(h["at"]) > st["signal_valid_minutes"]:
+                summary["stale"] += 1
+                notes[sym] = decide.note(reason="breakout too old to chase")
+                fate[sym] = "too old"
+            elif h["price"] > spend:
+                summary["too_expensive"] += 1
+                notes[sym] = decide.note(reason="one share costs more than you can spend")
+                fate[sym] = "too expensive"
+            else:
+                fresh.append(h)
+                fate[sym] = "waiting: only %d graded a scan" % MAX_EVALS_PER_SCAN
+        summary["fresh"] = len(fresh)
+        fresh.sort(key=lambda h: (-_at_minutes(h["at"]), -h.get("pct_over", 0)))
+        for h in fresh[MAX_EVALS_PER_SCAN:]:
+            notes[h["symbol"]] = decide.note(reason="not graded: more than %d fresh breakouts this scan" % MAX_EVALS_PER_SCAN)
+        for h in fresh[:MAX_EVALS_PER_SCAN]:
+            status, sig = pipeline.evaluate(h["symbol"], st, self.j, self.src, hit=h)
+            summary["evaluated"] += 1
+            fate[h["symbol"]] = status or "no trigger: %s" % str(sig)[:120]
+            if status is None:
+                notes[h["symbol"]] = decide.note(reason=str(sig)[:200])
+                continue
+            sid = self.j.add_signal(now[:10], h["symbol"], "orb", status, sig, now)
+            notes[h["symbol"]] = decide.note(signal=sid, status=status)
+            if sid and status == "ready":
+                summary["new_signals"] += 1
+                self.j.add_event("signal", "%s: buy %d at %.2f or lower, stop %.2f, target %.2f. Good until %s."
+                                 % (h["symbol"], sig["qty"], sig["limit"], sig["stop"], sig["target"], sig["valid_until"]),
+                                 now, h["symbol"], key="signal-%d" % sid)
+        summary["detail"] = [{"symbol": h["symbol"], "at": h["at"], "price": h["price"], "fate": fate.get(h["symbol"])}
+                             for h in hits]
+        return notes
+
+    def _scan_shorts(self, st, now, summary):
+        """Opening-range breakdowns (docs/SHORTING.md). The Chart Scanner skill only finds breakouts,
+        so the desk reads each stock's 5-minute candles itself. Read-only, like every scan.
+        Returns {symbol: note} for every stock it looked at."""
+        now_min, spend = _minutes(now[11:16]), self.spendable(st, now)
+        if self.src.demo:
+            symbols = sorted(p.stem for p in self.src.chart_offline("")[1].glob("*.json"))
+        else:
+            symbols = st["watchlist"]
+        notes, fresh = {}, []
+        for sym in symbols:
+            if sym in st["blocked"]:
+                notes[sym] = decide.note(reason="on your blocked list")
+                continue
+            if self.j.has_signal(now[:10], sym, shorts.SETUP):
+                notes[sym] = decide.note(reason="already signalled today")
+                continue
+            try:
+                chart = charts.intraday(self.src, sym)
+            except charts.ChartError as e:
+                notes[sym] = decide.note(reason="no candles: %s" % str(e)[:120])
+                continue
+            finally:
+                if not self.src.demo:
+                    time.sleep(0.2)
+            _, trig, why = shorts.breakdown(charts.session_bars(chart, now), st["or_minutes"],
+                                            st["no_entries_after"], st["min_volume_x"])
+            if not trig:
+                notes[sym] = decide.note(reason=why if not why.startswith("waiting") else "no close below the range low")
+                continue
+            summary["short_hits"] += 1
+            if now_min - _minutes(trig["close_time"]) > st["signal_valid_minutes"]:
+                notes[sym] = decide.note(reason="breakdown too old to chase")
+                continue
+            if trig["price"] < st["min_price"]:
+                notes[sym] = decide.note(reason="price under your lowest share price")
+                continue
+            if trig["price"] > spend:
+                notes[sym] = decide.note(reason="one share costs more than you can set aside")
+                continue
+            fresh.append((sym, chart, trig))
+        fresh.sort(key=lambda f: (-_minutes(f[2]["close_time"]), -f[2]["pct_under"]))
+        for sym, _, _ in fresh[MAX_EVALS_PER_SCAN:]:
+            notes[sym] = decide.note(reason="not graded: more than %d fresh breakdowns this scan" % MAX_EVALS_PER_SCAN)
+        for sym, chart, _ in fresh[:MAX_EVALS_PER_SCAN]:
+            status, sig = pipeline.evaluate_short(sym, st, self.j, self.src, chart=chart)
+            if status is None:
+                notes[sym] = decide.note(reason=str(sig)[:200])
+                continue
+            sid = self.j.add_signal(now[:10], sym, shorts.SETUP, status, sig, now)
+            notes[sym] = decide.note(signal=sid, status=status)
+            if sid and status == "ready":
+                summary["short_new"] += 1
+                summary["new_signals"] += 1
+                self.j.add_event("signal", "SHORT%s %s: sell short %d at %.2f or higher, stop %.2f, target %.2f. Good until %s."
+                                 % (" (practice only)" if sig["paper_only"] else "", sym, sig["qty"], sig["limit"],
+                                    sig["stop"], sig["target"], sig["valid_until"]), now, sym, key="signal-%d" % sid)
+        return notes
 
     # ---- watching ----------------------------------------------------
     def monitor(self):
@@ -241,7 +359,8 @@ class Desk:
                     self.j.set_signal_status(s["id"], "expired", expect=("ready",))
             quotes = self.j.get("quotes", {})
             for t in self.j.open_trades():
-                wd = pipeline.workdir(t["date"], t["symbol"])
+                short = t.get("side") == "short"
+                wd = pipeline.workdir(t["date"], t["symbol"], t.get("side") or "long")
                 r = skills.run("alerts", ["check", "--json", "--now", now] + self.src.quotes_offline(), wd, timeout=60)
                 d = r.json if isinstance(r.json, dict) else {}
                 for sym, px in (d.get("quotes") or {}).items():
@@ -252,12 +371,16 @@ class Desk:
                     msg = {"stop": "%s touched your stop (%.2f). Check your broker: your stop order should have sold. Then record the exit here.",
                            "target": "%s reached your target (%.2f). Check your broker: your limit order should have sold. Then record the exit here.",
                            "flat": "%s is still open and it is time to be flat. Close it at your broker now, then record the exit here."}[kind]
+                    if short:
+                        msg = {"stop": "Short %s rose to your stop (%.2f). Check your broker: your buy stop should have covered it. Then record the exit here.",
+                               "target": "Short %s fell to your target (%.2f). Check your broker: your buy limit should have covered it. Then record the exit here.",
+                               "flat": "Short %s is still open and it is time to be flat. Buy to cover at your broker now, then record the exit here."}[kind]
                     msg = msg % ((t["symbol"], t["stop"]) if kind == "stop" else (t["symbol"], t["target"]) if kind == "target" else (t["symbol"],))
                     if t.get("note") != A.AUTO:             # auto paper sells its own trades: nothing for you to do
                         self.j.add_event(kind, msg, now, t["symbol"], key="trade-%d-%s" % (t["id"], kind))
                 if t["date"] < now[:10]:
-                    self.j.add_event("flat", "%s was opened on %s and is still marked open. Day trades are flat by the close: "
-                                     "close it or record the exit." % (t["symbol"], t["date"]), now, t["symbol"],
+                    self.j.add_event("flat", "%s%s was opened on %s and is still marked open. Day trades are flat by the close: "
+                                     "close it or record the exit." % ("Short " if short else "", t["symbol"], t["date"]), now, t["symbol"],
                                      key="trade-%d-overnight-%s" % (t["id"], now[:10]))
             self.j.put("quotes", quotes)
             if now[11:16] >= "16:00":           # after the close, once: what the day was
@@ -266,14 +389,25 @@ class Desk:
                     self.j.add_event("summary", text, now, key="summary-%s" % now[:10])
         if now[11:16] >= "16:05" and self.j.get("outcomes_done") != now[:10]:
             self.record_outcomes(now[:10])           # outside the lock: it reads one chart a signal
+        elif not self.src.demo and self.j.get("outcomes_retry") != now[:13]:
+            self.j.put("outcomes_retry", now[:13])   # at most once an hour: replays that got no candles (offline, asleep)
+            for d in self.j.outcome_gaps():
+                self.record_outcomes(d, only_gaps=True)
 
-    def record_outcomes(self, date):
-        """After the close: how every signal of the day would have done with its own numbers (desk/outcome.py)."""
-        now, done = self.src.now(), 0
+    def record_outcomes(self, date, only_gaps=False):
+        """After the close: how every signal of the day would have done with its own numbers (desk/outcome.py).
+        only_gaps: replay again just the signals that got "no data" before."""
+        now, done, got = self.src.now(), 0, {}
+        gaps = self.j.outcome_gaps(date) if only_gaps else None
         for s in self.j.signals(date=date, limit=1000):
+            if gaps is not None and s["id"] not in gaps:
+                continue
             p = s["payload"]
             try:
-                bars = charts.session_bars(charts.intraday(self.src, s["symbol"]), date + " 16:00")
+                if s["symbol"] not in got:           # a month of 5-minute bars, so a missed day can be replayed later
+                    got[s["symbol"]] = charts.intraday(self.src, s["symbol"]) if self.src.demo \
+                        else charts.fetch(s["symbol"], "1mo", "5m")
+                bars = charts.session_bars(got[s["symbol"]], date + " 16:00")
             except charts.ChartError as e:
                 o = {"result": "no data", "entry": None, "exit": None, "exit_time": None, "r": None, "note": str(e)[:200]}
             else:
@@ -325,6 +459,8 @@ class Desk:
                 raise DeskError("Shares and price must be numbers.")
             if qty < 1 or qty > p["qty"]:
                 raise DeskError("The desk sized this at %d shares. You can take fewer, never more." % p["qty"])
+            if p.get("side") == "short":
+                return self._take_short(st, now, signal_id, p, qty, price)
             if price <= p["stop"]:
                 raise DeskError("A fill at %.2f is at or under the stop (%.2f). Check the number." % (price, p["stop"]))
             if price >= p["target"]:
@@ -343,6 +479,36 @@ class Desk:
                              % (qty, p["symbol"], price, p["stop"], p["target"], p.get("flat_by")), now, p["symbol"])
             return tid
 
+    def _take_short(self, st, now, signal_id, p, qty, price):
+        """You sold short by hand and it filled: record it. The mirror of a long fill."""
+        if st["directions"] == "long":
+            raise DeskError("Short signals are switched off in Settings. This signal is off.")
+        if price >= p["stop"]:
+            raise DeskError("A short fill at %.2f is at or over the stop (%.2f). Check the number." % (price, p["stop"]))
+        if price <= p["target"]:
+            raise DeskError("A short fill at %.2f is at or under the target (%.2f). Check the number." % (price, p["target"]))
+        lim = S.limits(st, self.j.equity())
+        loss = round(qty * (p["stop"] - price), 2)
+        if loss > lim["max_loss_per_trade"] + 0.005:
+            raise DeskError("At %.2f, %d shares risk $%.2f to the stop. Your limit is $%.2f. If it really filled there, "
+                            "buy back down to fit, then record what you kept." % (price, qty, loss, lim["max_loss_per_trade"]))
+        practice = shorts.status(st, self.j.equity())["paper_only"]
+        if practice and st["mode"] == "live":
+            # A practice-only short can be shown in live mode but never recorded as real money.
+            raise DeskError("This account cannot short for real (%s) The live record only holds real trades. "
+                            "Switch to paper mode to practise shorts." % " ".join(shorts.status(st, self.j.equity())["why"]))
+        try:
+            tid = self.j.open_trade(p["symbol"], qty, price, p["stop"], p["target"], now, signal_id, p.get("flat_by"),
+                                    note="practice short" if practice else "", side="short")
+        except JournalError as e:
+            raise DeskError(str(e))
+        for args in shorts.alert_rules(p):
+            skills.run("alerts", args, p["workdir"], timeout=30)
+        self.j.add_event("fill", "Recorded%s: sold short %d %s at %.2f. Buy stop %.2f, target %.2f, flat by %s."
+                         % (" (practice)" if practice else "", qty, p["symbol"], price, p["stop"], p["target"], p.get("flat_by")),
+                         now, p["symbol"])
+        return tid
+
     def skip(self, signal_id):
         with self.lock:
             self.auto.release(signal_id, "you skipped it")
@@ -359,8 +525,9 @@ class Desk:
             except (TypeError, ValueError) as e:
                 raise DeskError(str(e) if isinstance(e, JournalError) else "The exit price must be a number.")
             t = self.j.trade(int(trade_id))
-            self.j.add_event("exit", "Recorded: sold %d %s at %.2f. %s $%.2f." %
-                             (t["qty"], t["symbol"], price, "Made" if pnl >= 0 else "Lost", abs(pnl)), now, t["symbol"])
+            self.j.add_event("exit", "Recorded: %s %d %s at %.2f. %s $%.2f." %
+                             ("bought to cover" if t.get("side") == "short" else "sold", t["qty"], t["symbol"], price,
+                              "Made" if pnl >= 0 else "Lost", abs(pnl)), now, t["symbol"])
             return pnl
 
     def change_settings(self, wanted):
@@ -455,15 +622,21 @@ class Desk:
         else:
             fills = screenshot.read_fills(lines)
             out["fills"] = fills
-            sells = [f for f in fills if f["side"] == "sell" and f["symbol"] == trade["symbol"]]
+            short = trade.get("side") == "short"          # a short is closed by a buy
+            sells = [f for f in fills if f["side"] == ("buy" if short else "sell") and f["symbol"] == trade["symbol"]]
             pick = next((f for f in reversed(sells) if f["qty"] == trade["qty"]), sells[-1] if sells else None)
             if pick:
                 p = pick["price"]
-                reason = "target" if p >= trade["target"] - 0.005 else "stop" if p <= trade["stop"] + 0.005 else "manual"
+                if short:
+                    reason = "target" if p <= trade["target"] + 0.005 else "stop" if p >= trade["stop"] - 0.005 else "manual"
+                else:
+                    reason = "target" if p >= trade["target"] - 0.005 else "stop" if p <= trade["stop"] + 0.005 else "manual"
                 out["suggest"] = {"price": p, "reason": reason}
-                out["message"] = "Found: sold %d %s at %.2f. Check it, then press Save." % (pick["qty"], pick["symbol"], p)
+                out["message"] = "Found: %s %d %s at %.2f. Check it, then press Save." % (
+                    "bought to cover" if short else "sold", pick["qty"], pick["symbol"], p)
             else:
-                out["message"] = "No sale of %s found in that screenshot. Type the exit price instead." % trade["symbol"]
+                out["message"] = "No %s of %s found in that screenshot. Type the exit price instead." % (
+                    "buy to cover" if short else "sale", trade["symbol"])
         self.j.add_event("screenshot", "Saved a %s screenshot (%s)." % (kind, out["image"]), now,
                          trade["symbol"] if trade else None)
         return out
@@ -532,9 +705,10 @@ class Desk:
         for t in self.j.open_trades():
             q = (quotes.get(t["symbol"]) or {})
             t["last"], t["last_at"] = q.get("price"), q.get("at")
-            t["unrealised"] = round((q["price"] - t["entry_price"]) * t["qty"], 2) if q.get("price") else None
-            t["max_loss"] = round((t["entry_price"] - t["stop"]) * t["qty"], 2)
-            t["reward"] = round((t["target"] - t["entry_price"]) * t["qty"], 2)
+            sign = -1 if t.get("side") == "short" else 1
+            t["unrealised"] = round(sign * (q["price"] - t["entry_price"]) * t["qty"], 2) if q.get("price") else None
+            t["max_loss"] = round(sign * (t["entry_price"] - t["stop"]) * t["qty"], 2)
+            t["reward"] = round(sign * (t["target"] - t["entry_price"]) * t["qty"], 2)
             open_trades.append(t)
         halt = self.halt_reason(st, now)
         signals = self.j.signals(date=today)
@@ -542,6 +716,9 @@ class Desk:
         for sg in signals:
             if sg["status"] == "ready":
                 p = sg["payload"]
+                if p.get("side") == "short" and st["directions"] == "long":
+                    sg["off"] = "Short signals are switched off in Settings."
+                    continue
                 sg["off"] = halt or (("You have $%.2f of settled cash and this needs about $%.2f." % (settled, p["cost"]))
                                      if p.get("cost", 0) > settled else None)
         out = {
@@ -555,7 +732,9 @@ class Desk:
             "trades": self.j.trades(limit=50), "events": self.j.events(limit=40),
             "last_scan": self.j.get("last_scan"), "premarket": self.j.get("premarket"),
             "settings": st,
+            "shorts": shorts.status(st, equity),
             "auto": self.auto.summary(st),
+            "stops": self.stops(st, now),
             "chart_urls": {},
         }
         out["health"] = self.health(st, now, halt)
@@ -569,6 +748,7 @@ class Desk:
         j, mode = journal or self.j, mode or st["mode"]
         summ = R.summary(j.trades(limit=100000), j.signals(limit=100000), j.events(limit=100000), j.get("rulesets", {}),
                          outcomes=j.outcomes(), scans=j.scans(limit=100000))
+        summ["decisions"] = decide.counts(j.decisions(limit=100000))
         return {"mode": mode, "now": now, "summary": summ, "text": R.report(mode, summ, now, stamp.rules_hash(st))}
 
     def exports(self):

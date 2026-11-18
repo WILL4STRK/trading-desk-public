@@ -11,11 +11,13 @@
 MIN_TRIGGERS = 10
 
 
-def after_cost(limit, stop, target, qty, est_cost_per_share):
-    """Reward and risk at the limit price once the estimated cost is taken off both ends."""
+def after_cost(limit, stop, target, qty, est_cost_per_share, side="long"):
+    """Reward and risk at the limit price once the estimated cost is taken off both ends.
+    A short sells at the limit and buys back at the stop (above) or the target (below)."""
     c = max(0.0, float(est_cost_per_share or 0))
-    risk_ps = (limit - stop) + c
-    reward_ps = (target - limit) - c
+    sign = -1 if side == "short" else 1
+    risk_ps = sign * (limit - stop) + c
+    reward_ps = sign * (target - limit) - c
     if risk_ps <= 0:
         return None
     return {"per_share": round(c, 4),

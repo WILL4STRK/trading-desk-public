@@ -137,6 +137,10 @@ a.chart-link:hover{text-decoration:underline}
 
 .callout{border-radius:var(--r-inner);padding:10px 13px;margin:10px 0 0;font-size:14.5px;background:var(--warnBg);color:var(--warn)}
 .callout.bad{background:var(--stopBg);color:var(--stop)}
+/* short side: a red SHORT label and an amber PRACTICE ONLY label (this account cannot short for real), always in words */
+.side-tag{display:inline-block;margin-left:7px;padding:2px 7px;border-radius:6px;font-size:11.5px;font-weight:700;letter-spacing:.04em;vertical-align:2px;background:var(--stopBg);color:var(--stop)}
+.side-tag.paper{background:var(--warnBg);color:var(--warn)}
+.facts{margin:6px 0 0;padding-left:20px;font-size:14.5px;color:var(--label2)} .facts li{margin:5px 0}
 
 .odds{margin-top:12px}
 .odds-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--fill)}
@@ -285,6 +289,7 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
               <div><b id="f-day">–</b><span>Today</span></div>
             </div>
           </div>
+          <div id="shorts-note"></div>
           <div class="card status" id="status"></div>
           <div class="card" id="auto-card" style="margin-top:12px"></div>
           <div id="health-warn"></div>
@@ -378,6 +383,8 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
       <p class="foot-note" style="margin:0 2px 12px">Limits are percentages of your account, so they grow and shrink with it.</p>
       <div class="group" id="form"></div>
       <div class="hrow"><button class="btn wide" id="save">Save settings</button></div>
+      <h2 class="section-title">Short selling: rules and risks</h2>
+      <div class="card" id="shorts-facts"></div>
     </section>
   </main>
 </div>
@@ -447,13 +454,16 @@ function chartLink(sym) {
   const u = S.chart_urls && S.chart_urls[sym];
   return u ? `<a class="chart-link" href="${esc(u)}" target="_blank" rel="noopener noreferrer">Chart in TradingView<span class="vh"> for ${esc(sym)}, opens in a new window</span>&nbsp;↗</a>` : "";
 }
+const sideTags = (short, paper) => short ? `<span class="side-tag">SHORT</span>${paper ? `<span class="side-tag paper">PRACTICE ONLY</span>` : ""}` : "";
+const practiceTrade = t => t.side === "short" && (t.note === "practice short" || t.note === "auto");
+const factsList = () => `<ul class="facts">${((S.shorts || {}).facts || []).map(f => `<li>${esc(f)}</li>`).join("")}</ul>`;
 function slip(s, now) {
-  const p = s.payload, live = s.status === "ready" && !s.off;
+  const p = s.payload, live = s.status === "ready" && !s.off, sh = p.side === "short";
   const [label, cls] = s.off && ["ready","weak"].includes(s.status) ? ["Not now", "pill"] : TAGS[s.status] || [s.status, "pill"];
   const left = p.valid_until ? mins(p.valid_until) - mins(now.slice(11)) : null;
   const dim = s.off || ["blocked","missed","expired","skipped"].includes(s.status) ? " dim" : "";
   const head = `<div class="chead"><div class="logo" aria-hidden="true">${initials(p.symbol)}</div>
-      <div style="min-width:0"><div class="ticker">${esc(p.symbol)}</div><div class="sub num">Broke out ${esc(p.trigger_time)} at ${px(p.trigger_price)}</div></div>
+      <div style="min-width:0"><div class="ticker">${esc(p.symbol)}${sideTags(sh, p.paper_only)}</div><div class="sub num">Broke ${sh ? "down" : "out"} ${esc(p.trigger_time)} at ${px(p.trigger_price)}</div></div>
       <span class="${cls}">${label}</span></div>`;
   const probs = (s.off ? `<div class="callout bad">${esc(s.off)}</div>` : "") + (p.problems || []).map(x => `<div class="callout bad">${esc(x)}</div>`).join("") + (p.warnings || []).map(x => `<div class="callout">${esc(x)}</div>`).join("");
   if (p.qty == null || !p.qty) return `<article class="card sig ${esc(s.status)}${dim}">${head}${probs}${chartLink(p.symbol)}${ruleCard(p)}</article>`;
@@ -461,42 +471,47 @@ function slip(s, now) {
   const news = (p.news || []).map(n => `<li>${n.link ? `<a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>` : esc(n.title)}${(n.tags || []).length ? ` <span class="num">· ${esc(n.tags.join(", "))}</span>` : ""}</li>`).join("");
   const timer = live && left != null ? `<div class="timer num ${left <= 3 ? "soon" : ""}">${ring(left, S.settings.signal_valid_minutes)}Good until ${esc(t12(p.valid_until))} · ${Math.max(0, left)} min left</div>` : "";
   return `<article class="card sig ${esc(s.off ? "off" : s.status)}${dim}">${head}
-    <div class="order num">Buy ${p.qty} at <em>${px(p.limit)}</em> or lower</div>
+    <div class="order num">${sh ? "Sell short" : "Buy"} ${p.qty} at <em>${px(p.limit)}</em> or ${sh ? "higher" : "lower"}</div>
     <div class="list num">
       <div class="li"><span><i class="dot" style="background:var(--go)"></i>Target</span><b>${px(p.target)}</b></div>
-      <div class="li"><span><i class="dot" style="background:var(--stop)"></i>Stop</span><b>${px(p.stop)}</b></div>
-      <div class="li"><span>Cost</span><b>${usd(p.cost)}</b></div>
+      <div class="li"><span><i class="dot" style="background:var(--stop)"></i>${sh ? "Buy stop (above)" : "Stop"}</span><b>${px(p.stop)}</b></div>
+      <div class="li"><span>${sh ? "Cash set aside" : "Cost"}</span><b>${usd(p.cost)}</b></div>
+      ${sh && p.trend && p.trend.direction ? `<div class="li"><span>${p.trend.days}-day average</span><b>${px(p.trend.average)} · price is ${p.trend.direction === "down" ? "below" : "above"}</b></div>` : ""}
       <div class="li"><span>Reward to risk</span><b>${p.reward_risk} to 1</b></div>
       ${p.after_cost && p.after_cost.per_share ? `<div class="li"><span>After about ${usd(p.after_cost.total)} of slippage</span><b>${p.after_cost.reward_risk} to 1</b></div>` : ""}
       <div class="li"><span>Out by</span><b>${esc(t12(p.flat_by))}</b></div>
     </div>
-    <div class="pl num"><div class="l"><small>If the stop fills</small><b class="neg">${usd(-p.max_loss)}</b></div><div class="w"><small>If the target fills</small><b class="pos">${usd(p.reward, true)}</b></div></div>
+    <div class="pl num"><div class="l"><small>If the stop fills${sh ? " at its price" : ""}</small><b class="neg">${usd(-p.max_loss)}</b></div><div class="w"><small>If the target fills</small><b class="pos">${usd(p.reward, true)}</b></div></div>
+    ${sh ? `<div class="callout bad">A short's loss is not capped. If the price gaps over the stop you lose more than ${usd(p.max_loss)}.</div>` : ""}
+    ${sh && p.paper_only ? `<div class="callout"><b>Practice only: this account cannot short for real.</b> ${S.demo ? "This is demo data: do not place it anywhere." : "Practise it in your broker's paper account with the desk in paper mode, never in your real account."} ${(p.paper_why || []).map(esc).join(" ")}</div>` : ""}
     ${probs}${odds(p.odds)}
-    <p class="foot-note" style="margin:10px 0 0">Sized by your ${esc(p.bound_by || "limits")}. If the price is above ${px(p.limit)}, skip it.</p>
+    <p class="foot-note" style="margin:10px 0 0">Sized by your ${esc(p.bound_by || "limits")}. If the price is ${sh ? "below" : "above"} ${px(p.limit)}, skip it.</p>
     ${chartLink(p.symbol)}
     ${timer}
-    <details class="disc" ${live ? "open" : ""}><summary>How to enter it at your broker</summary><div class="inner"><ol class="steps">${p.ticket.steps.map(x => `<li>${esc(x)}</li>`).join("")}</ol></div></details>
+    <details class="disc" ${live ? "open" : ""}><summary>How to enter ${sh ? "the short" : "it"} at your broker</summary><div class="inner"><ol class="steps">${p.ticket.steps.map(x => `<li>${esc(x)}</li>`).join("")}</ol></div></details>
     ${ruleCard(p)}
     ${news ? `<details class="disc"><summary>Headlines</summary><div class="inner"><ul class="plain">${news}</ul><p style="margin:8px 0 0">Headlines are leads. Open the story before you act on one.</p></div></details>` : ""}
+    ${sh ? `<details class="disc"><summary>Short-selling rules and risks</summary><div class="inner">${factsList()}</div></details>` : ""}
     ${live ? `<div class="fill num">
         <label class="field"><span>Shares</span><input inputmode="numeric" data-d="qty" data-id="${s.id}" value="${esc(d.qty)}"></label>
         <label class="field"><span>Your fill price</span><input inputmode="decimal" data-d="price" data-id="${s.id}" value="${esc(d.price)}" placeholder="${px(p.limit)}"></label></div>
-      <div class="actions"><button class="btn" data-take="${s.id}">I placed it and it filled</button><button class="btn text" data-skip="${s.id}">Skip</button></div>` : ""}
+      <div class="actions"><button class="btn" data-take="${s.id}">${sh ? "I sold short and it filled" : "I placed it and it filled"}</button><button class="btn text" data-skip="${s.id}">Skip</button></div>` : ""}
   </article>`;
 }
 function openTrade(t) {
-  const d = drafts["x" + t.id] || {price:"", reason:"target"};
+  const d = drafts["x" + t.id] || {price:"", reason:"target"}, sh = t.side === "short";
   return `<article class="card sig open"><div class="chead"><div class="logo" aria-hidden="true">${initials(t.symbol)}</div>
-      <div style="min-width:0"><div class="ticker">${esc(t.symbol)}</div><div class="sub num">${t.qty} shares at ${px(t.entry_price)}</div></div><span class="pill open">Open</span></div>
+      <div style="min-width:0"><div class="ticker">${esc(t.symbol)}${sideTags(sh, practiceTrade(t))}</div><div class="sub num">${t.qty} shares ${sh ? "sold short " : ""}at ${px(t.entry_price)}</div></div><span class="pill open">Open</span></div>
     <div class="order num">${t.last ? `Last ${px(t.last)} <span class="${t.unrealised >= 0 ? "pos" : "neg"}">${usd(t.unrealised, true)}</span> <span class="sub" style="display:inline">delayed</span>` : `<span class="sub" style="display:inline;font-size:16px">Waiting for a quote</span>`}</div>
     <div class="list num">
       <div class="li"><span><i class="dot" style="background:var(--go)"></i>Target</span><b>${px(t.target)} <span class="pos">${usd(t.reward, true)}</span></b></div>
-      <div class="li"><span><i class="dot" style="background:var(--stop)"></i>Stop</span><b>${px(t.stop)} <span class="neg">${usd(-t.max_loss)}</span></b></div>
+      <div class="li"><span><i class="dot" style="background:var(--stop)"></i>${sh ? "Buy stop (above)" : "Stop"}</span><b>${px(t.stop)} <span class="neg">${usd(-t.max_loss)}</span></b></div>
       <div class="li"><span>Out by</span><b>${esc(t12(t.flat_by))}</b></div>
     </div>
+    ${sh ? `<div class="callout bad">This is a short: it loses when the price rises, and the loss is not capped. Buy to cover by ${esc(t12(t.flat_by))}; never hold it overnight.</div>` : ""}
     ${chartLink(t.symbol)}
     <div class="fill num">
-      <label class="field"><span>Exit price</span><input inputmode="decimal" data-d="price" data-id="x${t.id}" value="${esc(d.price)}"></label>
+      <label class="field"><span>${sh ? "Bought back at" : "Exit price"}</span><input inputmode="decimal" data-d="price" data-id="x${t.id}" value="${esc(d.price)}"></label>
       <label class="field"><span>Why</span><select data-d="reason" data-id="x${t.id}">${[["target","Target filled"],["stop","Stop filled"],["flat","Closed for the day"],["manual","Closed it early"]].map(([v, l]) => `<option value="${v}" ${d.reason === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
     <div class="actions"><button class="btn" data-exit="${t.id}">Record my exit</button></div></article>`;
 }
@@ -519,10 +534,14 @@ function render() {
   $("#f-equity").textContent = usd(a.equity); $("#f-spend").textContent = usd(a.spendable);
   $("#f-risk").textContent = usd(L.max_loss_per_trade);
   $("#f-day").textContent = usd(s.day.realised, true); $("#f-day").className = s.day.realised < 0 ? "neg" : s.day.realised > 0 ? "pos" : "";
+  const so = s.shorts || {};
+  $("#shorts-note").innerHTML = so.on ? `<div class="card" style="margin:0 0 12px"><div class="cap"><span>Short signals are on${so.long_on ? "" : " (longs are off)"}</span>${so.paper_only ? `<span class="side-tag paper">PRACTICE ONLY</span>` : ""}</div>
+      ${so.paper_only ? `<div class="callout">Short signals are practice only: this account cannot short for real${S.demo ? " (and this is the demo: place nothing from it)" : ""}. In live mode they are shown but cannot be recorded. ${so.why.map(esc).join(" ")}</div>` : `<div class="callout bad">Your settings say this account can short. The desk cannot check that with your broker.</div>`}
+      <details class="disc"><summary>Short-selling rules and risks</summary><div class="inner">${factsList()}</div></details></div>` : "";
   const ls = s.last_scan, st = $("#status");
   st.className = "card status" + (s.halt ? " halt" : "");
   st.innerHTML = `<div class="grow">${s.halt ? `<b>${esc(s.halt)}</b>` : `<b>Looking for setups.</b> `}
-    ${ls && !ls.halt ? (ls.error ? esc(ls.error) : `Last scan ${esc(t12(ls.at.slice(11)))}: ${ls.scanned} charts, ${ls.hits} breakouts, ${ls.stale} too old, ${ls.too_expensive} too expensive.`) : ""}</div>
+    ${ls && !ls.halt ? (ls.error ? esc(ls.error) : `Last scan ${esc(t12(ls.at.slice(11)))}: ${ls.directions === "short" ? "" : `${ls.scanned} charts, ${ls.hits} breakouts, ${ls.stale} too old, ${ls.too_expensive} too expensive.`}${ls.directions && ls.directions !== "long" ? (ls.shorts_skipped ? " " + esc(ls.shorts_skipped) : ` Shorts: ${ls.short_hits} breakdowns, ${ls.short_new} new.`) : ""}`) : ""}</div>
     <button class="btn small gray" id="pause" aria-pressed="${!!s.settings.paused}">${s.settings.paused ? "Resume" : "Pause"}</button>${s.settings.paused ? "" : `<button class="btn small gray" id="scan">Scan now</button>`}`;
   const au = s.auto || {}, ac = $("#auto-card");
   ac.innerHTML = `<div class="swrow"><div><b>Auto paper</b><small>${au.paper
@@ -530,7 +549,10 @@ function render() {
                : "Off. Turn it on and the desk trades ready signals itself in the practice account. No real money.")
         + (au.working || au.open ? ` Now: ${au.working} buy${au.working === 1 ? "" : "s"} waiting, ${au.open} open.` : "")
       : "Paper mode only. In live mode it never trades."}</small></div>
-    <button class="switch" role="switch" aria-checked="${!!au.on}" aria-label="Auto paper" id="sw-auto" ${au.paper ? "" : "disabled"}></button></div>`;
+    <button class="switch" role="switch" aria-checked="${!!au.on}" aria-label="Auto paper" id="sw-auto" ${au.paper ? "" : "disabled"}></button></div>${au.paper ? `<div class="swrow"><div><b>Take weak signals too</b><small>${s.settings.auto_paper_weak
+      ? "On. It also practises the signals whose odds are under your floor, so it learns from more trades. The review shows how they did."
+      : "Off. It only takes ready signals."}</small></div>
+    <button class="switch" role="switch" aria-checked="${!!s.settings.auto_paper_weak}" aria-label="Take weak signals too" id="sw-auto-weak"></button></div>` : ""}`;
   // filter
   const order = {ready:0, weak:1, taken:2, blocked:3, missed:4, expired:5, skipped:6};
   const all = [...s.signals].sort((x, y) => order[x.status] - order[y.status] || ((y.payload.odds || {}).edge_points ?? -99) - ((x.payload.odds || {}).edge_points ?? -99));
@@ -545,8 +567,9 @@ function render() {
   else $("#signals").innerHTML = shown.length ? shown.map(x => slip(x, now)).join("") : all.length ? `<div class="card empty"><b>Nothing ready right now</b>${all.length} signal${all.length === 1 ? "" : "s"} today ${all.length === 1 ? "is" : "are"} taken, blocked, missed, skipped or not affordable right now. Tap All to see why.</div>` : none;
   // side
   const used = s.day.trades, lost = Math.max(0, -s.day.realised);
-  $("#limits").innerHTML = `<div class="row-kv num"><span>Trades</span><b>${used} of ${s.settings.max_trades_per_day}</b></div><div class="meter"><i style="width:${Math.min(100, used / s.settings.max_trades_per_day * 100)}%"></i></div>
+  $("#limits").innerHTML = `<div class="row-kv num"><span>Trades</span><b>${used} of ${L.trades_cap}${s.settings.mode === "paper" ? " (no cap in paper)" : ""}</b></div><div class="meter"><i style="width:${Math.min(100, used / L.trades_cap * 100)}%"></i></div>
     <div class="row-kv num"><span>Lost today</span><b>${usd(lost)} of ${usd(L.max_daily_loss)}</b></div><div class="meter ${lost >= L.max_daily_loss * .75 ? "hot" : ""}"><i style="width:${Math.min(100, lost / (L.max_daily_loss || 1) * 100)}%"></i></div>
+    ${stopsRows(s.stops)}
     <div class="row-kv num"><span>Settled cash</span><b>${usd(a.settled_cash)}</b></div>
     ${a.unsettled.map(u => `<p class="foot-note num" style="margin:6px 0 0">${usd(u.amount)} settles ${esc(u.settles_on)}</p>`).join("")}`;
   $("#events").innerHTML = s.events.length ? s.events.slice(0, 12).map(e => `<div class="ev ${esc(e.kind)}"><time class="num">${esc(e.ts.slice(5))}</time>${esc(e.message)}</div>`).join("") : `<p class="empty" style="padding:8px">Signals, fills and alerts show up here.</p>`;
@@ -558,7 +581,7 @@ function render() {
   // journal
   const k = s.stats;
   $("#stats").innerHTML = [["Closed trades", k.closed], ["Win rate", k.win_rate == null ? "–" : k.win_rate + "%"], ["Total", usd(k.total_pnl, true)], ["Average", k.avg_r == null ? "–" : k.avg_r + "R"], ["Best", usd(k.best, true)], ["Worst", usd(k.worst, true)]].map(([l, v]) => `<div class="tile"><b class="num">${v}</b><span>${l}</span></div>`).join("");
-  $("#trades").innerHTML = s.trades.length ? `<table><tr><th>Date</th><th>Stock</th><th>By</th><th>Shares</th><th>In</th><th>Out</th><th>Why</th><th>Result</th><th>R</th></tr>${s.trades.map(t => `<tr><td class="num">${esc(t.date)}</td><td style="text-align:left"><b>${esc(t.symbol)}</b></td><td>${t.note === "auto" ? "Auto" : "You"}</td><td class="num">${t.qty}</td><td class="num">${px(t.entry_price)}</td><td class="num">${t.exit_price ? px(t.exit_price) : "open"}</td><td>${esc(t.exit_reason || "")}</td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${t.pnl == null ? "" : usd(t.pnl, true)}</td><td class="num">${t.r_multiple ?? ""}</td></tr>`).join("")}</table>` : `<div class="empty"><b>No trades yet</b>When you take a signal and record the fill, it lands here.</div>`;
+  $("#trades").innerHTML = s.trades.length ? `<table><tr><th>Date</th><th>Stock</th><th>By</th><th>Shares</th><th>In</th><th>Out</th><th>Why</th><th>Result</th><th>R</th></tr>${s.trades.map(t => `<tr><td class="num">${esc(t.date)}</td><td style="text-align:left"><b>${esc(t.symbol)}</b>${sideTags(t.side === "short", practiceTrade(t))}</td><td>${t.note === "auto" ? "Auto" : "You"}</td><td class="num">${t.qty}</td><td class="num">${px(t.entry_price)}</td><td class="num">${t.exit_price ? px(t.exit_price) : "open"}</td><td>${esc(t.exit_reason || "")}</td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${t.pnl == null ? "" : usd(t.pnl, true)}</td><td class="num">${t.r_multiple ?? ""}</td></tr>`).join("")}</table>` : `<div class="empty"><b>No trades yet</b>When you take a signal and record the fill, it lands here.</div>`;
   $("#cashnote").textContent = `Cash ${usd(a.cash)}, of which ${usd(a.settled_cash)} is settled.` + (a.type === "cash" ? " In a cash account, money from a sale can buy again the next business day." : "");
   renderAccount();
   renderMode();
@@ -581,16 +604,31 @@ function renderReview() {
       ${li("Average win", usd(r.avg_win, true))}${li("Average loss", usd(r.avg_loss, true))}
       ${li("Win size against loss size", r.payoff == null ? "–" : r.payoff + " to 1")}
       ${li("Worst drawdown", usd(r.max_drawdown, true))}${li("Longest losing run", r.losing_run)}
+      ${li("Won for each $1 lost", r.profit_factor == null ? "–" : "$" + r.profit_factor.toFixed(2))}
+      ${li("Worst day", r.worst_day ? usd(r.worst_day.pnl, true) : "–")}
       ${li("Your fill against the slip's limit", p.from_signals ? n(p.avg_fill_vs_limit, " a share") : "–")}
-      ${li("Fills above the limit", p.fills_over_limit)}
+      ${li("Fills worse than the limit", p.fills_over_limit)}
       ${li("Stop exits against the planned stop", p.stop_exits ? n(p.avg_stop_vs_plan, " a share") : "–")}
       ${li("Closed early by hand", p.closed_early)}
       ${li("Signals so far", v.signals_total ? esc(sigs) : "none")}
     </div>
+    ${v.by_side && v.by_side.short && (v.by_side.short.closed || v.by_side.short.open) ? `<p class="foot-note" style="margin:10px 0 0">By side: ${["long","short"].map(k => `${k === "short" ? "Shorts" : "Longs"} ${v.by_side[k].closed} closed ${usd(v.by_side[k].total, true)}${v.by_side[k].avg_r == null ? "" : ", " + v.by_side[k].avg_r + "R"}`).join(" · ")}</p>` : ""}
     ${v.by_rules.length > 1 ? `<p class="foot-note" style="margin:10px 0 0">By rule set: ${v.by_rules.map(g => `${esc(g.rules)} ${g.closed} trades ${usd(g.total, true)}`).join(" · ")}</p>` : ""}
     <details class="disc"><summary>Full review report</summary><div class="inner"><pre class="report num">${esc(RV.text)}</pre>
       <p style="margin:8px 0 0">The same text prints with <span class="num">python3 -m desk review</span>. Read it, or share it with whoever helps you, before you change a rule.</p></div></details>
     <p class="foot-note" style="margin:10px 0 0">${RV.mode === "paper" ? "Paper fills are simulated. Good paper results show the routine works; they are not proof live results will match." : "These are the trades you recorded as real money."}</p>`;
+}
+// ---- risk stops over more than one day (desk/breaker.py): shown under Today's limits
+function stopsRows(k) {
+  if (!k) return "";
+  const rows = k.items.filter(i => i.on).map(i => {
+    const shown = i.key === "streak" ? `${i.used} of ${i.limit}` : i.key === "drawdown" ? `${usd(i.used)} of ${usd(i.limit)}` : `${usd(i.used)} of ${usd(i.limit)}`;
+    const share = i.limit ? Math.min(100, i.used / i.limit * 100) : 0;
+    return `<div class="row-kv num"><span>${esc(i.label)}</span><b>${shown}</b></div><div class="meter ${share >= 75 ? "hot" : ""}"><i style="width:${share}%"></i></div>`;
+  }).join("");
+  const reset = k.needs_reset ? `<div class="callout bad" style="margin:8px 0 0">${esc(k.tripped.reason)}</div>
+    <div class="actions"><button class="btn small gray" id="stops-reset">Reset stops</button></div>` : "";
+  return rows + reset;
 }
 function renderHealth() {
   const h = S.health; if (!h) return;
@@ -615,17 +653,22 @@ function renderMode() {
 }
 const FIELDS = [
   ["account_type","Account type","Cash accounts wait a day for sales to settle.","select",["cash","margin"]],
-  ["risk_per_trade_pct","Risk per trade, %","Most you can lose on one trade, as a share of the account."],
-  ["max_daily_loss_pct","Daily loss limit, %","The desk stops looking once you are down this much."],
-  ["max_trades_per_day","Trades per day","Hard cap."],
+  ["directions","Signals to look for","long = breakouts only. short adds opening-range breakdowns. Read the rules and risks below first.","select",["long","short","both"]],
+  ["short_approved","My broker approved this account for short selling","Leave false unless your broker says so. Shorts stay paper only without it, a margin account and $2,000.","select",["false","true"]],
+  ["risk_per_trade_pct","Risk per trade, %","Most you can lose on one trade, as a share of the account. Live mode only: paper mode trades bolder."],
+  ["max_daily_loss_pct","Daily loss limit, %","The desk stops looking once you are down this much. Live mode only: paper mode trades bolder."],
+  ["max_weekly_loss_pct","Weekly loss limit, %","No new entries for the rest of the week (from Monday) once down this much. 0 turns it off. Live mode only: paper mode trades bolder."],
+  ["max_drawdown_pct","Drop from your best, %","No new entries once the record is this far under its best point, until you press Reset stops. 0 turns it off. Live mode only: paper mode trades bolder."],
+  ["max_losing_streak","Losers in a row","No new entries after this many losing trades in a row, until you press Reset stops. 0 turns it off."],
+  ["max_trades_per_day","Trades per day","Hard cap in live mode. Paper mode has none, so auto paper can learn."],
   ["target_r","Target, in R","2 means the target is twice as far as the stop."],
   ["stop_rule","Stop rule","or-mid, or-low, pct:1 or atr:1.5"],
   ["chase_r","Chase room, in R","How far above the breakout close the buy limit sits."],
   ["signal_valid_minutes","Signal life, minutes","After this a breakout is marked missed."],
   ["min_edge_points","Lowest edge to show as ready","Time Machine points over break-even."],
   ["est_cost_per_share","Slippage guess, $ a share","Spread and slippage, in and out together. Shown on each slip; never blocks one."],
-  ["cash_buffer_pct","Cash kept aside, %","Never invested."],
-  ["max_position_pct","Largest position, %","Share of the account in one stock."],
+  ["cash_buffer_pct","Cash kept aside, %","Never invested. Live mode only: paper mode trades bolder."],
+  ["max_position_pct","Largest position, %","Share of the account in one stock. Live mode only: paper mode trades bolder."],
   ["min_price","Lowest share price","Cheaper stocks are skipped."],
   ["min_stop_pct","Closest stop, % of price","A stop nearer than this blocks the signal. 0 turns it off."],
   ["min_volume_x","Breakout volume, x","0 turns it off. 1 needs the breakout candle to match the opening candles."],
@@ -639,7 +682,8 @@ const FIELDS = [
   ["blocked","Never signal","Tickers separated by spaces.","area"],
 ];
 function renderForm() {
-  const st = S.settings;
+  const st = S.settings, so = S.shorts || {};
+  $("#shorts-facts").innerHTML = `<p class="foot-note" style="margin:0">Short signals are ${so.on ? "on" : "off"}. ${so.paper_only ? "They are practice only (this account cannot short for real): " + so.why.map(esc).join(" ") : "Your settings say this account can short."} The desk never places an order, long or short.</p>${factsList()}`;
   $("#form").innerHTML = FIELDS.map(([k, l, h, type, opts]) => {
     const v = Array.isArray(st[k]) ? st[k].join(" ") : String(st[k]);
     const id = "set-" + k;
@@ -671,12 +715,12 @@ function renderAccount() {
       <button class="btn" id="acct-save-cash">Save</button></div>`;
   const open = S.open_trades;
   $("#acct-trades").innerHTML = open.length ? open.map(t => {
-    const key = "trade-" + t.id, dr = drafts["x" + t.id] || {price:"", reason:"target"};
+    const key = "trade-" + t.id, dr = drafts["x" + t.id] || {price:"", reason:"target"}, sh = t.side === "short";
     return `<article class="card sig open"><div class="chead"><div class="logo" aria-hidden="true">${initials(t.symbol)}</div>
-        <div style="min-width:0"><div class="ticker">${esc(t.symbol)}</div><div class="sub num">${t.qty} shares bought at ${px(t.entry_price)} · stop ${px(t.stop)} · target ${px(t.target)}</div></div><span class="pill open">Open</span></div>
-      ${dropZone(key, "the filled sell order")}
+        <div style="min-width:0"><div class="ticker">${esc(t.symbol)}${sideTags(sh, practiceTrade(t))}</div><div class="sub num">${t.qty} shares ${sh ? "sold short" : "bought"} at ${px(t.entry_price)} · stop ${px(t.stop)} · target ${px(t.target)}</div></div><span class="pill open">Open</span></div>
+      ${dropZone(key, `the filled ${sh ? "buy (cover)" : "sell"} order`)}
       <div class="fill num">
-        <label class="field"><span>Sold at</span><input inputmode="decimal" data-d="price" data-id="x${t.id}" value="${esc(dr.price)}"></label>
+        <label class="field"><span>${sh ? "Bought back at" : "Sold at"}</span><input inputmode="decimal" data-d="price" data-id="x${t.id}" value="${esc(dr.price)}"></label>
         <label class="field"><span>What happened</span><select data-d="reason" data-id="x${t.id}">${[["target","Target filled"],["stop","Stop filled"],["flat","Closed for the day"],["manual","Closed it early"]].map(([v, l]) => `<option value="${v}" ${dr.reason === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
       <div class="actions"><button class="btn" data-exit="${t.id}">Save what happened</button></div></article>`;
   }).join("") : `<div class="card empty"><b>No open trades</b>When you buy from a Ready card on the Desk and press "I placed it", the trade shows up here so you can record how it ended.</div>`;
@@ -747,6 +791,8 @@ document.addEventListener("click", async e => {
   else if (t.id === "acct-save-cash") { const v = (drafts.acct || {}).cash; if (!v) return toast("Type your cash, or drop a screenshot of it.", true); const d = await act("/api/cash", {kind:"set", amount:v}, "Saved your balance."); if (d) { drafts.acct = {}; shots.balance = null; render(); } }
   else if (t.id === "sw-auto") { const on = t.getAttribute("aria-checked") !== "true";
     await act("/api/settings", {changes:{auto_paper: on}}, on ? "Auto paper is on. It trades ready signals in the practice account." : "Auto paper is off. Trades it already has finish by their own rules."); }
+  else if (t.id === "sw-auto-weak") { const on = t.getAttribute("aria-checked") !== "true";
+    await act("/api/settings", {changes:{auto_paper_weak: on}}, on ? "Auto paper also takes weak signals now. Practice only." : "Auto paper takes ready signals only."); }
   else if (t.id === "paper-reset") {
     if (!confirm("Start the practice account over? Its practice cash goes back to your starting balance and its practice positions and orders are removed. Your journal is not touched.")) return;
     try { await api("/api/paper/reset", {}); toast("The practice account starts over."); } catch (e) { toast(e.message, true); } }
@@ -759,6 +805,7 @@ document.addEventListener("click", async e => {
   else if (t.id === "mode-paper") await act("/api/mode", {mode:"paper"}, "Back in paper mode.");
   else if (t.id === "pause") await act("/api/settings", {changes:{paused: !S.settings.paused}}, S.settings.paused ? "Resumed. The desk is looking for setups again." : "Paused. No new signals until you resume.");
   else if (t.id === "scan") { await act("/api/scan", {}, "Scanning."); setTimeout(load, 4000); }
+  else if (t.id === "stops-reset") { if (!confirm("Reset the stops? Read the review in the Journal tab first. The losing run and the drop from your best point will count again from now.")) return; await act("/api/stops/reset", {}, "Stops reset. The desk is looking for setups again."); }
   else if (t.id === "save") {
     const ch = {}; document.querySelectorAll("[data-k]").forEach(el => { const k = el.dataset.k, cur = S.settings[k]; let v = el.value.trim();
       ch[k] = Array.isArray(cur) ? v.split(/[\s,]+/).filter(Boolean) : typeof cur === "boolean" ? v === "true" : typeof cur === "number" ? Number(v) : v; });

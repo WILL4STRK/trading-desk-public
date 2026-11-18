@@ -16,6 +16,7 @@ chaseR         = input.float(0.2, "Chase room, in R", minval = 0, maxval = 1, st
 lastEntryTime  = input.int(1530, "No entries after (HHMM, New York)", minval = 930, maxval = 1600, tooltip = "Dashboard: No entries after (no_entries_after), written as 1530 for 15:30")
 stopAtRangeLow = input.bool(false, "Stop at range low", tooltip = "Off = stop at the range midpoint (or-mid). On = stop at the range low (or-low).")
 showLabels     = input.bool(true, "Show the info box")
+showShorts     = input.bool(false, "Show the short side (breakdowns)", tooltip = "Dashboard: Signals to look for = short or both. Off by default.")
 
 // ---- New York clock ----
 // time is the bar's opening time. 570 = 9:30 in minutes after midnight, 960 = 16:00.
@@ -95,3 +96,44 @@ if showLabels and barstate.islast
 // ---- Alert ----
 // Pick this in TradingView's Create Alert window. It only notifies you; it orders nothing.
 alertcondition(isTrigger, title = "Trading Desk breakout", message = "Opening-range breakout on {{ticker}} (close {{close}}): check the Trading Desk. Nothing was ordered.")
+
+// ---- Short side: opening-range breakdown. Drawn only when "Show the short side" is on. ----
+// The long rule mirrored: the first COMPLETED candle after the range that CLOSES below the
+// range low. The stop is ABOVE the entry and rounds up to the cent, the target is below, and
+// the sell limit is the lowest price worth selling at. Lines only. It cannot place an order.
+var int sState = 0
+var float sEntry = na
+bool isBreakdown = false
+if inRange
+    sState := 0
+    sEntry := na
+else if sState == 0 and canEnter and barstate.isconfirmed and close < orLow
+    sState      := 1
+    isBreakdown := showShorts
+    sEntry      := close
+else if sState >= 1
+    sState := 2
+
+sStop   = stopAtRangeLow ? orHigh : math.ceil(orMid * 100 - 0.000001) / 100
+sRisk   = sStop - sEntry
+sTarget = math.round(sEntry - targetR * sRisk, 2)
+sLimit  = math.ceil((sEntry - chaseR * sRisk) * 100 - 0.000001) / 100
+shortOn = showShorts and sState >= 1 and afterRange
+
+plot(shortOn ? sStop : na, "Short: buy stop", color = colStop, linewidth = 2, style = plot.style_linebr)
+plot(shortOn ? sLimit : na, "Short: sell limit", color = colLimit, style = plot.style_linebr)
+plot(shortOn ? sTarget : na, "Short: target", color = colTarget, linewidth = 2, style = plot.style_linebr)
+plotshape(isBreakdown, "Breakdown", style = shape.triangledown, location = location.abovebar, color = colStop, size = size.small, text = "ORB short", textcolor = colStop)
+
+var table sInfo = table.new(position.bottom_right, 1, 4, bgcolor = color.new(color.black, 15), border_width = 1)
+if showLabels and showShorts and barstate.islast
+    table.clear(sInfo, 0, 0, 0, 3)
+    if afterRange and sState == 0
+        table.cell(sInfo, 0, 0, "Short side: waiting for a close below " + str.tostring(orLow, format.mintick), text_color = colRange, text_halign = text.align_left)
+    else if shortOn
+        table.cell(sInfo, 0, 0, "SHORT: sell at " + str.tostring(sLimit, "#.00") + " or higher", text_color = colLimit, text_halign = text.align_left)
+        table.cell(sInfo, 0, 1, "Buy stop " + str.tostring(sStop, "#.00"), text_color = colStop, text_halign = text.align_left)
+        table.cell(sInfo, 0, 2, "Short target " + str.tostring(sTarget, "#.00"), text_color = colTarget, text_halign = text.align_left)
+        table.cell(sInfo, 0, 3, "Short risk a share " + str.tostring(sRisk, "#.00") + " (not capped if it gaps)", text_color = color.gray, text_halign = text.align_left)
+
+alertcondition(isBreakdown, title = "Trading Desk breakdown", message = "Opening-range breakdown on {{ticker}} (close {{close}}): check the Trading Desk. Nothing was ordered.")

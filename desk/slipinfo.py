@@ -12,7 +12,7 @@ def finish(sig, st, journal=None, now=None):
     sig["stamp"] = stamp.make(st, journal, now)
     if sig.get("qty") and sig.get("limit") is not None:
         sig["after_cost"] = costs.after_cost(sig["limit"], sig["stop"], sig["target"], sig["qty"],
-                                             st.get("est_cost_per_share", 0))
+                                             st.get("est_cost_per_share", 0), sig.get("side") or "long")
     if sig.get("odds"):
         sig["odds"]["thin"] = costs.thin_note(sig["odds"])
     sig["rule"] = rulecard.build(sig, st)

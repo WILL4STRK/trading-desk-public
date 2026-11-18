@@ -107,8 +107,9 @@ def _whole(v):
     return int(f) if f is not None and float(f).is_integer() else (f or 0)
 
 
-def rows(raw):
-    """Nested orders as flat rows a person can read. Anything odd is skipped, never raised."""
+def rows(raw, sides=("BUY", "SELL")):
+    """Nested orders as flat rows a person can read. Anything odd is skipped, never raised.
+    Only legs whose instruction is in `sides` are read (the practice account passes its own wider list)."""
     out, wrappers = [], [0]
 
     def walk(o, parent, group):
@@ -125,7 +126,7 @@ def rows(raw):
             return
         sym = str((first.get("instrument") or {}).get("symbol") or "").upper()
         side = str(first.get("instruction") or "").upper()
-        if not oid or not sym or side not in ("BUY", "SELL"):
+        if not oid or not sym or side not in sides:
             return
         qty, filled = _whole(o.get("quantity")), _whole(o.get("filledQuantity"))
         fills = []
