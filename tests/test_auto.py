@@ -93,6 +93,7 @@ class Trading(AutoBase):
 class SameLimitsAsYou(AutoBase):
     @mock.patch.object(S, "trades_cap", lambda st: st["max_trades_per_day"])   # live-mode cap; paper has none
     def test_trades_per_day_counting_its_own_waiting_buys(self):
+        S.update({"max_trades_per_day": 2})                                             # the default is no cap
         self.d.j.open_trade("T", 1, 12.0, 11.5, 13.0, self.d.src.now(), note="")      # one you took
         self.tick()                                                                     # KO: the second
         sid = self.add("F", qty=1, limit=12.0, stop=11.9, target=12.3, cost=12.0)

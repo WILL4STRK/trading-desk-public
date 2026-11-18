@@ -14,6 +14,7 @@ from . import breaker
 from . import changes
 from . import charts
 from . import exports
+from . import graph as G
 from . import health
 from . import mode as M
 from . import notify
@@ -25,8 +26,9 @@ from . import settings as S
 from . import shorts
 from . import skills
 from . import stamp
+from . import watchlist as W
 from .journal import Journal, JournalError
-from .paths import FIXTURES, data_dir
+from .paths import FIXTURES, account_name, data_dir
 
 MAX_EVALS_PER_SCAN = 8
 
@@ -156,6 +158,25 @@ class Desk:
                         for h in d.get("hits", [])][:40],
                "error": None if d else r.message}
         self.j.put("premarket", out)
+        return out
+
+    def research_watchlist(self):
+        """9:00 AM New York: today's watchlist = your core list + the most volatile movers (desk/watchlist.py).
+        Live data only. If every screener failed, yesterday's list stays."""
+        st, now = S.load(), self.src.now()
+        if self.src.demo or not st["auto_watchlist"]:
+            return None
+        r = W.research(st, max_price=self.spendable(st, now))
+        kept = not r["picks"] and bool(r["errors"])
+        if not kept:
+            S.update({"watchlist": r["watchlist"]})
+        out = dict(r, date=now[:10], at=now, kept_old=kept)
+        self.j.put("watchlist_research", out)
+        msg = ("Watchlist research failed, so yesterday's list stays: %s" % "; ".join(r["errors"][:2]) if kept else
+               "Today's watchlist: your %d core tickers plus %d movers: %s." % (
+                   len(r["core"]), len(r["picks"]),
+                   ", ".join("%s (moves %.1f%% a day)" % (p["symbol"], p["atr_pct"]) for p in r["picks"]) or "none today"))
+        self.j.add_event("watchlist", msg, now, key="watchlist-%s" % now[:10])
         return out
 
     def _universe_due(self, st, now):
@@ -560,6 +581,8 @@ class Desk:
         with self.lock:
             if new not in M.MODES:
                 raise DeskError("Mode must be paper or live.")
+            if new == "live" and account_name():
+                raise DeskError("Extra paper accounts are practice only. Switch to live on the main desk.")
             st, now = S.load(), self.src.now()
             if new == st["mode"]:
                 return new
@@ -741,6 +764,8 @@ class Desk:
             "signals": signals, "open_trades": open_trades,
             "trades": self.j.trades(limit=50), "events": self.j.events(limit=40),
             "last_scan": self.j.get("last_scan"), "premarket": self.j.get("premarket"),
+            "watchlist_research": self.j.get("watchlist_research"),
+            "account_name": account_name(),
             "settings": st,
             "shorts": shorts.status(st, equity),
             "auto": self.auto.summary(st),
@@ -760,6 +785,10 @@ class Desk:
                          outcomes=j.outcomes(), scans=j.scans(limit=100000))
         summ["decisions"] = decide.counts(j.decisions(limit=100000))
         return {"mode": mode, "now": now, "summary": summ, "text": R.report(mode, summ, now, stamp.rules_hash(st))}
+
+    def graph(self):
+        """The Graph tab: made or lost over time, for this record and every paper account (desk/graph.py)."""
+        return G.summary(self.j.path)
 
     def exports(self):
         """Today's stocks as text for TradingView and thinkorswim. Read-only: nothing is sent anywhere."""

@@ -5,6 +5,14 @@
 - Phone alerts through ntfy: each new Ready slip, with its headlines, is
   pushed to an ntfy topic set in Settings (off by default, never in the demo),
   plus a **Send test alert** button.
+- Daily watchlist research at 9:00 AM New York: the scan list becomes your core
+  tickers plus the day's most volatile movers from Yahoo's free screeners
+  (Settings > Daily watchlist research). Shown under Today's movers.
+- Trades per day: 0 means no cap, and 0 is the new default.
+- Graph tab: running made-or-lost lines for the bot (auto paper), you and the
+  total, every paper account side by side, and results by day.
+- Extra paper accounts: `python3 -m desk --account NAME --tickers "..."` runs a
+  separate practice desk with its own cash, journal and tickers on its own port.
 
 ## 1.1.0 (2026-11-18)
 

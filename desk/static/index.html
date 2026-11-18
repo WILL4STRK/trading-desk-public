@@ -273,6 +273,7 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
     <button role="tab" data-v="account" aria-selected="false" id="tab-account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M3.5 9.5h17M7 15h4"/></svg>Account</button>
     <button role="tab" data-v="journal" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4.5" y="3.5" width="15" height="17" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Journal</button>
     <button role="tab" data-v="research" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>Research</button>
+    <button role="tab" data-v="graph" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5h16"/><path d="m4.5 15 4.5-5 4 3.5 6.5-8"/></svg>Graph</button>
     <button role="tab" data-v="settings" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</button>
   </nav>
 
@@ -308,6 +309,8 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
           <div class="card" id="events"></div>
           <h2 class="section-title">Charts to watch</h2>
           <div class="card" id="premarket"></div>
+          <h2 class="section-title">Today's movers</h2>
+          <div class="card" id="movers"></div>
           <h2 class="section-title">Export watchlist</h2>
           <div class="card" id="export">
             <p class="foot-note" style="margin:0 0 10px">Today's signals, open trades and your watchlist as a list for thinkorswim or TradingView. The desk sends nothing anywhere: you paste or upload the list yourself.</p>
@@ -369,6 +372,15 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
       </div>
     </section>
 
+    <section class="view" id="v-graph" aria-label="Graph">
+      <h2 class="section-title">Made or lost, this account</h2>
+      <div class="card" id="g-me"></div>
+      <h2 class="section-title">Every paper account</h2>
+      <div class="card" id="g-all"></div>
+      <h2 class="section-title">By day</h2>
+      <div class="card" id="g-days"></div>
+      <p class="foot-note">Closed trades only, practice money unless the badge says LIVE. Add an account: <code>python3 -m desk --account growth --tickers "TSLA NVDA AMD"</code></p>
+    </section>
     <section class="view" id="v-settings" aria-label="Settings">
       <h2 class="section-title">Health</h2>
       <div class="card" id="health"></div>
@@ -400,7 +412,7 @@ const pct = p => Math.round(p * 1000) / 10 + "%";
 const mins = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 const t12 = t => { if (!t) return ""; const [h, m] = t.split(":").map(Number); return ((h + 11) % 12 + 1) + ":" + String(m).padStart(2, "0") + (h < 12 ? " AM" : " PM"); };
 let S = null, drafts = {}, formDirty = false, FILTER = "ready";
-const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Research", settings:"Settings"};
+const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Research", graph:"Graph", settings:"Settings"};
 
 // The mark: 12 overlapping circles in a ring.
 (function () {
@@ -413,6 +425,40 @@ const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Res
 })();
 
 function toast(msg, err) { const t = $("#toast"); t.textContent = msg; t.className = err ? "err" : ""; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", err ? 7000 : 3500); }
+// ---- Graph tab: running made-or-lost lines, inline SVG
+const GCOL = ["#0A84FF", "#30D158", "#FFB340", "#DA8FFF", "#64D2FF", "#FF6961"];
+const tms = at => Date.parse(String(at).replace(" ", "T")) || 0;
+function lineChart(series, label) {
+  const all = series.flatMap(x => x.pts);
+  if (!all.length) return `<p class="empty" style="padding:8px">No closed trades yet. The line starts with the first one.</p>`;
+  const W = 640, H = 220, L = 58, R = 10, T = 12, B = 26;
+  const xs = all.map(p => p.t), ys = all.map(p => p.y).concat([0]);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs); if (x1 === x0) { x0 -= 3.6e6; x1 += 3.6e6; }
+  let y0 = Math.min(...ys), y1 = Math.max(...ys); if (y1 === y0) { y0 -= 1; y1 += 1; }
+  const pad = (y1 - y0) * .08; y0 -= pad; y1 += pad;
+  const X = t => L + (t - x0) / (x1 - x0) * (W - L - R), Y = v => T + (y1 - v) / (y1 - y0) * (H - T - B);
+  const ticks = [y0 + pad, (y0 + y1) / 2, y1 - pad].map(v => `<text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" style="fill:var(--label2)">${esc(usd(Math.round(v * 100) / 100, true))}</text>`).join("");
+  const day = t => new Date(t).toLocaleDateString("en-US", {month: "short", day: "numeric"});
+  const lines = series.map(x => x.pts.length ? `<polyline fill="none" stroke="${x.color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="${[{t: x.pts[0].t, y: 0}].concat(x.pts).map(p => X(p.t).toFixed(1) + "," + Y(p.y).toFixed(1)).join(" ")}"/>` +
+      `<circle cx="${X(x.pts.at(-1).t).toFixed(1)}" cy="${Y(x.pts.at(-1).y).toFixed(1)}" r="3.5" fill="${x.color}"/>` : "").join("");
+  const key = series.map(x => `<span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px"><i style="width:10px;height:10px;border-radius:3px;background:${x.color}"></i>${esc(x.name)} <b class="num">${usd(x.pts.length ? x.pts.at(-1).y : 0, true)}</b></span>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}" style="width:100%;height:auto;display:block">
+      <line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" style="stroke:var(--sep)" stroke-dasharray="3 4"/>${ticks}
+      <text x="${L}" y="${H - 6}" font-size="11" style="fill:var(--label2)">${day(x0)}</text><text x="${W - R}" y="${H - 6}" text-anchor="end" font-size="11" style="fill:var(--label2)">${day(x1)}</text>
+      ${lines}</svg><div class="foot-note" style="margin:10px 0 0">${key}</div>`;
+}
+async function loadGraph() {
+  let g; try { g = await api("/api/graph"); } catch (e) { return toast(e.message, true); }
+  const me = g.accounts.find(a => a.current) || g.accounts[0];
+  const pts = k => me.points.map(p => ({t: tms(p.at), y: p[k]}));
+  $("#g-me").innerHTML = lineChart([{name: "Bot (auto paper)", color: "#0A84FF", pts: pts("bot")}, {name: "You", color: "#30D158", pts: pts("you")},
+      {name: "Total", color: "#AEAEB2", pts: pts("total")}], "Made or lost over time, this account") +
+    `<p class="foot-note" style="margin:6px 0 0">${me.trades} closed trades, ${me.wins} winners${me.trades ? " (" + Math.round(me.wins / me.trades * 100) + "%)" : ""}${me.live ? " · LIVE record" : ""}.</p>`;
+  $("#g-all").innerHTML = lineChart(g.accounts.map((a, i) => ({name: a.name + (a.current ? " (this one)" : ""), color: GCOL[i % GCOL.length],
+      pts: a.points.map(p => ({t: tms(p.at), y: p.total}))})), "Made or lost over time, every paper account");
+  const days = me.days.slice(-20).reverse();
+  $("#g-days").innerHTML = days.length ? days.map(d => `<div class="row-kv num"><span>${esc(d.date)} · ${d.trades} trade${d.trades === 1 ? "" : "s"}</span><b style="color:${d.pnl < 0 ? "var(--stop)" : "var(--go)"}">${usd(d.pnl, true)}</b></div>`).join("") : `<p class="empty" style="padding:8px">No closed trades yet.</p>`;
+}
 async function api(path, body) {
   const r = await fetch(path, body ? {method:"POST", headers:{"Content-Type":"application/json", "X-Desk":"1"}, body:JSON.stringify(body)} : {});
   const d = await r.json().catch(() => ({error:"The desk did not answer."}));
@@ -526,7 +572,7 @@ function render() {
   const live = s.mode === "live";
   document.title = (s.demo ? "DEMO · " : "") + (live ? "LIVE · " : "Paper · ") + "Trading Desk";
   const mb = $("#mode-badge"); mb.hidden = false; mb.className = "mode-badge" + (live ? " live" : "");
-  mb.textContent = live ? "LIVE · real money" : "PAPER · practice";
+  mb.textContent = (live ? "LIVE · real money" : "PAPER · practice") + (s.account_name ? " · " + s.account_name : "");
   $("#acct-cap").textContent = live ? "Live account" : "Paper account";
   $("#clock").textContent = t12(now.slice(11)) + " New York · " + (s.clock.open ? "market open" : "market closed");
   $("#mode-chip").className = "chip" + (s.demo ? "" : " live");
@@ -573,6 +619,8 @@ function render() {
     <div class="row-kv num"><span>Settled cash</span><b>${usd(a.settled_cash)}</b></div>
     ${a.unsettled.map(u => `<p class="foot-note num" style="margin:6px 0 0">${usd(u.amount)} settles ${esc(u.settles_on)}</p>`).join("")}`;
   $("#events").innerHTML = s.events.length ? s.events.slice(0, 12).map(e => `<div class="ev ${esc(e.kind)}"><time class="num">${esc(e.ts.slice(5))}</time>${esc(e.message)}</div>`).join("") : `<p class="empty" style="padding:8px">Signals, fills and alerts show up here.</p>`;
+  const wr = s.watchlist_research;
+  $("#movers").innerHTML = wr && wr.picks && wr.picks.length ? wr.picks.map(p => `<div class="watch"><div><b>${esc(p.symbol)}</b><small>moves ${p.atr_pct.toFixed(1)}% a day · ${esc(p.from.join(", ").replace(/_/g, " "))}</small></div><b class="num">${px(p.price)}</b></div>`).join("") + `<p class="foot-note" style="margin:8px 0 0">Picked ${esc(wr.at)} from Yahoo's screeners, added to your ${wr.core.length} core tickers. High fluctuation cuts both ways.</p>` : `<p class="empty" style="padding:8px">${wr && wr.kept_old ? "Research failed this morning, so yesterday's list stays." : "Picked each morning at 9:00 AM New York."}</p>`;
   const pm = s.premarket;
   $("#premarket").innerHTML = pm && pm.hits && pm.hits.length ? pm.hits.slice(0, 10).map(h => `<div class="watch"><div><b>${S.chart_urls && S.chart_urls[h.symbol] ? `<a href="${esc(S.chart_urls[h.symbol])}" target="_blank" rel="noopener noreferrer" style="color:inherit">${esc(h.symbol)}<span class="vh"> chart in TradingView, opens in a new window</span></a>` : esc(h.symbol)}</b><small>${esc((h.setups || []).join(", ").replace(/_/g, " "))}</small></div><b class="num">${px(h.price)}</b></div>`).join("") + `<p class="foot-note" style="margin:8px 0 0">Daily-chart setups as of ${esc(pm.as_of)}. A list to watch, not to buy.</p>` : `<p class="empty" style="padding:8px">${pm && pm.error ? esc(pm.error) : "The pre-market scan runs once each morning."}</p>`;
   const unk = s.export_unknown || [];
@@ -660,7 +708,7 @@ const FIELDS = [
   ["max_weekly_loss_pct","Weekly loss limit, %","No new entries for the rest of the week (from Monday) once down this much. 0 turns it off. Live mode only: paper mode trades bolder."],
   ["max_drawdown_pct","Drop from your best, %","No new entries once the record is this far under its best point, until you press Reset stops. 0 turns it off. Live mode only: paper mode trades bolder."],
   ["max_losing_streak","Losers in a row","No new entries after this many losing trades in a row, until you press Reset stops. 0 turns it off."],
-  ["max_trades_per_day","Trades per day","Hard cap in live mode. Paper mode has none, so auto paper can learn."],
+  ["max_trades_per_day","Trades per day","Cap in live mode. 0 = no cap. Paper mode has none, so auto paper can learn."],
   ["target_r","Target, in R","2 means the target is twice as far as the stop."],
   ["stop_rule","Stop rule","or-mid, or-low, pct:1 or atr:1.5"],
   ["chase_r","Chase room, in R","How far above the breakout close the buy limit sits."],
@@ -680,7 +728,10 @@ const FIELDS = [
   ["sec_user_agent","SEC contact","Your name and email. Turns on filings and earnings. Sent only to sec.gov."],
   ["ntfy_topic","Phone alerts (ntfy topic)","Phone alerts. Install the ntfy app, subscribe to a hard-to-guess topic, paste it here. Empty = off. Anyone who knows the topic can read the alerts."],
   ["ntfy_server","ntfy server","https://ntfy.sh, or your own ntfy server."],
-  ["watchlist","Stocks to scan","Tickers separated by spaces.","area"],
+  ["auto_watchlist","Daily watchlist research","9:00 AM New York: scan list = your core tickers + the day's most volatile movers from Yahoo's screeners.","select",["true","false"]],
+  ["auto_watchlist_movers","Movers added each day","High-fluctuation stocks that join the core list. 0 = core only."],
+  ["core_watchlist","Core tickers (the usuals)","Always scanned. Tickers separated by spaces.","area"],
+  ["watchlist","Stocks to scan today","Rewritten at 9:00 AM while daily research is on. Tickers separated by spaces.","area"],
   ["blocked","Never signal","Tickers separated by spaces.","area"],
 ];
 function renderForm() {
@@ -789,6 +840,7 @@ document.addEventListener("click", async e => {
     window.scrollTo(0, 0);
     if (t.dataset.v === "research") congress(false);
     if (t.dataset.v === "journal") loadReview();
+    if (t.dataset.v === "graph") loadGraph();
   }
   else if (t.dataset.useCash) { (drafts.acct ||= {}).cash = Number(t.dataset.useCash).toFixed(2); renderAccount(); }
   else if (t.id === "acct-save-cash") { const v = (drafts.acct || {}).cash; if (!v) return toast("Type your cash, or drop a screenshot of it.", true); const d = await act("/api/cash", {kind:"set", amount:v}, "Saved your balance."); if (d) { drafts.acct = {}; shots.balance = null; render(); } }

@@ -9,6 +9,8 @@ import logging
 import threading
 import urllib.request
 
+from .paths import account_name
+
 DASHBOARD = "http://127.0.0.1:8787"
 log = logging.getLogger(__name__)
 
@@ -46,7 +48,8 @@ def message(sig, mode):
     links = [n["link"] for n in news if n.get("link")]
     actions = [{"action": "view", "label": "Article", "url": u} for u in links[:2]]
     actions.append({"action": "view", "label": "Chart", "url": "https://finance.yahoo.com/quote/%s" % sig["symbol"]})
-    return {"title": "[%s] %s %s %s %.2f" % ("LIVE" if mode == "live" else "PAPER", "SHORT" if short else "BUY",
+    tag = ("LIVE" if mode == "live" else "PAPER") + (" " + account_name() if account_name() else "")
+    return {"title": "[%s] %s %s %s %.2f" % (tag, "SHORT" if short else "BUY",
                                               sig["symbol"], "≥" if short else "≤", sig["limit"]),
             "message": "\n".join(lines), "click": links[0] if links else DASHBOARD,
             "actions": actions, "tags": ["chart_with_downwards_trend" if short else "chart_with_upwards_trend"],

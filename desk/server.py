@@ -56,6 +56,8 @@ def make_handler(desk, scheduler=None):
                     return self._send(200, desk.earnings((parse_qs(u.query).get("symbol") or [""])[0]))
                 if u.path == "/api/congress":
                     return self._send(200, desk.congress(refresh="refresh" in parse_qs(u.query)))
+                if u.path == "/api/graph":                  # read-only: made or lost over time, every paper account
+                    return self._send(200, desk.graph())
                 if u.path == "/api/review":                 # read-only: results and the review report
                     return self._send(200, desk.review())
                 if u.path == "/api/export":                 # read-only: text for TradingView and thinkorswim

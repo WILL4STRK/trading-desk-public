@@ -1,5 +1,5 @@
 """The background loop: a scan after every 5-minute bar closes, a check on open
-trades every minute, the pre-market scan once a day."""
+trades every minute, the watchlist research and pre-market scan once a day at 9:00 AM."""
 import threading
 import time
 import traceback
@@ -38,8 +38,12 @@ class Scheduler(threading.Thread):
         """One pass of the loop. Split out so the tests can drive it."""
         wall = time.time() if wall is None else wall
         st, now = S.load(), self.desk.src.now()
-        if self.premarket_day != now[:10] and (self.desk.src.demo or now[11:16] >= "08:00"):
+        if self.premarket_day != now[:10] and (self.desk.src.demo or now[11:16] >= "09:00"):
             self.premarket_day = now[:10]
+            w = self._safe("watchlist research", self.desk.research_watchlist)   # first: the daily setups read its list
+            if w:
+                self.log("%s watchlist: %d core + %d movers%s" % (now, len(w["core"]), len(w["picks"]),
+                                                                   " (failed, kept yesterday's)" if w["kept_old"] else ""))
             self._safe("pre-market scan", self.desk.premarket)
             self._safe("congress", self.desk.congress)
         # scan once per slot; in live a slot starts 25 seconds after each bar closes

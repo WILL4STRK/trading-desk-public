@@ -19,7 +19,7 @@ DEFAULTS = {
     "max_weekly_loss_pct": 8.0,      # no new entries for the rest of the week after this (0 = off; desk/breaker.py)
     "max_drawdown_pct": 15.0,        # no new entries once this far under the best point, until Reset stops (0 = off)
     "max_losing_streak": 0,          # no new entries after this many losers in a row, until Reset stops (0 = off)
-    "max_trades_per_day": 2,
+    "max_trades_per_day": 0,         # 0 = no cap (the same no-practical-cap paper mode uses)
     "cash_buffer_pct": 5.0,          # never invested
     "max_position_pct": 95.0,        # of the account, in one stock
     "min_reward_risk": 1.0,
@@ -40,6 +40,11 @@ DEFAULTS = {
     "pdt_guard": False,
     "paused": False,                 # your own stop switch: no new signals while it is on
     "blocked": [],
+    "auto_watchlist": True,          # 9:00 AM New York: watchlist = core_watchlist + today's most volatile movers (desk/watchlist.py)
+    "core_watchlist": ["F", "SOFI", "PLTR", "AAL", "T", "INTC", "PFE", "BAC", "SNAP", "RIVN",
+                       "HOOD", "UBER", "AMD", "NIO", "CCL", "KO", "CSCO", "VZ", "GM",
+                       "DAL", "PYPL", "DKNG", "MARA", "SMCI", "NVDA", "AAPL", "TSLA", "AMZN", "MU"],
+    "auto_watchlist_movers": 15,     # how many high-fluctuation movers join the core list each day
     "watchlist": ["F", "SOFI", "PLTR", "AAL", "T", "INTC", "PFE", "BAC", "SNAP", "RIVN",
                   "HOOD", "UBER", "AMD", "NIO", "CCL", "KO", "CSCO", "VZ", "GM",
                   "DAL", "PYPL", "DKNG", "MARA", "SMCI", "NVDA", "AAPL", "TSLA", "AMZN", "MU"],
@@ -61,12 +66,12 @@ DEFAULTS = {
 _RANGES = {
     "starting_balance": (1, 1e9), "risk_per_trade_pct": (0.1, 10), "max_daily_loss_pct": (0.2, 30),
     "max_weekly_loss_pct": (0, 50), "max_drawdown_pct": (0, 90), "max_losing_streak": (0, 20),
-    "max_trades_per_day": (1, 50), "cash_buffer_pct": (0, 90), "max_position_pct": (1, 100),
+    "max_trades_per_day": (0, 50), "cash_buffer_pct": (0, 90), "max_position_pct": (1, 100),
     "min_reward_risk": (0.5, 10), "target_r": (0.5, 10), "chase_r": (0, 1),
     "signal_valid_minutes": (1, 120), "or_minutes": (5, 60), "min_price": (0, 1e6),
     "min_volume_x": (0, 20), "min_stop_pct": (0, 10), "est_cost_per_share": (0, 5), "min_edge_points": (-100, 100), "replays": (1000, 100000),
     "universe_scan_every_min": (5, 390), "scan_every_seconds": (60, 3600),
-    "monitor_every_seconds": (20, 3600), "news_hours": (1, 240),
+    "monitor_every_seconds": (20, 3600), "news_hours": (1, 240), "auto_watchlist_movers": (0, 40),
 }
 
 
@@ -137,11 +142,12 @@ def validate(raw):
         raise SettingsError("max_daily_loss_pct cannot be under risk_per_trade_pct")
     if s["directions"] not in ("long", "short", "both"):
         raise SettingsError("directions must be long, short or both")
-    for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak"):
+    for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak", "auto_watchlist"):
         if not isinstance(s[k], bool):
             raise SettingsError("%s must be true or false" % k)
     s["blocked"] = _tickers(s["blocked"], "blocked")
     s["watchlist"] = _tickers(s["watchlist"], "watchlist")
+    s["core_watchlist"] = _tickers(s["core_watchlist"], "core_watchlist")
     if not isinstance(s["congress_members"], list):
         raise SettingsError("congress_members must be a list of last names")
     s["congress_members"] = [str(m).strip().lower() for m in s["congress_members"] if str(m).strip()]
@@ -184,8 +190,8 @@ PAPER_TRADES_CAP = 50   # paper mode: no practical trades-a-day cap, so auto pap
 
 
 def trades_cap(s):
-    """Trades a day the desk allows: your setting in live mode, effectively none in paper mode."""
-    return PAPER_TRADES_CAP if s.get("mode") == "paper" else s["max_trades_per_day"]
+    """Trades a day the desk allows: your setting in live mode (0 = no cap), effectively none in paper mode."""
+    return PAPER_TRADES_CAP if s.get("mode") == "paper" or not s["max_trades_per_day"] else s["max_trades_per_day"]
 
 
 # Paper mode trades boldly so the log shows what bigger bets would do. Live keeps your settings.

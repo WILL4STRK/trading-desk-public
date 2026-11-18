@@ -23,7 +23,7 @@ class Settings(DeskCase):
         bad = [{"nope": 1}, {"risk_per_trade_pct": 50}, {"risk_per_trade_pct": "x"}, {"risk_per_trade_pct": True},
                {"account_type": "ira"}, {"flat_by": "25:00"}, {"no_entries_before": "16:00"},
                {"stop_rule": "tight"}, {"stop_rule": "pct:0"}, {"max_daily_loss_pct": 1, "risk_per_trade_pct": 2},
-               {"watchlist": ["TS LA!"]}, {"scan_universe": "yes"}, {"max_trades_per_day": 0}]
+               {"watchlist": ["TS LA!"]}, {"scan_universe": "yes"}, {"max_trades_per_day": -1}]
         for b in bad:
             with self.assertRaises(S.SettingsError, msg=str(b)):
                 S.validate(b)

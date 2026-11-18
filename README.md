@@ -128,6 +128,25 @@ dropped; it never stops a scan. Weak and blocked signals are not pushed.
 > your alerts.** Pick a name nobody would guess, or run your own ntfy server
 > and put its `https://` address in Settings > **ntfy server**.
 
+## Daily watchlist, graph and extra paper accounts
+
+- **Daily watchlist research** (on by default, live data only): at 9:00 AM New
+  York the desk reads Yahoo's free most-active, gainers and losers screeners,
+  keeps liquid stocks you can afford, ranks them by average daily range (ATR %
+  over 14 sessions) and scans the top movers next to your core tickers
+  (Settings > Core tickers, Movers added each day). The desk must be running
+  at 9:00 AM; if it starts later it researches at once.
+- **Graph tab**: made or lost over time for the bot, you and the total; every
+  paper account on one chart; results by day. Closed trades only.
+- **Extra paper accounts**, practice only, each with its own cash, journal and
+  tickers in `data/accounts/NAME`, on the first free port from 8791:
+
+  ```bash
+  python3 -m desk --account growth --tickers "TSLA NVDA AMD"
+  ```
+
+  Run it again without `--tickers` to reopen it. Its alerts say its name.
+
 ## The Account tab
 
 Because the desk never connects to a broker, you tell it your cash and how
