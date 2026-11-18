@@ -132,6 +132,8 @@ dropped; it never stops a scan. Weak and blocked signals are not pushed.
 
 - **Watchlist agent**: `python3 -m desk agent` is a dry run; add `--apply` to write the watchlist.
   Settings > **Watchlist agent**: on, Claude picks at 9:00 AM New York; off, the formula picks.
+  Uses the signed-in `claude` command on your Claude plan, with Haiku, no tools and no MCP.
+  Claude can only pick from the screener candidates; if Claude fails, it falls back to the formula.
 - **Breaking news**: while the market is open, every 10 minutes (Settings > **Breaking news**),
   the desk reads new headlines for the watchlist, open trades, SPY and QQQ. Only heavy ones
   (earnings, deals, halts, FDA, lawsuits, macro) go to Claude, which rates the impact and picks
@@ -139,8 +141,12 @@ dropped; it never stops a scan. Weak and blocked signals are not pushed.
   watchlist (the next scan still applies every rule), exit closes auto paper's trade and tells
   you to close yours, avoid drops it from today's list. Each call is pushed to your phone with
   the article. It never trades live money.
-  Uses the signed-in `claude` command on your Claude plan, with Haiku, no tools and no MCP.
-  Claude can only pick from the screener candidates; if Claude fails, it falls back to the formula.
+- **Formula against Claude**: each morning the desk keeps both lists, the formula's top movers
+  and Claude's picks, with that morning's rules. After the close it replays every pick long and
+  short on the day's candles (shadow only: no signal, fill or order). The review's
+  **FORMULA AGAINST CLAUDE** section adds them up per name-day, counting a pick that never
+  triggered as 0R, and says when there are under 20 days. **DID THE ODDS HOLD UP** also shows a
+  Brier score and odds bands, marked too few until 30 decided replays.
 - **Daily watchlist research** (on by default, live data only): at 9:00 AM New
   York the desk reads Yahoo's free most-active, gainers and losers screeners,
   keeps liquid stocks you can afford, ranks them by average daily range (ATR %

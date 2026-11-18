@@ -104,6 +104,11 @@ class Journal:
         r = self._one("SELECT value FROM kv WHERE key=?", (key,))
         return json.loads(r["value"]) if r else default
 
+    def get_prefix(self, prefix):
+        """{key: value} for every key starting with prefix (e.g. "watchlist_results:")."""
+        return {r["key"]: json.loads(r["value"]) for r in self._all(
+            "SELECT key, value FROM kv WHERE substr(key, 1, ?) = ? ORDER BY key", (len(prefix), prefix))}
+
     def put(self, key, value):
         with self._tx() as db:
             db.execute("INSERT INTO kv(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",

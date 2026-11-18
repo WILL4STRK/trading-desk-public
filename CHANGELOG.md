@@ -5,6 +5,9 @@
 - Breaking news watch: during market hours Claude rates fresh heavy headlines and the desk
   acts on high-impact ones (add to today's watchlist, close auto paper's trade, or drop the
   stock), with a phone alert and the article. Settings > Breaking news.
+- Formula against Claude: both morning lists are kept with their rules and replayed long
+  and short after the close (shadow only); the review compares them per name-day. The odds
+  check adds a Brier score and odds bands, labelled too few under 30 decided replays.
 - Claude watchlist agent picks the day's movers from screener candidates with reasons;
   supports dry runs, `--apply`, and a 9:00 AM Settings toggle, with formula fallback.
 - Phone alerts through ntfy: each new Ready slip, with its headlines, is

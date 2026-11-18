@@ -7,6 +7,7 @@ import datetime
 import math
 import re
 import threading
+import time
 
 from . import decide
 from . import agent as AG
@@ -33,6 +34,9 @@ from .journal import Journal, JournalError
 from .paths import FIXTURES, account_name, data_dir
 
 MAX_EVALS_PER_SCAN = 8
+COMPARE_RULES = ("or_minutes", "stop_rule", "target_r", "chase_r", "min_volume_x", "min_stop_pct",
+                 "signal_valid_minutes", "no_entries_before", "no_entries_after", "flat_by")
+COMPARE_PAUSE = 0.4      # seconds between chart reads for the watchlist comparison
 
 
 class DeskError(ValueError):
@@ -179,6 +183,11 @@ class Desk:
         out = dict(r, date=now[:10], at=now, kept_old=kept, applied=apply and not kept)
         if not apply:
             return out
+        key = "watchlist_comparison:" + now[:10]       # the morning's two lists, replayed after the close
+        if self.j.get(key) is None:
+            self.j.put(key, {"date": now[:10], "at": now, "by": r["by"], "errors": r["errors"],
+                             "formula": r.get("formula_picks", r["picks"]), "claude": r.get("claude_picks"),
+                             "rules": {k: st[k] for k in COMPARE_RULES}})
         if not kept:
             S.update({"watchlist": r["watchlist"]})
         self.j.put("watchlist_research", out)
@@ -473,6 +482,8 @@ class Desk:
             self.j.put("outcomes_retry", now[:13])   # at most once an hour: replays that got no candles (offline, asleep)
             for d in self.j.outcome_gaps():
                 self.record_outcomes(d, only_gaps=True)
+            if self.j.get("outcomes_done"):
+                self.compare_watchlists(self.j.get("outcomes_done"))     # charts that did not answer after the close
 
     def record_outcomes(self, date, only_gaps=False):
         """After the close: how every signal of the day would have done with its own numbers (desk/outcome.py).
@@ -494,11 +505,37 @@ class Desk:
                 o = outcome.replay(p, bars)
             self.j.set_outcome(s["id"], date, s["symbol"], s["status"], o, now)
             done += 1
+        self.compare_watchlists(date, got)
         self.j.put("outcomes_done", date)
         if done:
             self.j.add_event("summary", "Replayed %d of today's signals against the day's candles for the review." % done,
                              now, key="outcomes-%s" % date)
         return done
+
+    def compare_watchlists(self, date, got=None):
+        """After the close: the morning's formula picks and Claude picks, each replayed long and short with the
+        same saved rules (outcome.watchlist_replay), stored as watchlist_results:<date>. Shadow only: no signal,
+        fill or order. A symbol with no candles is tried again on a later pass. Returns how many it replayed."""
+        cmp_ = self.j.get("watchlist_comparison:" + date)
+        if not cmp_ or self.src.demo:
+            return 0
+        key, got = "watchlist_results:" + date, got if got is not None else {}
+        res = dict(self.j.get(key) or {})
+        todo = sorted({p["symbol"] for g in ("formula", "claude") for p in (cmp_.get(g) or [])}
+                      - {s for s, v in res.items() if "error" not in v})
+        for i, sym in enumerate(todo):
+            try:
+                if sym not in got:
+                    if i:
+                        time.sleep(COMPARE_PAUSE)
+                    got[sym] = charts.fetch(sym, "1mo", "5m")
+                bars = charts.session_bars(got[sym], date + " 16:00")
+                res[sym] = {side: outcome.watchlist_replay(bars, cmp_["rules"], side) for side in ("long", "short")}
+            except charts.ChartError as e:
+                res[sym] = {"error": str(e)[:200]}
+        if todo:
+            self.j.put(key, res)
+        return len(todo)
 
     # ---- what you did ------------------------------------------------
     @staticmethod
@@ -840,6 +877,10 @@ class Desk:
         summ = R.summary(j.trades(limit=100000), j.signals(limit=100000), j.events(limit=100000), j.get("rulesets", {}),
                          outcomes=j.outcomes(), scans=j.scans(limit=100000))
         summ["decisions"] = decide.counts(j.decisions(limit=100000))
+        res = j.get_prefix("watchlist_results:")
+        summ["watchlists"] = R.watchlist_comparison(
+            [dict(c, results=res.get("watchlist_results:" + c["date"]) or {})
+             for c in j.get_prefix("watchlist_comparison:").values()])
         return {"mode": mode, "now": now, "summary": summ, "text": R.report(mode, summ, now, stamp.rules_hash(st))}
 
     def graph(self):

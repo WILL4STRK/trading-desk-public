@@ -174,6 +174,9 @@ def outcome_table(outcomes, sig_by_id=None):
             for k, g in out.items()}
 
 
+MIN_CALIBRATION = 30      # decided replays before the calibration numbers mean much
+
+
 def odds_check(signals, outcomes):
     """Did the Time Machine's odds hold up? Its share of target-first against the replays' share."""
     by = {o["signal_id"]: o for o in outcomes}
@@ -182,10 +185,20 @@ def odds_check(signals, outcomes):
             and by[s["id"]]["result"] in ("target", "stop", "flat", "open")]
     if not rows:
         return None
+    scored = [(r[0], 1.0 if r[2] == "target" else 0.0) for r in rows if r[2] != "open"]   # open: not decided yet
+    bins = []
+    for lo in (0, 20, 40, 60, 80):
+        g = [hit for p, hit in scored if lo <= 100 * p < lo + 20 or (lo == 80 and p >= 1)]
+        if g:
+            bins.append({"odds": "%d-%d%%" % (lo, lo + 20), "n": len(g), "actual_target": _r2(100 * _mean(g))})
     return {"n": len(rows), "predicted_target": _r2(100 * _mean([r[0] for r in rows])),
             "predicted_stop": _r2(100 * _mean([r[1] for r in rows])),
             "actual_target": _r2(100.0 * sum(1 for r in rows if r[2] == "target") / len(rows)),
-            "actual_stop": _r2(100.0 * sum(1 for r in rows if r[2] == "stop") / len(rows))}
+            "actual_stop": _r2(100.0 * sum(1 for r in rows if r[2] == "stop") / len(rows)),
+            # Brier score of the target odds against what happened: 0 is perfect, 0.25 is a coin flip
+            "brier": round(_mean([(p - hit) ** 2 for p, hit in scored]), 3) if scored else None,
+            "bins": bins, "enough": len(scored) >= MIN_CALIBRATION, "scored": len(scored),
+            "no_fill": sum(1 for o in outcomes if o["result"] == "no fill")}
 
 
 JUDGED = ("target", "stop", "flat", "open")      # replay results that say how a trade would have gone
@@ -291,6 +304,33 @@ def summary(trades, signals, events=(), rulesets=None, min_trades=MIN_TRADES, ou
     }
 
 
+def watchlist_comparison(days):
+    """The formula's picks against Claude's, every name-day replayed with the same morning rules
+    (engine.compare_watchlists). R per name-day counts a pick that never triggered or filled as 0R,
+    so a list cannot look good by trading less. Only days with both lists are compared."""
+    out = {}
+    both = [d for d in days if d.get("claude") is not None and d.get("results")]
+    for who in ("formula", "claude"):
+        for side in ("long", "short"):
+            rs, filled, targets, names = [], 0, 0, 0
+            for d in both:
+                for p in d.get(who) or []:
+                    o = (d["results"].get(p["symbol"]) or {}).get(side)
+                    if not o or o["result"] in ("no data", "unsupported"):
+                        continue
+                    names += 1
+                    rs.append(o["r"] or 0.0)
+                    filled += o["r"] is not None
+                    targets += o["result"] == "target"
+            out["%s %s" % (who, side)] = {"name_days": names, "filled": filled, "targets": targets,
+                                          "r_per_name_day": _r2(_mean(rs)),
+                                          "r_per_fill": _r2(sum(rs) / filled) if filled else None}
+    out["days"] = len(both)
+    out["overlap"] = _r2(_mean([len({p["symbol"] for p in d["formula"]} & {p["symbol"] for p in d["claude"]})
+                                / max(1, len(d["formula"])) for d in both if d.get("formula")]))
+    return out
+
+
 # ---- the day ---------------------------------------------------------
 def _usd(x, sign=True):
     return "%s$%.2f" % (("+" if x > 0 else "-" if x < 0 else "") if sign else ("-" if x < 0 else ""), abs(x))
@@ -375,11 +415,26 @@ def report(mode, s, now, rules_hash=None):
                                                           f(v["avg_r"]), v["with_r"])
           for k, v in sorted(s.get("outcomes", {}).items())] or ["  none yet (replays run after 4:05 PM New York)"]
     oc = s.get("odds_check")
+    fr = lambda x: "n/a" if x is None else "%+.2fR" % x
     L += ["", "DID THE ODDS HOLD UP",
           "  %d replays with odds: Time Machine said target first %s%%, stop first %s%%; the day gave %s%% and %s%%."
           % (oc["n"], f(oc["predicted_target"], "%.1f"), f(oc["predicted_stop"], "%.1f"), f(oc["actual_target"], "%.1f"),
              f(oc["actual_stop"], "%.1f")) if oc else "  none yet"]
-    fr = lambda x: "n/a" if x is None else "%+.2fR" % x
+    if oc and oc.get("scored"):
+        L += ["  Brier score %s over %d decided replays (0 = perfect, 0.25 = a coin flip)%s. %d never filled."
+              % (f(oc["brier"], "%.3f"), oc["scored"], "" if oc["enough"] else ", fewer than %d: too few to judge" % MIN_CALIBRATION,
+                 oc["no_fill"])]
+        L += ["  Said %s: %d replays, %s%% reached the target" % (b["odds"], b["n"], f(b["actual_target"], "%.1f"))
+              for b in oc["bins"]]
+    wl = s.get("watchlists") or {}
+    L += ["", "FORMULA AGAINST CLAUDE (each morning's picks replayed with the same rules; no trigger or no fill = 0R)"]
+    L += ["  %s: %d name-days, %d filled, %d targets, %s per name-day, %s per fill"
+          % (k, v["name_days"], v["filled"], v["targets"], fr(v["r_per_name_day"]), fr(v["r_per_fill"]))
+          for k, v in wl.items() if isinstance(v, dict) and v["name_days"]] or ["  none yet (needs a day with both lists, replayed after 4:05 PM)"]
+    if wl.get("days"):
+        L.append("  %d days compared; on average %s of the formula's picks were also Claude's.%s"
+                 % (wl["days"], "n/a" if wl["overlap"] is None else "%d%%" % round(100 * wl["overlap"]),
+                    "" if wl["days"] >= 20 else " Under 20 days: too few to choose a winner."))
     L += ["", "ODDS BY EDGE (Time Machine edge points against the replays; if higher bands do no better, the floor does not sort)"]
     L += ["  %s: %d judged, said target first %s%%, the day gave %s%%, average %s (%d never filled)"
           % (b["bucket"], b["n"], f(b["predicted_target"], "%.1f"), f(b["actual_target"], "%.1f"), fr(b["avg_r"]), b["no_fill"])

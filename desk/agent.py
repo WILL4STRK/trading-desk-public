@@ -113,7 +113,7 @@ def research(st, max_price, wd, ask=ask_claude, gather=W.research, news=headline
     base = gather(dict(st, auto_watchlist_movers=max(POOL, n)), max_price)
     cands = base["picks"]
     out = dict(base, picks=cands[:n], watchlist=base["core"] + [c["symbol"] for c in cands[:n]],
-               by="formula", summary="")
+               by="formula", summary="", formula_picks=[dict(c) for c in cands[:n]], claude_picks=None)
     if not cands or not n:
         return out
     try:
@@ -124,5 +124,5 @@ def research(st, max_price, wd, ask=ask_claude, gather=W.research, news=headline
     except Exception as e:                          # Claude down or odd: the formula's list still stands
         out["errors"] = base["errors"] + ["agent: %s; used the formula's picks" % str(e)[:200]]
         return out
-    return dict(out, picks=picks, watchlist=base["core"] + [p["symbol"] for p in picks],
+    return dict(out, picks=picks, watchlist=base["core"] + [p["symbol"] for p in picks], claude_picks=picks,
                 by="claude", summary=clean(answer.get("summary"), 1200))

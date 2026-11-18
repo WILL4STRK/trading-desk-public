@@ -9,7 +9,13 @@ candle the order of the high and the low is unknown, so when a candle reaches bo
 target the stop is counted (the careful answer). Nothing here changes a signal or a trade.
 """
 
+import math
+
+from . import shorts
+from .charts import OPEN_MIN
+
 NO_PLAN, NO_FILL, TARGET, STOP, FLAT, OPEN = "no plan", "no fill", "target", "stop", "flat", "open"
+NO_TRIGGER, NO_DATA, UNSUPPORTED = "no trigger", "no data", "unsupported"
 
 
 def _minute(hhmm):
@@ -96,3 +102,70 @@ def _replay_short(limit, stop, target, start, until, flat, bars):
             return done(TARGET, min(target, b["o"]), b, "Reached the target.")
     last = after[-1]
     return done(OPEN, last["c"], last, "The candles end before the trade did.")
+
+
+# ---- the watchlist comparison: formula's picks against Claude's, same rules -----------------
+def _hhmm(minutes):
+    return "%02d:%02d" % (minutes // 60, minutes % 60)
+
+
+def _breakout(bars, or_minutes, no_entries_after, min_volume_x, bar_minutes=5):
+    """The long mirror of shorts.breakdown: the first completed bar after the range that closes above its high."""
+    rng = shorts.opening_range(bars, or_minutes, bar_minutes)
+    if not rng:
+        return None, None, "the opening range is not complete"
+    for b in bars:
+        if b["minute"] < OPEN_MIN + or_minutes or not b["c"] > rng["high"] + 1e-9:
+            continue
+        closes = b["minute"] + bar_minutes
+        if closes > _minute(no_entries_after):
+            return rng, None, "the first close above the range came after the last entry time"
+        if min_volume_x > 0 and (not rng["avg_volume"] or b["v"] / rng["avg_volume"] < min_volume_x):
+            return rng, None, "the first close above the range was under the volume floor"
+        return rng, {"close_time": _hhmm(closes), "price": round(b["c"], 2)}, ""
+    return rng, None, "no close above the range high"
+
+
+def _floor_cent(x):
+    return math.floor(x * 100 + 1e-6) / 100          # as desk/pipeline.py rounds the long plan
+
+
+def _long_plan(entry, rng, stop_rule, target_r, chase_r):
+    head, _, tail = str(stop_rule).partition(":")
+    if stop_rule == "or-mid":
+        stop = _floor_cent((rng["high"] + rng["low"]) / 2)
+    elif stop_rule == "or-low":
+        stop = rng["low"]
+    elif head == "pct":
+        stop = _floor_cent(entry * (1 - float(tail) / 100))
+    else:
+        raise ValueError("the stop rule %s needs the exit planner; the comparison skips it" % stop_rule)
+    risk = round(entry - stop, 2)
+    if risk <= 0:
+        raise ValueError("no room for a stop under the entry")
+    return {"entry": entry, "stop": stop, "target": round(entry + target_r * risk, 2),
+            "limit": _floor_cent(entry + chase_r * risk)}
+
+
+def watchlist_replay(bars, rules, side):
+    """How one watchlist pick would have done today with the morning's rules, signalled or not: the first
+    opening-range breakout (long) or breakdown (short), its plan, then replay(). A shadow benchmark that
+    puts the formula's and Claude's lists on the same footing. It never makes a signal, a fill or an order.
+    shortcut: the first qualifying close only (the long entry timer can wait for a later volume bar), no
+    min-stop check and no atr stops; fine for comparing two lists, not a backtest of every setting."""
+    blank = {"entry": None, "exit": None, "exit_time": None, "r": None, "trigger": None,
+             "limit": None, "stop": None, "target": None}
+    if not bars or not shorts.opening_range(bars, rules["or_minutes"]):
+        return dict(blank, result=NO_DATA, note="The day's opening range candles are missing.")
+    short = side == "short"
+    rng, trig, why = (shorts.breakdown if short else _breakout)(
+        bars, rules["or_minutes"], rules["no_entries_after"], rules["min_volume_x"])
+    if not trig:
+        return dict(blank, result=NO_TRIGGER, note=why)
+    try:
+        pl = (shorts.plan if short else _long_plan)(trig["price"], rng, rules["stop_rule"], rules["target_r"], rules["chase_r"])
+    except (shorts.ShortError, ValueError) as e:
+        return dict(blank, result=UNSUPPORTED, note=str(e)[:200])
+    p = dict(pl, side=side, trigger_close_time=trig["close_time"], flat_by=rules["flat_by"],
+             valid_until=_hhmm(_minute(trig["close_time"]) + int(rules["signal_valid_minutes"])))
+    return dict(replay(p, bars), trigger=trig["close_time"], limit=pl["limit"], stop=pl["stop"], target=pl["target"])
