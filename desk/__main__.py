@@ -16,9 +16,11 @@ from .paths import ROOT
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python3 -m desk", description="Trading Desk: day-trading signals you place by hand at your broker. It never places a real order.")
-    ap.add_argument("command", nargs="?", choices=("run", "review", "agent"), default="run",
+    ap.add_argument("command", nargs="?", choices=("run", "review", "agent", "password"), default="run",
                     help="run (default) starts the desk; review prints the record and exits; "
-                         "agent picks today's watchlist movers and exits")
+                         "agent picks today's watchlist movers and exits; password sets the remote sign-in password")
+    ap.add_argument("--tunnel", action="store_true",
+                    help="also open a free Cloudflare quick tunnel so you can sign in from another computer")
     ap.add_argument("--apply", action="store_true", help="with agent: write the picks into the watchlist")
     ap.add_argument("--demo", action="store_true", help="run on saved data from Monday 2026-10-19, no network")
     ap.add_argument("--demo-now", default="2026-10-19 10:15", help='the demo clock, New York time')
@@ -51,6 +53,8 @@ def main(argv=None):
 
     if a.command == "review":
         return print_review(Demo(a.demo_now) if a.demo else Live())
+    if a.command == "password":
+        return set_password()
     if a.command == "agent":
         if a.demo:
             ap.error("the agent needs today's market; drop --demo")
@@ -61,6 +65,17 @@ def main(argv=None):
     sched = Scheduler(desk)
     httpd = serve(desk, sched, a.port)
     sched.start()
+    if a.tunnel:
+        from . import remote, tunnel
+        if remote.load() is None:
+            print("No remote password yet: run  python3 -m desk password  first. Starting without the tunnel.")
+        else:
+            try:
+                desk.j.put("remote_url", None)          # the old address dies with the old tunnel
+                tunnel.start(a.port, desk.tunnel_online)
+                print("Opening a Cloudflare tunnel. Its address goes to your phone and the event log.")
+            except RuntimeError as e:
+                print("No tunnel: %s." % e)
     url = "http://127.0.0.1:%d/" % a.port
     print("Trading Desk %s at %s   (Ctrl+C to stop)" % ("DEMO (saved data)" if a.demo else "on today's market", url))
     print("Record: %s." % ("PAPER (practice)" if which == "paper" else "LIVE (real money)")
@@ -81,6 +96,23 @@ def main(argv=None):
     finally:
         sched.stop()
         httpd.server_close()
+    return 0
+
+
+def set_password():
+    """Asks twice, hidden, and stores only a salted hash (desk/remote.py)."""
+    import getpass
+    from . import remote
+    pw = getpass.getpass("New remote password (10+ characters): ")
+    if pw != getpass.getpass("Again: "):
+        print("They did not match. Nothing changed.")
+        return 1
+    try:
+        remote.set_password(pw)
+    except ValueError as e:
+        print("%s Nothing changed." % e)
+        return 1
+    print("Saved. Every browser signed in before must sign in again.")
     return 0
 
 

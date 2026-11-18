@@ -776,6 +776,7 @@ class Desk:
             "last_scan": self.j.get("last_scan"), "premarket": self.j.get("premarket"),
             "watchlist_research": self.j.get("watchlist_research"),
             "account_name": account_name(),
+            "remote_url": self.j.get("remote_url"),
             "settings": st,
             "shorts": shorts.status(st, equity),
             "auto": self.auto.summary(st),
@@ -795,6 +796,16 @@ class Desk:
                          outcomes=j.outcomes(), scans=j.scans(limit=100000))
         summ["decisions"] = decide.counts(j.decisions(limit=100000))
         return {"mode": mode, "now": now, "summary": summ, "text": R.report(mode, summ, now, stamp.rules_hash(st))}
+
+    def tunnel_online(self, url):
+        """A new tunnel address (desk/tunnel.py): log it and push it to your phone so you can open it."""
+        st, now = S.load(), self.src.now()
+        self.j.put("remote_url", url)
+        if self.j.add_event("remote", "Your desk is online at %s. Sign in with your desk password." % url,
+                            now, key="remote-%s" % url) and st.get("ntfy_topic") and not self.src.demo:
+            threading.Thread(target=notify._post_quietly, daemon=True, args=(dict(st), {
+                "title": "Trading Desk is online", "message": "%s\nSign in with your desk password." % url,
+                "click": url, "tags": ["link"], "priority": 3})).start()
 
     def graph(self):
         """The Graph tab: made or lost over time, for this record and every paper account (desk/graph.py)."""

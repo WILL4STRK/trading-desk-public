@@ -235,11 +235,45 @@ class Server(DemoCase):
         self.assertEqual(self.call("/api/settings", {"changes": {"risk_per_trade_pct": 90}})[0], 400)
         self.assertEqual(self.call("/api/nope", {})[0], 404)
 
-    def test_a_named_proxy_host_is_let_in(self):
+    def test_a_tunnel_visit_must_sign_in(self):
         import desk.server as srv
-        with mock.patch.object(srv, "EXTRA_HOSTS", ("mypc.tail1234.ts.net",)):
-            self.assertEqual(self.call("/api/state", headers={"Host": "MyPC.tail1234.ts.net"})[0], 200)
+        from desk import remote
+        tun = {"Host": "abc-def.trycloudflare.com", "Cf-Connecting-Ip": "203.0.113.9"}
+        with mock.patch.object(srv, "EXTRA_HOSTS", (".trycloudflare.com",)):
+            self.assertEqual(self.call("/api/state", headers=tun)[0], 401)
             self.assertEqual(self.call("/api/state", headers={"Host": "evil.example"})[0], 403)
+            # a Cloudflare header makes it remote even with a localhost Host
+            self.assertEqual(self.call("/api/state", headers={"Host": "localhost", "Cf-Connecting-Ip": "203.0.113.9"})[0], 401)
+            remote.set_password("correct horse battery")
+            self.assertEqual(self.call("/api/state", headers=dict(tun, Cookie="desk_session=" + remote.token()))[0], 200)
+            self.assertEqual(self.call("/api/state", headers=dict(tun, Cookie="desk_session=1.forged"))[0], 401)
+            self.assertEqual(self.call("/api/state")[0], 200)                  # on this computer: no password
+
+    def test_login_sets_a_cookie_and_locks_out_guessers(self):
+        import desk.server as srv
+        from desk import remote
+        remote.set_password("correct horse battery")
+        remote._fails.clear()
+
+        def login(pw, ip):
+            req = urllib.request.Request("http://127.0.0.1:%d/login" % self.port, data=("password=" + pw).encode(),
+                                         headers={"Host": "x.trycloudflare.com", "Cf-Connecting-Ip": ip,
+                                                  "Content-Type": "application/x-www-form-urlencoded"})
+            opener = urllib.request.build_opener(type("NoRedirect", (urllib.request.HTTPRedirectHandler,),
+                                                      {"redirect_request": lambda *a, **k: None}))
+            try:
+                r = opener.open(req, timeout=30)
+                return r.status, r.headers
+            except urllib.error.HTTPError as e:
+                return e.code, e.headers
+        with mock.patch.object(srv, "EXTRA_HOSTS", (".trycloudflare.com",)):
+            code, h = login("correct%20horse%20battery", "198.51.100.1")
+            self.assertEqual(code, 303)
+            self.assertIn("HttpOnly; Secure; SameSite=Strict", h["Set-Cookie"])
+            for _ in range(remote.MAX_TRIES):
+                self.assertEqual(login("nope", "198.51.100.2")[0], 401)
+            self.assertTrue(remote.locked("198.51.100.2"))
+            self.assertEqual(login("correct%20horse%20battery", "198.51.100.2")[0], 401)    # locked even when right
 
     def test_a_bad_event_id_is_a_plain_400_not_a_crash(self):
         code, body = self.call("/api/seen", {"id": "abc"})
