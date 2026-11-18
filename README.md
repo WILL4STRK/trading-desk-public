@@ -151,15 +151,12 @@ dropped; it never stops a scan. Weak and blocked signals are not pushed.
 
   Run it again without `--tickers` to reopen it. Its alerts say its name.
 
-## Always on: a Windows PC, opened from anywhere
+## Always on: a Windows PC, viewed from your other devices
 
-Run the desk on a Windows PC that stays on, and open it from any other
-computer through a free Cloudflare quick tunnel (no account or domain). The
-desk still listens on 127.0.0.1 only; `cloudflared` connects out to Cloudflare
-and gets a `https://<random>.trycloudflare.com` address. Every visit through
-it must sign in with your desk password (a salted hash in `data/remote.json`,
-five wrong tries lock an address out for ten minutes). On the PC itself, for
-example over Chrome Remote Desktop, `http://127.0.0.1:8790` needs no password.
+Run the desk on a Windows PC that stays on and open it from your Mac or phone
+through [Tailscale](https://tailscale.com) (free for personal use). The desk
+still listens on 127.0.0.1 only; Tailscale Serve gives it a private HTTPS
+address that only devices signed in to your Tailscale account can open.
 
 On the PC, in PowerShell:
 
@@ -167,20 +164,17 @@ On the PC, in PowerShell:
 irm https://raw.githubusercontent.com/WILL4STRK/trading-desk-public/desk-upgrades/tools/windows/setup.ps1 | iex
 ```
 
-It installs Git, Python and cloudflared with winget if they are missing,
-clones the code to `%USERPROFILE%\trading-desk`, adds `tzdata` (Windows has
-no time zone data of its own), asks for the remote password once, and adds a
-**Trading Desk** task that starts `python -m desk --tunnel` hidden at every
-log-on. Run it again to update. To bring your record, put a zip of the `data`
-folder at `Downloads\trading-desk-data.zip` first. Set the PC's sleep to
-Never, and stop any other copy of the desk so alerts are not sent twice.
+It installs Git, Python and Tailscale with winget if they are missing, clones
+the code to `%USERPROFILE%\trading-desk`, adds `tzdata` (Windows has no time
+zone data of its own), shares port 8790 with Tailscale Serve, and adds a
+**Trading Desk** task that starts the desk hidden at every log-on. Run it again
+to update. To bring your record, put a zip of the `data` folder at
+`Downloads\trading-desk-data.zip` first. Set the PC's sleep to Never, and stop
+any other copy of the desk so alerts are not sent twice.
 
-The tunnel address changes whenever the tunnel restarts. Each new one is
-pushed to your phone (set an ntfy topic) and written to the event log.
-Change the password with `python -m desk password`; that signs every browser
-out. Quick tunnels are Cloudflare's free test service, with no uptime promise.
-The watchlist agent needs the `claude` command signed in on the PC; without
-it the formula picks the movers.
+The proxy's name reaches the desk through `DESK_HOSTS` (the script sets it);
+any other Host header is still refused. The watchlist agent needs the `claude`
+command signed in on the PC; without it the formula picks the movers.
 
 ## The Account tab
 

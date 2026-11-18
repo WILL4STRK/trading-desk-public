@@ -1,45 +1,21 @@
 """The dashboard's web server. Standard library only, this computer only.
 
-It listens on 127.0.0.1. Requests must come with a localhost Host header (or a
-tunnel name from DESK_HOSTS, which must then log in: desk/remote.py), and
+It listens on 127.0.0.1. Requests must come with a localhost Host header, and
 anything that changes data must carry the X-Desk header, which a page on
 another website cannot send without a preflight this server never grants.
 """
 import json
 import os
-from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import remote
 from . import settings as S
 from .engine import DeskError
 from .paths import STATIC
-from .remote import COOKIE
 
-# Names a tunnel on this computer may use: exact ("mypc.example.com") or a suffix
-# (".trycloudflare.com"). Visits under these names must log in (desk/remote.py).
-# The server still listens on 127.0.0.1 only.
+# Names a private proxy on this computer may use, like a Tailscale Serve address
+# (DESK_HOSTS="mypc.tail1234.ts.net"). The server still listens on 127.0.0.1 only.
 EXTRA_HOSTS = tuple(h.strip().lower() for h in os.environ.get("DESK_HOSTS", "").split(",") if h.strip())
-LOCAL_HOSTS = ("127.0.0.1", "localhost")
-
-LOGIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Trading Desk sign-in</title><style>
-:root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#fff;
-font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
-form{background:#1C1C1E;border-radius:20px;padding:24px;width:min(340px,calc(100vw - 32px));display:grid;gap:12px}
-h1{margin:0;font-size:22px}p{margin:0;color:rgba(235,235,245,.68);font-size:14px}
-input{font:inherit;padding:12px;border-radius:12px;border:1px solid #3A3A3C;background:#000;color:#fff}
-button{font:inherit;font-weight:600;padding:12px;border:0;border-radius:12px;background:#0071E3;color:#fff;cursor:pointer}
-.err{color:#FF6961}</style></head><body><form method="post" action="/login">
-<h1>Trading Desk</h1><p>Sign in to reach your desk from another computer.</p>%s
-<label for="pw" class="vh" style="position:absolute;left:-9999px">Password</label>
-<input id="pw" name="password" type="password" autocomplete="current-password" placeholder="Password" required autofocus>
-<button type="submit">Sign in</button></form></body></html>"""
-
-
-def _host_ok(host):
-    return host in LOCAL_HOSTS or any(host == h or (h.startswith(".") and host.endswith(h)) for h in EXTRA_HOSTS)
 
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
@@ -67,55 +43,14 @@ def make_handler(desk, scheduler=None):
             self.end_headers()
             self.wfile.write(data)
 
-        def _remote(self):
-            """Through a tunnel: a tunnel's Host name, or any Cloudflare header (cloudflared adds them)."""
-            host = (self.headers.get("Host") or "").split(":")[0].lower()
-            return host not in LOCAL_HOSTS or bool(self.headers.get("Cf-Connecting-Ip"))
-
-        def _signed_in(self):
-            c = SimpleCookie()
-            try:
-                c.load(self.headers.get("Cookie") or "")
-            except CookieError:
-                return False
-            return COOKIE in c and remote.valid(c[COOKIE].value)
-
         def _local(self):
-            """Lets a request through, or answers it and returns False."""
             host = (self.headers.get("Host") or "").split(":")[0].lower()
-            if not _host_ok(host):
+            if host not in ("127.0.0.1", "localhost") + EXTRA_HOSTS:
                 self._send(403, {"error": "local only"})
                 return False
-            if not self._remote() or self._signed_in():
-                return True
-            if urlparse(self.path).path.startswith("/api/"):
-                self._send(401, {"error": "Sign in again: open the desk's address and log in."})
-            else:
-                self._send(303, b"", "text/plain", {"Location": "/login"})
-            return False
-
-        def _login(self):
-            addr = self.headers.get("Cf-Connecting-Ip") or self.client_address[0]
-            if self.command == "GET":
-                return self._send(200, (LOGIN_PAGE % "").encode(), TYPES[".html"])
-            if remote.load() is None:
-                msg = "No password is set. On the desk's computer run: python -m desk password"
-            elif remote.locked(addr):
-                msg = "Too many wrong tries. Wait ten minutes."
-            else:
-                n = min(int(self.headers.get("Content-Length") or 0), 4096)
-                pw = (parse_qs(self.rfile.read(n).decode("utf-8", "replace")).get("password") or [""])[0]
-                if remote.check(pw):
-                    return self._send(303, b"", "text/plain", {
-                        "Location": "/", "Set-Cookie": "%s=%s; Max-Age=%d; Path=/; HttpOnly; Secure; SameSite=Strict"
-                        % (COOKIE, remote.token(), remote.SESSION_DAYS * 86400)})
-                remote.failed(addr)
-                msg = "Wrong password."
-            self._send(401, (LOGIN_PAGE % ('<p class="err">%s</p>' % msg)).encode(), TYPES[".html"])
+            return True
 
         def do_GET(self):
-            if urlparse(self.path).path == "/login" and _host_ok((self.headers.get("Host") or "").split(":")[0].lower()):
-                return self._login()
             if not self._local():
                 return
             u = urlparse(self.path)
@@ -145,8 +80,6 @@ def make_handler(desk, scheduler=None):
             self._send(200, f.read_bytes(), TYPES.get(f.suffix, "application/octet-stream"))
 
         def do_POST(self):
-            if urlparse(self.path).path == "/login" and _host_ok((self.headers.get("Host") or "").split(":")[0].lower()):
-                return self._login()
             if not self._local():
                 return
             if self.headers.get("X-Desk") != "1" or "application/json" not in (self.headers.get("Content-Type") or ""):

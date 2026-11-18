@@ -1,13 +1,11 @@
 # Trading Desk on a Windows PC that stays on: installs what it needs, starts the desk
-# hidden at every log-on (and now), and opens a free Cloudflare quick tunnel so you
-# can sign in from another computer. Safe to run again: it updates the code and the task.
+# hidden at every log-on (and now), and shares it privately with your other devices
+# through Tailscale Serve. Safe to run again: it updates the code and the task.
 #
 #   irm https://raw.githubusercontent.com/WILL4STRK/trading-desk-public/desk-upgrades/tools/windows/setup.ps1 | iex
 #
-# The desk still listens on 127.0.0.1 only. cloudflared connects out to Cloudflare and
-# gets a https://<random>.trycloudflare.com address; every visit through it must sign
-# in with your desk password. The address changes when the tunnel restarts: the desk
-# pushes each new one to your phone (ntfy) and its event log.
+# The desk still listens on 127.0.0.1 only. Tailscale Serve forwards your tailnet's
+# HTTPS address to it, so only devices signed in to your Tailscale account reach it.
 
 $ErrorActionPreference = "Stop"
 $Repo   = "https://github.com/WILL4STRK/trading-desk-public.git"
@@ -15,6 +13,7 @@ $Branch = "desk-upgrades"
 $Dir    = Join-Path $env:USERPROFILE "trading-desk"
 $Port   = 8790
 $Task   = "Trading Desk"
+$TsExe  = "C:\Program Files\Tailscale\tailscale.exe"
 
 function Refresh-Path {
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
@@ -30,7 +29,7 @@ function Need($Test, $Id, $Name) {
 Write-Host "== 1/5 Tools"
 Need { Get-Command git -ErrorAction SilentlyContinue } "Git.Git" "Git"
 Need { Get-Command py -ErrorAction SilentlyContinue } "Python.Python.3.12" "Python"
-Need { (Get-Command cloudflared -ErrorAction SilentlyContinue) -or (Test-Path "C:\Program Files (x86)\cloudflared\cloudflared.exe") } "Cloudflare.cloudflared" "cloudflared"
+Need { Test-Path $TsExe } "Tailscale.Tailscale" "Tailscale"
 
 Write-Host "== 2/5 Code in $Dir"
 if (Test-Path (Join-Path $Dir ".git")) {
@@ -52,23 +51,26 @@ if ((Test-Path $Zip) -and -not (Test-Path (Join-Path $Dir "data\journal.db"))) {
     Expand-Archive -Path $Zip -DestinationPath $Dir -Force
 }
 
-Write-Host "== 3/5 Remote sign-in"
-if (-not (Test-Path (Join-Path $Dir "data\remote.json"))) {
-    Write-Host "Choose the password you will type to open the desk from another computer."
-    Push-Location $Dir; py -3 -m desk password; Pop-Location
+Write-Host "== 3/5 Tailscale"
+$st = & $TsExe status --json | ConvertFrom-Json
+if ($st.BackendState -ne "Running") {
+    Write-Host "Sign in to Tailscale in the browser window that opens (the same account as your Mac)."
+    & $TsExe up
+    $st = & $TsExe status --json | ConvertFrom-Json
 }
-[Environment]::SetEnvironmentVariable("DESK_HOSTS", ".trycloudflare.com", "User")   # tunnel names, sign-in required
-$env:DESK_HOSTS = ".trycloudflare.com"
+$Name = $st.Self.DNSName.TrimEnd(".")
+& $TsExe serve --bg $Port
+[Environment]::SetEnvironmentVariable("DESK_HOSTS", $Name, "User")   # the desk lets this name in
+$env:DESK_HOSTS = $Name
 
 Write-Host "== 4/5 Start at log-on, hidden"
-$action   = New-ScheduledTaskAction -Execute $Pyw -Argument "-m desk --port $Port --no-browser --tunnel" -WorkingDirectory $Dir
+$action   = New-ScheduledTaskAction -Execute $Pyw -Argument "-m desk --port $Port --no-browser" -WorkingDirectory $Dir
 $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
             -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
             -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName $Task -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
 Stop-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue   # a rerun picks up new code
-Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force   # its tunnel ends with the desk
 Start-Sleep -Seconds 2
 Start-ScheduledTask -TaskName $Task
 
@@ -81,10 +83,5 @@ try {
     Write-Host "The desk did not answer yet. Run this again, or check Task Scheduler > $Task."
 }
 Write-Host ""
-Start-Sleep -Seconds 10
-try {
-    $url = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/api/state" -TimeoutSec 20 | ConvertFrom-Json).remote_url
-} catch { $url = $null }
-if ($url) { Write-Host "Open it from any computer and sign in:  $url" }
-else { Write-Host "The tunnel address is not ready yet. It will arrive as a phone alert (set an ntfy topic) and in the desk's event log." }
+Write-Host "Open it on your Mac (Tailscale on, same account):  https://$Name/"
 Write-Host "Keep this PC awake: Settings > System > Power > Sleep = Never."
