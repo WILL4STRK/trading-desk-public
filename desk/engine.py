@@ -9,6 +9,7 @@ import re
 import threading
 
 from . import decide
+from . import agent as AG
 from . import auto as A
 from . import breaker
 from . import changes
@@ -160,21 +161,30 @@ class Desk:
         self.j.put("premarket", out)
         return out
 
-    def research_watchlist(self):
-        """9:00 AM New York: today's watchlist = your core list + the most volatile movers (desk/watchlist.py).
-        Live data only. If every screener failed, yesterday's list stays."""
+    def research_watchlist(self, force=False, apply=True):
+        """9:00 AM New York: today's watchlist = your core list + the day's movers. With the watchlist
+        agent on, Claude picks them from the formula's candidates and their headlines (desk/agent.py);
+        otherwise the formula picks (desk/watchlist.py). Live data only. If every screener failed,
+        yesterday's list stays. force: run even with the daily research off (python3 -m desk agent)."""
         st, now = S.load(), self.src.now()
-        if self.src.demo or not st["auto_watchlist"]:
+        if self.src.demo or not (st["auto_watchlist"] or force):
             return None
-        r = W.research(st, max_price=self.spendable(st, now))
+        spend = self.spendable(st, now)
+        if st["watchlist_agent"]:
+            r = AG.research(st, spend, data_dir() / "work" / now[:10] / "_agent")
+        else:
+            r = dict(W.research(st, max_price=spend), by="formula", summary="")
         kept = not r["picks"] and bool(r["errors"])
+        out = dict(r, date=now[:10], at=now, kept_old=kept, applied=apply and not kept)
+        if not apply:
+            return out
         if not kept:
             S.update({"watchlist": r["watchlist"]})
-        out = dict(r, date=now[:10], at=now, kept_old=kept)
         self.j.put("watchlist_research", out)
+        who = "Claude picked" if r["by"] == "claude" else "The formula picked"
         msg = ("Watchlist research failed, so yesterday's list stays: %s" % "; ".join(r["errors"][:2]) if kept else
-               "Today's watchlist: your %d core tickers plus %d movers: %s." % (
-                   len(r["core"]), len(r["picks"]),
+               "Today's watchlist: your %d core tickers plus %d movers. %s %s." % (
+                   len(r["core"]), len(r["picks"]), who,
                    ", ".join("%s (moves %.1f%% a day)" % (p["symbol"], p["atr_pct"]) for p in r["picks"]) or "none today"))
         self.j.add_event("watchlist", msg, now, key="watchlist-%s" % now[:10])
         return out

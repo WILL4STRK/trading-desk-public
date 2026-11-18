@@ -5,12 +5,17 @@ anything that changes data must carry the X-Desk header, which a page on
 another website cannot send without a preflight this server never grants.
 """
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import settings as S
 from .engine import DeskError
 from .paths import STATIC
+
+# Names a private proxy on this computer may use, like a Tailscale Serve address
+# (DESK_HOSTS="mypc.tail1234.ts.net"). The server still listens on 127.0.0.1 only.
+EXTRA_HOSTS = tuple(h.strip().lower() for h in os.environ.get("DESK_HOSTS", "").split(",") if h.strip())
 
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
@@ -40,7 +45,7 @@ def make_handler(desk, scheduler=None):
 
         def _local(self):
             host = (self.headers.get("Host") or "").split(":")[0].lower()
-            if host not in ("127.0.0.1", "localhost"):
+            if host not in ("127.0.0.1", "localhost") + EXTRA_HOSTS:
                 self._send(403, {"error": "local only"})
                 return False
             return True

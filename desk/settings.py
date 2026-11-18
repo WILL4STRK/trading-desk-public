@@ -44,6 +44,7 @@ DEFAULTS = {
     "core_watchlist": ["F", "SOFI", "PLTR", "AAL", "T", "INTC", "PFE", "BAC", "SNAP", "RIVN",
                        "HOOD", "UBER", "AMD", "NIO", "CCL", "KO", "CSCO", "VZ", "GM",
                        "DAL", "PYPL", "DKNG", "MARA", "SMCI", "NVDA", "AAPL", "TSLA", "AMZN", "MU"],
+    "watchlist_agent": True,         # Claude (claude -p, your plan) picks the movers from the candidates and headlines (desk/agent.py)
     "auto_watchlist_movers": 15,     # how many high-fluctuation movers join the core list each day
     "watchlist": ["F", "SOFI", "PLTR", "AAL", "T", "INTC", "PFE", "BAC", "SNAP", "RIVN",
                   "HOOD", "UBER", "AMD", "NIO", "CCL", "KO", "CSCO", "VZ", "GM",
@@ -142,7 +143,7 @@ def validate(raw):
         raise SettingsError("max_daily_loss_pct cannot be under risk_per_trade_pct")
     if s["directions"] not in ("long", "short", "both"):
         raise SettingsError("directions must be long, short or both")
-    for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak", "auto_watchlist"):
+    for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak", "auto_watchlist", "watchlist_agent"):
         if not isinstance(s[k], bool):
             raise SettingsError("%s must be true or false" % k)
     s["blocked"] = _tickers(s["blocked"], "blocked")

@@ -147,6 +147,31 @@ dropped; it never stops a scan. Weak and blocked signals are not pushed.
 
   Run it again without `--tickers` to reopen it. Its alerts say its name.
 
+## Always on: a Windows PC, viewed from your other devices
+
+Run the desk on a Windows PC that stays on and open it from your Mac or phone
+through [Tailscale](https://tailscale.com) (free for personal use). The desk
+still listens on 127.0.0.1 only; Tailscale Serve gives it a private HTTPS
+address that only devices signed in to your Tailscale account can open.
+
+On the PC, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/WILL4STRK/trading-desk-public/desk-upgrades/tools/windows/setup.ps1 | iex
+```
+
+It installs Git, Python and Tailscale with winget if they are missing, clones
+the code to `%USERPROFILE%\trading-desk`, adds `tzdata` (Windows has no time
+zone data of its own), shares port 8790 with Tailscale Serve, and adds a
+**Trading Desk** task that starts the desk hidden at every log-on. Run it again
+to update. To bring your record, put a zip of the `data` folder at
+`Downloads\trading-desk-data.zip` first. Set the PC's sleep to Never, and stop
+any other copy of the desk so alerts are not sent twice.
+
+The proxy's name reaches the desk through `DESK_HOSTS` (the script sets it);
+any other Host header is still refused. The watchlist agent needs the `claude`
+command signed in on the PC; without it the formula picks the movers.
+
 ## The Account tab
 
 Because the desk never connects to a broker, you tell it your cash and how

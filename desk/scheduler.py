@@ -42,8 +42,8 @@ class Scheduler(threading.Thread):
             self.premarket_day = now[:10]
             w = self._safe("watchlist research", self.desk.research_watchlist)   # first: the daily setups read its list
             if w:
-                self.log("%s watchlist: %d core + %d movers%s" % (now, len(w["core"]), len(w["picks"]),
-                                                                   " (failed, kept yesterday's)" if w["kept_old"] else ""))
+                self.log("%s watchlist: %d core + %d movers picked by %s%s" % (
+                    now, len(w["core"]), len(w["picks"]), w["by"], " (failed, kept yesterday's)" if w["kept_old"] else ""))
             self._safe("pre-market scan", self.desk.premarket)
             self._safe("congress", self.desk.congress)
         # scan once per slot; in live a slot starts 25 seconds after each bar closes

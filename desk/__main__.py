@@ -2,6 +2,7 @@
 python3 -m desk --demo     the same desk on saved data from 2026-10-19 (no network)
 python3 -m desk --account growth --tickers "TSLA NVDA AMD"
                            an extra paper account with its own cash, journal and tickers
+python3 -m desk agent      Claude picks today's watchlist movers and says why (--apply writes them)
 """
 import argparse
 import json
@@ -15,8 +16,10 @@ from .paths import ROOT
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python3 -m desk", description="Trading Desk: day-trading signals you place by hand at your broker. It never places a real order.")
-    ap.add_argument("command", nargs="?", choices=("run", "review"), default="run",
-                    help="run (default) starts the desk; review prints the record and exits")
+    ap.add_argument("command", nargs="?", choices=("run", "review", "agent"), default="run",
+                    help="run (default) starts the desk; review prints the record and exits; "
+                         "agent picks today's watchlist movers and exits")
+    ap.add_argument("--apply", action="store_true", help="with agent: write the picks into the watchlist")
     ap.add_argument("--demo", action="store_true", help="run on saved data from Monday 2026-10-19, no network")
     ap.add_argument("--demo-now", default="2026-10-19 10:15", help='the demo clock, New York time')
     ap.add_argument("--port", type=int, default=None, help="8787 for the main desk; the first free from 8791 for an account")
@@ -48,6 +51,10 @@ def main(argv=None):
 
     if a.command == "review":
         return print_review(Demo(a.demo_now) if a.demo else Live())
+    if a.command == "agent":
+        if a.demo:
+            ap.error("the agent needs today's market; drop --demo")
+        return run_agent(Desk(Journal(M.journal_path(S.load()["mode"])), Live()), a.apply)
 
     which = S.load()["mode"]
     desk = Desk(Journal(M.journal_path(which)), Demo(a.demo_now) if a.demo else Live())
@@ -74,6 +81,26 @@ def main(argv=None):
     finally:
         sched.stop()
         httpd.server_close()
+    return 0
+
+
+def run_agent(desk, apply):
+    """Prints the agent's picks with reasons; writes them only with --apply."""
+    print("Researching today's movers (screeners, daily ranges, headlines, then Claude)...")
+    r = desk.research_watchlist(force=True, apply=apply)
+    print("Picked by %s. Core tickers: %s" % (r["by"], " ".join(r["core"])))
+    if r.get("summary"):
+        print("\n" + r["summary"])
+    print()
+    for p in r["picks"]:
+        print("  %-6s $%-9.2f moves %4.1f%% a day   %s" % (p["symbol"], p["price"], p["atr_pct"], p.get("why") or ", ".join(p["from"])))
+    for e in r["errors"]:
+        print("  note: %s" % e)
+    if r["kept_old"]:
+        print("\nResearch failed, so the watchlist is unchanged.")
+        return 1
+    print("\n%s" % ("Watchlist updated: %d tickers." % len(r["watchlist"]) if apply else
+                     "Not applied. Run again with --apply to write these into the watchlist."))
     return 0
 
 
