@@ -1,11 +1,10 @@
-# Trading Desk on a Windows PC that stays on: installs what it needs, starts the desk
-# hidden at every log-on (and now), and shares it privately with your other devices
-# through Tailscale Serve. Safe to run again: it updates the code and the task.
+# Trading Desk on a Windows PC that stays on: installs what it needs and starts the desk
+# hidden at every log-on (and now). Safe to run again: it updates the code and the task.
 #
 #   irm https://raw.githubusercontent.com/WILL4STRK/trading-desk-public/desk-upgrades/tools/windows/setup.ps1 | iex
 #
-# The desk still listens on 127.0.0.1 only. Tailscale Serve forwards your tailnet's
-# HTTPS address to it, so only devices signed in to your Tailscale account reach it.
+# The desk listens on 127.0.0.1 only: open it on this PC, or from elsewhere through
+# Chrome Remote Desktop into this PC. Nothing is shared to the network.
 
 $ErrorActionPreference = "Stop"
 $Repo   = "https://github.com/WILL4STRK/trading-desk-public.git"
@@ -13,7 +12,6 @@ $Branch = "desk-upgrades"
 $Dir    = Join-Path $env:USERPROFILE "trading-desk"
 $Port   = 8790
 $Task   = "Trading Desk"
-$TsExe  = "C:\Program Files\Tailscale\tailscale.exe"
 
 function Refresh-Path {
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
@@ -26,12 +24,11 @@ function Need($Test, $Id, $Name) {
     if (-not (& $Test)) { throw "$Name did not install. Install it by hand, then run this again." }
 }
 
-Write-Host "== 1/5 Tools"
+Write-Host "== 1/4 Tools"
 Need { Get-Command git -ErrorAction SilentlyContinue } "Git.Git" "Git"
 Need { Get-Command py -ErrorAction SilentlyContinue } "Python.Python.3.12" "Python"
-Need { Test-Path $TsExe } "Tailscale.Tailscale" "Tailscale"
 
-Write-Host "== 2/5 Code in $Dir"
+Write-Host "== 2/4 Code in $Dir"
 if (Test-Path (Join-Path $Dir ".git")) {
     git -C $Dir fetch --quiet origin
     git -C $Dir checkout --quiet $Branch
@@ -51,19 +48,9 @@ if ((Test-Path $Zip) -and -not (Test-Path (Join-Path $Dir "data\journal.db"))) {
     Expand-Archive -Path $Zip -DestinationPath $Dir -Force
 }
 
-Write-Host "== 3/5 Tailscale"
-$st = & $TsExe status --json | ConvertFrom-Json
-if ($st.BackendState -ne "Running") {
-    Write-Host "Sign in to Tailscale in the browser window that opens (the same account as your Mac)."
-    & $TsExe up
-    $st = & $TsExe status --json | ConvertFrom-Json
-}
-$Name = $st.Self.DNSName.TrimEnd(".")
-& $TsExe serve --bg $Port
-[Environment]::SetEnvironmentVariable("DESK_HOSTS", $Name, "User")   # the desk lets this name in
-$env:DESK_HOSTS = $Name
+[Environment]::SetEnvironmentVariable("DESK_HOSTS", $null, "User")   # left by an older setup that shared the desk
 
-Write-Host "== 4/5 Start at log-on, hidden"
+Write-Host "== 3/4 Start at log-on, hidden"
 $action   = New-ScheduledTaskAction -Execute $Pyw -Argument "-m desk --port $Port --no-browser" -WorkingDirectory $Dir
 $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
@@ -74,7 +61,7 @@ Stop-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue   # a rerun pic
 Start-Sleep -Seconds 2
 Start-ScheduledTask -TaskName $Task
 
-Write-Host "== 5/5 Check"
+Write-Host "== 4/4 Check"
 Start-Sleep -Seconds 8
 try {
     $null = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/api/state" -TimeoutSec 20
@@ -83,5 +70,5 @@ try {
     Write-Host "The desk did not answer yet. Run this again, or check Task Scheduler > $Task."
 }
 Write-Host ""
-Write-Host "Open it on your Mac (Tailscale on, same account):  https://$Name/"
+Write-Host "Open it on this PC:  http://127.0.0.1:$Port/   (away from home: Chrome Remote Desktop into this PC)"
 Write-Host "Keep this PC awake: Settings > System > Power > Sleep = Never."
