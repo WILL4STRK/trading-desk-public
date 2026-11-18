@@ -54,3 +54,11 @@ class Watchlist(DeskCase):
         st = S.validate({"mode": "live", "max_trades_per_day": 0})
         self.assertEqual(S.trades_cap(st), S.PAPER_TRADES_CAP)
         self.assertEqual(S.trades_cap(dict(st, max_trades_per_day=3)), 3)
+
+    def test_todays_unfinished_daily_bar_is_left_out(self):
+        st = dict(S.validate({}), core_watchlist=[], auto_watchlist_movers=1)
+        days = [dict(b, date="2026-11-%02d" % (i + 1)) for i, b in enumerate(bars([20.0] * 15, 1.0))]
+        today = dict(bars([20.0], 30.0)[0], date="2026-11-16")      # a huge half-day bar
+        r = W.research(st, 500, fetch_screen=lambda name: [q("WILD")], fetch_daily=lambda s: days + [today],
+                       today="2026-11-16")
+        self.assertEqual(r["picks"][0]["atr_pct"], 5.0)

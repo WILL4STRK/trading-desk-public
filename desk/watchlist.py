@@ -6,8 +6,10 @@ keeps liquid stocks you can afford, ranks them by how much they move in a day
 (average true range over the last 14 sessions, as % of the price) and puts the
 top ones next to your core list. GET only, no key, nothing is ever sent.
 """
+import datetime
 import json
 import re
+import time
 import urllib.parse
 import urllib.request
 
@@ -18,6 +20,7 @@ HOSTS = charts.HOSTS
 MIN_AVG_VOLUME = 1_000_000      # shares a day: thin stocks have wide spreads and gappy candles
 ATR_DAYS = 14
 MAX_CANDIDATES = 40             # daily charts read per morning: be polite to a free endpoint
+PAUSE = 0.3                     # seconds between daily-chart requests
 TICKER = re.compile(r"[A-Z]{1,5}")
 
 
@@ -60,9 +63,11 @@ def candidates(quotes_by_screen, core, blocked, min_price, max_price):
     return out
 
 
-def research(st, max_price, fetch_screen=screen, fetch_daily=lambda s: charts.fetch(s, "1mo", "1d")["bars"]):
+def research(st, max_price, fetch_screen=screen, fetch_daily=lambda s: charts.fetch(s, "1mo", "1d")["bars"], today=None):
     """Today's watchlist. Returns {watchlist, core, picks, errors}; picks sorted most volatile first.
-    The fetchers are arguments so the tests run without a network."""
+    The fetchers are arguments so the tests run without a network. ATR uses finished sessions only:
+    today's daily bar is still forming when the desk starts after the open."""
+    today = today or datetime.datetime.now(charts.NY).strftime("%Y-%m-%d")
     core, n = list(st["core_watchlist"]), st["auto_watchlist_movers"]
     quotes, errors = {}, []
     for name in SCREENS:
@@ -74,9 +79,11 @@ def research(st, max_price, fetch_screen=screen, fetch_daily=lambda s: charts.fe
     # the busiest first, so the chart budget goes to the stocks with the most trading
     ranked = sorted(cands.items(), key=lambda kv: -kv[1]["avg_volume"])[:MAX_CANDIDATES]
     picks = []
-    for sym, c in ranked if n else []:
+    for i, (sym, c) in enumerate(ranked if n else []):
+        if i:
+            time.sleep(PAUSE)
         try:
-            a = atr_pct(fetch_daily(sym))
+            a = atr_pct([b for b in fetch_daily(sym) if b.get("date", "") < today])
         except Exception as e:
             errors.append("%s: %s" % (sym, str(e)[:120]))
             continue
