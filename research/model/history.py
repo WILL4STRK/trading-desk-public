@@ -19,15 +19,19 @@ NY = ZoneInfo('America/New_York')
 SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', 'MDY', 'XLK', 'XLF', 'XLE', 'XLV', 'XLY', 'XLP', 'XLI', 'XLB', 'XLU',
            'TLT', 'IEF', 'SHY', 'GLD', 'SH', 'PSQ', '^VIX', '^IRX']
 HOSTS = ('query2.finance.yahoo.com', 'query1.finance.yahoo.com')
+# Fresh test sets for round 3: never used in development (2000-2020 SPY ETFs).
+# Price indices: no dividends, compared only with buy-and-hold of the same index.
+EXTRA = ['^GSPC', '^IRX', '^GDAXI', '^N225', '^FTSE', '^HSI', '^GSPTSE', '^AXJO', '^FCHI', '^STOXX50E']
+EXTRA_START = -1325635200     # 1928: the S&P 500 index and T-bill yields go back that far
 
 
-def path(sym):
-    return CACHE / (sym.replace('^', '_') + '-max.json')
+def path(sym, long=False):
+    return CACHE / (sym.replace('^', '_') + ('-long' if long else '-max') + '.json')
 
 
-def download(sym):
+def download(sym, start=631152000):
     # range=max silently returns monthly bars; explicit dates keep them daily
-    q = urllib.parse.urlencode({'period1': 631152000, 'period2': int(time.time()), 'interval': '1d', 'events': 'div,split'})
+    q = urllib.parse.urlencode({'period1': start, 'period2': int(time.time()), 'interval': '1d', 'events': 'div,split'})
     last = None
     for attempt in range(6):
         for host in HOSTS:
@@ -42,10 +46,10 @@ def download(sym):
     raise RuntimeError('%s: %s' % (sym, last))
 
 
-def bars(sym):
+def bars(sym, long=False):
     """[{date, o, h, l, c, ac}] oldest first. ac is the dividend- and split-adjusted close;
     the open is adjusted by the same day's factor so open-to-close returns stay total returns."""
-    res = json.loads(path(sym).read_text())['chart']['result'][0]
+    res = json.loads(path(sym, long).read_text())['chart']['result'][0]
     q, ts = res['indicators']['quote'][0], res.get('timestamp') or []
     adj = ((res['indicators'].get('adjclose') or [{}])[0].get('adjclose')) or q['close']
     out = []
@@ -67,6 +71,13 @@ def main():
         path(sym).write_text(json.dumps(download(sym)))
         b = bars(sym)
         print('%-5s %5d bars %s..%s' % (sym, len(b), b[0]['date'], b[-1]['date']), flush=True)
+        time.sleep(0.4)
+    for sym in EXTRA:
+        if path(sym, True).exists():
+            continue
+        path(sym, True).write_text(json.dumps(download(sym, EXTRA_START)))
+        b = bars(sym, True)
+        print('%-9s %5d bars %s..%s' % (sym, len(b), b[0]['date'], b[-1]['date']), flush=True)
         time.sleep(0.4)
 
 

@@ -12,7 +12,53 @@
 5. The primary finalist (dual momentum across SPY/QQQ/IWM/MDY, bonds when equities lag) made 11.58%/yr with a −21.8% drawdown. That was −1.91/yr vs SPY.
 6. Picking a new "best" each year (walk-forward) was worst: 2.72%/yr. Chasing last period's winner fails.
 7. In development, no config passed the multiple-testing (deflated Sharpe) test. The best was p=0.81, where 0.95 would be convincing.
-8. **Verdict:** none of these models beats SPY in a way worth trusting, so the desk should not change. If you want SPY-like growth, buy-and-hold SPY is the honest benchmark to beat. The RSI dip-buy/rip-short model is the one candidate worth paper trading forward. It matched SPY's risk-adjusted return with smaller crashes, but it gave up return.
+8. **Round 3 (fresh data: S&P 500 1950–1999 and 8 foreign markets):**
+   - No model beat buy-and-hold on return.
+   - The long-only dip-buyer matched it within about 0.4%/yr (median), roughly halved the worst crash, and had a better Sharpe in 7 of 9 markets.
+   - Index shorting hurt everywhere: see "Round 3" below.
+9. **Earlier verdict (rounds 1–2):** none of these models beats SPY in a way worth trusting, so the desk should not change. If you want SPY-like growth, buy-and-hold SPY is the honest benchmark to beat. The RSI dip-buy/rip-short model is the one candidate worth paper trading forward. It matched SPY's risk-adjusted return with smaller crashes, but it gave up return.
+
+## Round 3: fresh markets (S&P 500 1950-1999 and 8 foreign indices)
+
+The 2021-2026 holdout was used up once it was opened, so round 3 needed data no model had touched:
+- the S&P 500 index from 1950 to 1999 (development started in 2000);
+- the DAX, Nikkei, FTSE 100, Hang Seng, TSX, ASX 200, CAC 40 and Euro Stoxx 50, from launch to 2026-11-18.
+
+Each model trades the index in place of SPY and is compared with buy-and-hold of that same index. These are price indices, so dividends are left out on both sides.
+
+First, leveraged dip/rip configs were added and judged on 2000–2020 only. 2× on dips was best, at +0.50%/yr over SPY, and leverage at retail margin rates did not pay. Then six SPY-only finalists were sealed and run once (`out/cross.json`):
+
+| finalist | beat buy-and-hold return | median excess %/yr | beat buy-and-hold Sharpe |
+| --- | --- | --- | --- |
+| **dip-buy, long only** (`rsi base=1.0 dip_w=1.5 lo=10 short=False`) | 1/9 | −0.41 | **7/9** |
+| dip-buy + rip-short (the 2021-26 runner-up) | 2/9 | −0.76 | 4/9 |
+| dip-buy 2× + rip-short (round-3 winner) | 2/9 | −1.13 | 2/9 |
+| dip-buy 1× + rip-short | 2/9 | −0.73 | 4/9 |
+| 200-day trend, cash when below | 1/9 | −1.25 | 6/9 |
+| 200-day trend, **short** when below | 0/9 | −4.28 | 0/9 |
+
+Financing at T-bill + 5%. At T-bill + 1% (futures-like) the ranking is the same.
+
+**The long-only dip-buyer.** It holds the index while it is above its 200-day average and goes to 1.5× for a few days after a sharp drop (2-day RSI under 10). Below the 200-day average it sits in cash. Its return is close to buy-and-hold, with the worst drop roughly halved in every market:
+
+| market | dip-buyer CAGR | buy-and-hold | dip-buyer max DD | buy-and-hold max DD |
+| --- | --- | --- | --- | --- |
+| S&P 500 1950-99 | 8.97 | 9.39 | −23.3 | −48.2 |
+| DAX 1989- | 8.90 | 8.04 | −36.6 | −72.7 |
+| Nikkei 1966- | 5.88 | 6.43 | −37.4 | −81.9 |
+| FTSE 100 1985- | 1.51 | 5.19 | −47.1 | −52.6 |
+| Hang Seng 1988- | 5.71 | 6.11 | −49.9 | −65.2 |
+| TSX 1980- | 5.89 | 6.23 | −28.7 | −50.0 |
+| ASX 200 1993- | 2.17 | 4.66 | −29.0 | −53.9 |
+| CAC 40 1991- | 4.17 | 4.31 | −28.1 | −65.3 |
+| Euro Stoxx 50 2008- | 2.26 | 2.70 | −32.8 | −53.4 |
+
+In these tests the model earned nothing on cash. A real account would hold a T-bill fund while out of the market, about 30% of the time. That would add very roughly 1%/yr, but the missed dividends cost about as much, so it is roughly a wash.
+
+**What round 3 says about shorting:**
+- Adding shorts to the dip-buyer cut Sharpe in 6 of 9 markets.
+- Trend-shorting lost to buy-and-hold in all 9.
+- On fresh data, shorting the index did not help. The edge, where there is one, is in buying dips inside uptrends and stepping aside in downtrends.
 
 ## Holdout (sealed, opened once)
 

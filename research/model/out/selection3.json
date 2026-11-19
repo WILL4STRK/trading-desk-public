@@ -1,0 +1,13 @@
+{
+  "finalists": [
+    "rsi base=1.0 dip_w=2.0 lo=10 short=True",
+    "rsi base=1.0 dip_w=1.5 lo=10 short=True",
+    "rsi base=1.0 dip_w=1.0 lo=10 short=True",
+    "rsi base=1.0 dip_w=1.5 lo=10 short=False",
+    "trend a=SPY band=0.02 n=200 off=cash",
+    "trend a=SPY band=0.02 n=200 off=short"
+  ],
+  "sealed_at": "2026-11-19T11:40:39.282918-05:00",
+  "code": "2ac8f526eb3acd9b7458800f9ecca3138166e931e5e01dc6981df1f12673dfc1",
+  "configs_tried": 336
+}

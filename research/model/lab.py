@@ -269,9 +269,21 @@ def f_rsi(v, p, held):
     r, s5, c = v.rsi(a, 2), v.sma(a, 5), v.close(a)
     if r is None or s5 is None or v.sma(a, 200) is None:
         return {}
+    w = _rsi_weights(v, p, held, a, r, s5, c)
+    rv = v.vol(a, 20) if p.get('tv') else None
+    if w and rv:                         # round 3: size by recent volatility, capped
+        k = min(p['cap'], p['tv'] / rv)
+        w = {s: round(x * k, 2) for s, x in w.items()}
+    return w
+
+
+def _rsi_weights(v, p, held, a, r, s5, c):
     h = held.get(a, 0)
     if bull(v, a, 200):
-        in_dip = h > p['base'] + 1e-9
+        # held weights drift with prices, so "in a dip trade" = above the midpoint of base and dip size
+        in_dip = h > max((p['base'] + p['dip_w']) / 2, p['base'] + 1e-9)
+        if p.get('tv'):                  # vol-scaled sizes hide the state: stay in while weak and under the 5-day average
+            in_dip = h > 0 and r < 50
         if (in_dip and c <= s5) or r < p['lo']:
             return {a: p['dip_w']}
         return {a: p['base']} if p['base'] else {}
@@ -338,6 +350,14 @@ def configs():
         for lev in (1.0, 1.25, 1.5):
             out.append(('blend', {'parts': parts, 'lev': lev}))
     out.append(('blend', {'parts': plus + ['rsi base=1.0 dip_w=1.0 lo=10 short=True'], 'lev': 1.0}))
+    # round 3 (after reading the opened holdout; judged only on dev, then on fresh markets): lever the dip/rip model
+    for base, dip in ((1.0, 2.0), (1.25, 1.5), (1.25, 2.0), (1.5, 2.0)):
+        out.append(('rsi', {'lo': 10, 'dip_w': dip, 'base': base, 'short': True}))
+    for lo in (5, 20):
+        out.append(('rsi', {'lo': lo, 'dip_w': 2.0, 'base': 1.25, 'short': True}))
+    for tv in (0.15, 0.20):
+        for cap in (1.5, 2.0):
+            out.append(('rsi', {'lo': 10, 'dip_w': 1.5, 'base': 1.0, 'short': True, 'tv': tv, 'cap': cap}))
     return out
 
 
@@ -360,11 +380,11 @@ def needs_margin(cfg):
 
 # ---------- the simulator ----------
 
-def simulate(m, cfg, start, end, cost_mult=1.0, borrow=BORROW, initial=INITIAL):
+def simulate(m, cfg, start, end, cost_mult=1.0, borrow=BORROW, initial=INITIAL, spread=MARGIN_SPREAD):
     """Day d: hold yesterday's weights overnight (close d-1 -> open d), rebalance at the open to the
     weights the strategy set from View(d-1), hold them to the close. Weights drift with prices."""
     if cfg[0] == 'blend':
-        return blend(m, cfg[1], start, end, cost_mult, borrow, initial)
+        return blend(m, cfg[1], start, end, cost_mult, borrow, initial)  # shortcut: blends keep the default spread
     f, p = FAMILIES[cfg[0]], cfg[1]
     o_irx = m.closes('^IRX')
     s_i = next(i for i, d in enumerate(m.cal) if d >= start)
@@ -391,7 +411,7 @@ def simulate(m, cfg, start, end, cost_mult=1.0, borrow=BORROW, initial=INITIAL):
         intr = sum(w * (m.series[s][1][d] / m.series[s][0][d] - 1) for s, w in new.items())
         longs, shorts = sum(w for w in new.values() if w > 0), -sum(w for w in new.values() if w < 0)
         rate = (o_irx[d - 1] or 0) / 100
-        fees = turnover * COST_BPS * cost_mult / 1e4 + shorts * borrow / 252 + max(0, longs - 1) * (rate + MARGIN_SPREAD) / 252
+        fees = turnover * COST_BPS * cost_mult / 1e4 + shorts * borrow / 252 + max(0, longs - 1) * (rate + spread) / 252
         r = (1 + on) * (1 + intr) - 1 - fees
         start_eq, eq = eq, eq * (1 + r)
         held = {s: w * (m.series[s][1][d] / m.series[s][0][d]) / (1 + intr) for s, w in new.items()}
@@ -643,13 +663,90 @@ def report(out, runs, spy):
     (OUT / 'final.md').write_text(markdown_table(out['results']))
 
 
+CROSS = [('^GSPC', '1950-01-03', '1999-12-31')] + [(s, None, None) for s in
+         ('^GDAXI', '^N225', '^FTSE', '^HSI', '^GSPTSE', '^AXJO', '^FCHI', '^STOXX50E')]
+SPY_ONLY = ('hold', 'trend', 'vol', 'rsi')
+
+
+def load_index(sym, last_date):
+    """A foreign or old index placed in the 'SPY' slot, so SPY-only strategies run on it unchanged."""
+    b = [x for x in D.bars(sym, True) if x['date'] <= last_date]
+    cal = [x['date'] for x in b]
+    n = len(cal)
+    series = {s: ([None] * n, [None] * n) for s in D.SYMBOLS}
+    series['SPY'] = ([x['o'] for x in b], [x['c'] for x in b])
+    rates = {x['date']: x['c'] for x in D.bars('^IRX', True)}
+    irx, last = [], None
+    for d in cal:                         # T-bill yield on or before each date (none before 1960: 0)
+        last = rates.get(d, last)
+        irx.append(last)
+    series['^IRX'] = (irx, irx)
+    return cal, series
+
+
+def cross(args):
+    sel_path = OUT / 'selection3.json'
+    if not sel_path.exists():
+        raise SystemExit('seal round 3 first: --seal3 NAMES')
+    if (OUT / 'cross.json').exists():
+        raise SystemExit('The cross-market test already ran once; out/cross.json holds it.')
+    sel = json.loads(sel_path.read_text())
+    by = {name(c): c for c in configs()}
+    end = last_complete_day()
+    res = []
+    for sym, a, b in CROSS:
+        cal, series = load_index(sym, end)
+        m = Market(cal, series)
+        a = a or cal[min(len(cal) - 1, 260)]          # a year of warm-up for the 200-day average
+        b = b or cal[-1]
+        bh = simulate(m, ('hold', {'a': 'SPY'}), a, b)
+        for n in sel['finalists']:
+            for sp in (MARGIN_SPREAD, 0.01):
+                run = simulate(m, by[n], a, b, spread=sp)
+                res.append(dict(market=sym, start=a, end=b, name=n, financing='T-bill+%g%%' % (sp * 100),
+                                **summary(run, bh), bh_sharpe=metrics(bh)['sharpe'], bh_max_dd=metrics(bh)['max_drawdown_pct']))
+    out = {'selection': sel, 'results': res}
+    with (OUT / 'cross.json').open('x') as f:
+        json.dump(out, f, indent=2)
+    write_csv(OUT / 'cross.csv', res)
+    Z = statistics.NormalDist()
+    for n in sel['finalists']:
+        for fin in sorted({r['financing'] for r in res}):
+            rs = [r for r in res if r['name'] == n and r['financing'] == fin]
+            wins = sum(r['excess_cagr_pct'] > 0 for r in rs)
+            better = sum((r['sharpe'] or -9) > (r['bh_sharpe'] or -9) for r in rs)
+            p = sum(math.comb(len(rs), k) for k in range(wins, len(rs) + 1)) / 2 ** len(rs)
+            print('%-48s %-12s beat return %d/%d (sign p=%.3f) median excess %+.2f%%/yr, beat Sharpe %d/%d' % (
+                n[:48], fin, wins, len(rs), p, statistics.median(r['excess_cagr_pct'] for r in rs), better, len(rs)))
+    _ = Z
+
+
+def seal3(args):
+    names = {name(c): c for c in configs()}
+    picks = [x.strip() for x in args.seal3.split(',') if x.strip()]
+    for p in picks:
+        if p not in names or names[p][0] not in SPY_ONLY or any(t in p for t in ('QQQ', 'IEF', 'TLT', 'SH', 'PSQ', 'safe')):
+            raise SystemExit('not a SPY-only config: %r' % p)
+    path = OUT / 'selection3.json'
+    with path.open('x') as f:
+        json.dump({'finalists': picks, 'sealed_at': dt.datetime.now(D.NY).isoformat(), 'code': fingerprint(),
+                   'configs_tried': len(names)}, f, indent=2)
+    print('Sealed round 3:', len(picks), 'finalists')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--seal', help='comma-separated finalist names from out/dev_configs.csv')
     ap.add_argument('--final', action='store_true', help='open the holdout once')
     ap.add_argument('--top', type=int, default=25)
+    ap.add_argument('--seal3', help='round 3: SPY-only finalists for the fresh cross-market test')
+    ap.add_argument('--cross', action='store_true', help='run round 3 finalists once on 1950-1999 S&P and 8 foreign markets')
     a = ap.parse_args()
-    if a.seal:
+    if a.seal3:
+        seal3(a)
+    elif a.cross:
+        cross(a)
+    elif a.seal:
         seal(a)
     elif a.final:
         final(a)
