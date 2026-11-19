@@ -70,9 +70,22 @@ def prompt(cands, news, n, core):
             % (n, " ".join(core), "\n".join(json.dumps(r, ensure_ascii=True) for r in rows)))
 
 
+def find_claude():
+    """The claude command. A shortcut, the Dock or a scheduled task often starts the desk with a short
+    PATH that leaves out claude's folder, so the usual install folders are searched too.
+    DESK_CLAUDE (its full path) wins over everything."""
+    home = os.path.expanduser("~")
+    dirs = [os.path.join(home, ".local", "bin"), os.path.join(home, ".claude", "local"),
+            "/opt/homebrew/bin", "/usr/local/bin"]
+    if os.environ.get("APPDATA"):
+        dirs.append(os.path.join(os.environ["APPDATA"], "npm"))     # Windows: npm's global folder
+    return (os.environ.get("DESK_CLAUDE") or shutil.which("claude")
+            or shutil.which("claude", path=os.pathsep.join(d for d in dirs if os.path.isdir(d))))
+
+
 def ask_claude(text, run=subprocess.run, system=SYSTEM, schema=SCHEMA):
     """One headless Claude Code call. Returns the structured answer, or raises RuntimeError."""
-    exe = os.environ.get("DESK_CLAUDE") or shutil.which("claude")     # DESK_CLAUDE: its full path, if not on PATH
+    exe = find_claude()
     if not exe:
         raise RuntimeError("the claude command is not installed (or set DESK_CLAUDE to its full path)")
     cmd = [exe, "-p", "--model", MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
