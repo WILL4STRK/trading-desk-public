@@ -1,0 +1,34 @@
+[
+ [
+  "R1 primary: best dev excess CAGR, no margin",
+  "dual L=63 off=bond risk=SPY+QQQ+IWM+MDY"
+ ],
+ [
+  "R2: best deflated Sharpe, no margin",
+  "trend a=SPY band=0.02 n=200 off=IEF"
+ ],
+ [
+  "R3: best dev excess CAGR, margin allowed",
+  "dual L=63 lev=1.5 off=bond risk=SPY+QQQ+IWM+MDY"
+ ],
+ [
+  "R4: best worst-period excess",
+  "trend a=QQQ band=0.02 n=200 off=TLT"
+ ],
+ [
+  "R5: best walk-forward selector",
+  "walk-forward sharpe 5y"
+ ],
+ [
+  "R6: best config that shorts",
+  "rsi base=1.0 dip_w=1.5 lo=10 short=True"
+ ],
+ [
+  "R7: best blend",
+  "blend 3 parts lev=1.0"
+ ],
+ [
+  "control: QQQ buy-and-hold",
+  "hold a=QQQ"
+ ]
+]

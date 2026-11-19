@@ -8,6 +8,7 @@ build/
 research/backtest/cache/
 research/backtest/out/
 research/backtest/tmp/
+research/model/cache/
 research/REPORT.md
 research/stats-output.txt
 codex-*.md

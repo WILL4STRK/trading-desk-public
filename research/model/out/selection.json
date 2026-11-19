@@ -1,0 +1,16 @@
+{
+  "finalists": [
+    "dual L=63 off=bond risk=SPY+QQQ+IWM+MDY",
+    "trend a=SPY band=0.02 n=200 off=IEF",
+    "dual L=63 lev=1.5 off=bond risk=SPY+QQQ+IWM+MDY",
+    "trend a=QQQ band=0.02 n=200 off=TLT",
+    "walk-forward sharpe 5y",
+    "rsi base=1.0 dip_w=1.5 lo=10 short=True",
+    "blend 3 parts lev=1.0",
+    "hold a=QQQ"
+  ],
+  "sealed_at": "2026-11-19T11:22:21.902137-05:00",
+  "code": "8cb7f42673b7f512ef16d7c11001a6895efb68b7d97db1d32db486b38b3027f9",
+  "holdout_start": "2021-01-01",
+  "configs_tried": 326
+}
