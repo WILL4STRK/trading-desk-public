@@ -55,6 +55,21 @@ The demo keeps its data in `data-demo/`, apart from your real record in
 `data/`. Never trade from the demo: it is one old day with the clock stuck at
 10:15 AM.
 
+## The Desk tab
+
+Three panes, like TradingView: today's tickers (open trades, signals, movers, pre-market
+setups, your list) on the left, with a find box where Enter charts any ticker; a candle
+chart in the middle; your account and limits on the right, with the slips under the chart.
+The chart has 1-minute, 5-minute and daily candles, the session VWAP (yellow), the 9 EMA
+(cyan) and 20 EMA (violet), volume, and lines for the pre-market high and low, yesterday's
+high, low and close, the opening range and today's slip. A mover that swings 5% a day or
+more is tagged **Risky**.
+
+**Paper buy** under the chart records a pretend buy of the charted ticker in the paper
+record: at the last finished 5-minute candle's close, stop 2% under, target 4% over, as many
+shares as your limits allow (or fewer, if you type a number). It counts like any fill: cash,
+open trades, P&L. Paper mode only; nothing is sent to a broker. Record the exit as usual.
+
 ## What a day looks like
 
 1. Before the open the desk lists daily-chart setups to watch.
@@ -371,3 +386,8 @@ It includes an unmodified copy of
 [vendor/day-trader-skill/LICENSE](vendor/day-trader-skill/LICENSE) and
 repeated in [LICENSE](LICENSE). Market data comes from free public sources
 (Yahoo Finance charts, SEC EDGAR, the House Clerk); follow their terms of use.
+
+The Desk tab's chart uses [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts)
+4.2.3 (Apache-2.0, Copyright TradingView, Inc.), stored in `desk/static/vendor/` with its
+licence. The Geist and Schibsted Grotesk fonts are there too, under the SIL Open Font
+Licence (`OFL-*.txt`). Nothing is loaded from a CDN.

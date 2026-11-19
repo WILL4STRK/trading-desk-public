@@ -13,7 +13,8 @@ from .engine import DeskError
 from .paths import STATIC
 
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
+         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".woff2": "font/woff2",
+         ".txt": "text/plain; charset=utf-8"}
 
 
 def make_handler(desk, scheduler=None):
@@ -58,6 +59,9 @@ def make_handler(desk, scheduler=None):
                     return self._send(200, desk.earnings((parse_qs(u.query).get("symbol") or [""])[0]))
                 if u.path == "/api/congress":
                     return self._send(200, desk.congress(refresh="refresh" in parse_qs(u.query)))
+                if u.path == "/api/chart":                  # read-only: candles, VWAP and levels for the Desk tab
+                    q = parse_qs(u.query)
+                    return self._send(200, desk.chart((q.get("symbol") or [""])[0], (q.get("interval") or ["5m"])[0]))
                 if u.path == "/api/graph":                  # read-only: made or lost over time, every paper account
                     return self._send(200, desk.graph())
                 if u.path == "/api/benchmarks":             # read-only: the bot against the S&P 500 and friends
@@ -98,6 +102,8 @@ def make_handler(desk, scheduler=None):
                 if path == "/api/paper/reset":            # the dashboard: start the practice account over
                     desk.paper.reset()
                     out = {}
+                elif path == "/api/paper/buy":            # the chart's Buy button: a pretend fill, paper mode only
+                    out = desk.paper_buy(body.get("symbol"), body.get("qty"))
                 elif path == "/api/take":
                     out = {"trade_id": desk.take(body.get("signal_id"), body.get("qty"), body.get("price"))}
                 elif path == "/api/skip":

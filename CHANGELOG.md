@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Desk tab, TradingView style: today's tickers on the left (find box: Enter charts any
+  ticker), a candle chart in the middle (1m, 5m, 1D; session VWAP, EMA 9 and 20, volume;
+  pre-market, prior-day and opening-range levels plus the slip's entry, stop and target),
+  the account and limits on the right. `GET /api/chart` serves the data. Movers that swing
+  5% a day or more are tagged Risky. New look: OKLCH colours, Geist and Schibsted Grotesk.
+- Paper buy: a button under the chart buys any ticker in the paper record at the last
+  finished candle's close, with a 2% stop and 4% target, sized to your limits. Paper mode
+  only; no order is sent anywhere. Record the exit as usual.
+- The watchlist agent finds `claude` in ~/.local/bin and other usual places when the desk
+  starts without your shell's PATH.
 - Breaking news watch: during market hours Claude rates fresh heavy headlines and the desk
   acts on high-impact ones (add to today's watchlist, close auto paper's trade, or drop the
   stock), with a phone alert and the article. Settings > Breaking news.
