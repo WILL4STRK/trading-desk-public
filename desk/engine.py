@@ -694,6 +694,49 @@ class Desk:
                          now, p["symbol"])
         return tid
 
+    PAPER_STOP, PAPER_TARGET = 0.02, 0.04     # a paper buy's bracket: 2% under, 4% over (2:1)
+
+    def paper_buy(self, symbol, qty=None):
+        """The chart's Buy button: a pretend buy of any ticker at its last price, in paper mode only.
+        It is recorded like a real fill (cash, open trades, P&L), sized to the same limits. No order is sent."""
+        sym = str(symbol or "").strip().upper()
+        if not re.fullmatch(r"[A-Z]{1,5}", sym):
+            raise DeskError("Type a ticker like AAPL.")
+        try:
+            ch = charts.intraday(self.src, sym)
+            bars = charts.session_bars(ch, self.src.now()) or ch["bars"]    # finished bars: the demo's clock is frozen
+        except charts.ChartError as e:
+            raise DeskError(str(e))
+        if not bars:
+            raise DeskError("No price for %s right now." % sym)
+        price = round(float(bars[-1]["c"]), 2)
+        with self.lock:
+            st, now = S.load(), self.src.now()
+            if st["mode"] != "paper":
+                raise DeskError("Buy here is practice only. Switch to paper mode: the live record only holds real trades.")
+            halt = self.halt_reason(st, now)
+            if halt:
+                raise DeskError(halt)
+            stop, target = round(price * (1 - self.PAPER_STOP), 2), round(price * (1 + self.PAPER_TARGET), 2)
+            lim = S.limits(st, self.j.equity())
+            most = min(int(lim["max_loss_per_trade"] // max(price - stop, 0.01)), int(self.spendable(st, now) // price))
+            if most < 1:
+                raise DeskError("One share of %s at %.2f does not fit your limits (max loss $%.2f, can spend $%.2f)."
+                                % (sym, price, lim["max_loss_per_trade"], self.spendable(st, now)))
+            try:
+                qty = most if qty in (None, "") else int(qty)
+            except (TypeError, ValueError):
+                raise DeskError("Shares must be a whole number.")
+            if not 1 <= qty <= most:
+                raise DeskError("Your limits allow 1 to %d shares of %s at %.2f." % (most, sym, price))
+            try:
+                tid = self.j.open_trade(sym, qty, price, stop, target, now, note="paper buy")
+            except JournalError as e:
+                raise DeskError(str(e))
+            self.j.add_event("fill", "Paper buy: %d %s at %.2f. Stop %.2f, target %.2f. Practice only, no order was sent."
+                             % (qty, sym, price, stop, target), now, sym)
+            return {"trade_id": tid, "symbol": sym, "qty": qty, "price": price, "stop": stop, "target": target}
+
     def skip(self, signal_id):
         with self.lock:
             self.auto.release(signal_id, "you skipped it")
@@ -950,6 +993,20 @@ class Desk:
             [dict(c, results=res.get("watchlist_results:" + c["date"]) or {})
              for c in j.get_prefix("watchlist_comparison:").values()])
         return {"mode": mode, "now": now, "summary": summ, "text": R.report(mode, summ, now, stamp.rules_hash(st))}
+
+    def chart(self, symbol, interval="5m"):
+        """The Desk tab's chart (desk/charts.py view), plus today's slip for that ticker as price lines."""
+        st, now = S.load(), self.src.now()
+        try:
+            out = charts.view(self.src, symbol, interval, st["or_minutes"])
+        except charts.ChartError as e:
+            raise DeskError(str(e))
+        sig = next((s for s in self.j.signals(date=now[:10]) if s["symbol"] == out["symbol"]), None)
+        if sig:
+            p = sig["payload"]
+            out["levels"] += [{"name": n, "price": p[k], "kind": "slip"} for n, k in
+                              (("Entry", "limit"), ("Stop", "stop"), ("Target", "target")) if p.get(k)]
+        return out
 
     def graph(self):
         """The Graph tab: made or lost over time, for this record and every paper account (desk/graph.py)."""
