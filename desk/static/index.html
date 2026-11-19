@@ -7,25 +7,26 @@
 <meta name="theme-color" content="#000000">
 <title>Trading Desk</title>
 <style>
-/* Look B, "iOS Dark": Stocks-app black, charcoal cards, iOS blue as the one accent.
-   --tint (#0A84FF, iOS dark-mode blue) is for text, icons and lines on black (5.6:1 on #000, 4.6:1 on cards).
-   --btn (#0071E3) sits behind white text, where #0A84FF would only reach 3.6:1; this gives 4.7:1. */
+/* TradingView-style dark. Colors are OKLCH tokens; borders are alpha hairlines; corners 8px; spacing on a 4px grid.
+   Fonts are stored in /vendor (OFL), never loaded from a CDN. --btn sits behind white text (about 5:1). */
+@font-face{font-family:"Geist";src:url(/vendor/geist-latin.woff2) format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:"Schibsted Grotesk";src:url(/vendor/schibsted-grotesk-latin.woff2) format("woff2");font-weight:400 900;font-display:swap}
 :root{
-  --bg:#000000; --card:#1C1C1E; --card2:#2C2C2E; --fill:#3A3A3C;
-  --label:#FFFFFF; --label2:rgba(235,235,245,.68); --sep:rgba(84,84,88,.65);
-  --tint:#0A84FF; --btn:#0071E3; --onTint:#FFFFFF;
-  --go:#30D158; --goBg:rgba(48,209,88,.15);
-  --stop:#FF6961; --stopBg:rgba(255,69,58,.15);
-  --warn:#FFB340; --warnBg:rgba(255,179,64,.14);
-  --blue:#DA8FFF;
-  --bar:rgba(22,22,24,.82);
-  --r-card:20px; --r-inner:13px;
-  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;
-  --display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",system-ui,sans-serif;
+  --bg:oklch(0.17 0.008 265); --card:oklch(0.205 0.01 265); --card2:oklch(0.245 0.012 265); --fill:oklch(0.31 0.012 265);
+  --label:oklch(0.96 0.003 265); --label2:oklch(0.74 0.012 265); --sep:oklch(1 0 0 / 0.09);
+  --tint:oklch(0.72 0.14 252); --btn:oklch(0.52 0.17 258); --onTint:#FFFFFF;
+  --go:oklch(0.72 0.12 175); --goBg:oklch(0.72 0.12 175 / 0.14);
+  --stop:oklch(0.68 0.18 25); --stopBg:oklch(0.68 0.18 25 / 0.14);
+  --warn:oklch(0.82 0.14 78); --warnBg:oklch(0.82 0.14 78 / 0.13);
+  --blue:oklch(0.74 0.13 300);
+  --bar:var(--card);
+  --r-card:8px; --r-inner:6px;
+  --font:"Geist",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --display:"Schibsted Grotesk","Geist",system-ui,sans-serif;
 }
 *{box-sizing:border-box}
 html{background:var(--bg);-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--label);font:16px/1.38 var(--font);-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--bg);color:var(--label);font:15px/1.4 var(--font);-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit;color:inherit}
 [hidden]{display:none!important}
 :focus-visible{outline:2px solid var(--tint);outline-offset:2px;border-radius:8px}
@@ -35,11 +36,11 @@ a{color:var(--tint)}
 .skip:focus{left:12px}
 
 /* page frame */
-.wrap{max-width:1180px;margin:0 auto;padding:max(10px,env(safe-area-inset-top)) 16px 120px}
+.wrap{max-width:1480px;margin:0 auto;padding:max(10px,env(safe-area-inset-top)) 16px 120px}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 2px 0}
 .greet{color:var(--label2);font-size:15px;font-weight:500}
 .greet b{color:var(--label);font-weight:600}
-.mode-badge{margin-left:auto;font-size:12.5px;font-weight:700;letter-spacing:.04em;padding:5px 11px;border-radius:999px;white-space:nowrap;background:rgba(218,143,255,.16);color:var(--blue)}
+.mode-badge{margin-left:auto;font-size:12.5px;font-weight:700;letter-spacing:.04em;padding:5px 11px;border-radius:var(--r-inner);white-space:nowrap;background:rgba(218,143,255,.16);color:var(--blue)}
 .mode-badge.live{background:var(--go);color:#00210A}
 .mark{width:38px;height:38px;border-radius:50%;background:var(--card);display:grid;place-items:center;flex:none}
 .mark svg{width:26px;height:26px}
@@ -49,15 +50,15 @@ a{color:var(--tint)}
 /* tabs: a bottom bar on phones, a floating pill on wide screens */
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;justify-content:space-around;
   padding:6px 8px max(8px,env(safe-area-inset-bottom));background:var(--bar);
-  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-top:.5px solid var(--sep)}
+  border-top:.5px solid var(--sep)}
 .tabs button{background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;
   min-width:0;flex:1;max-width:96px;min-height:48px;padding:4px 2px;font-size:11px;font-weight:500;color:var(--label2);cursor:pointer}
 .tabs button svg{width:26px;height:26px}
 .tabs button[aria-selected=true]{color:var(--tint)}
 @media(min-width:900px){
   .tabs{position:sticky;top:12px;bottom:auto;left:auto;right:auto;margin:0 auto 18px;width:max-content;border:.5px solid var(--sep);
-    border-radius:999px;padding:5px;gap:2px}
-  .tabs button{flex-direction:row;gap:7px;min-height:38px;padding:0 16px;border-radius:999px;font-size:14.5px;font-weight:600}
+    border-radius:var(--r-inner);padding:5px;gap:2px}
+  .tabs button{flex-direction:row;gap:7px;min-height:38px;padding:0 16px;border-radius:var(--r-inner);font-size:14.5px;font-weight:600}
   .tabs button svg{width:19px;height:19px}
   .tabs button[aria-selected=true]{background:var(--fill);color:var(--label)}
   .tabs button[aria-selected=true] svg{color:var(--tint)}
@@ -69,7 +70,7 @@ a{color:var(--tint)}
 @media(min-width:900px){.grid{grid-template-columns:minmax(0,1fr) 340px}}
 
 /* cards */
-.card{background:var(--card);border-radius:var(--r-card);padding:16px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--sep);border-radius:var(--r-card);padding:16px;margin-bottom:12px}
 .section-title{font:600 20px/1.2 var(--display);margin:22px 2px 10px}
 .section-title:first-child{margin-top:4px}
 .foot-note{font-size:13px;color:var(--label2);margin:8px 2px 0}
@@ -80,7 +81,7 @@ a{color:var(--tint)}
 .hero .three{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
 .hero .three b{display:block;font-size:18px;font-weight:600}
 .hero .three span{font-size:12.5px;color:var(--label2)}
-.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--warnBg);color:var(--warn);white-space:nowrap}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:4px 10px;border-radius:var(--r-inner);background:var(--warnBg);color:var(--warn);white-space:nowrap}
 .chip.live{background:var(--goBg);color:var(--go)}
 .chip i{width:7px;height:7px;border-radius:50%;background:currentColor}
 
@@ -96,7 +97,7 @@ a{color:var(--tint)}
   font-weight:600;font-size:16px;cursor:pointer;background:var(--btn);color:var(--onTint)}
 .btn.wide{width:100%}
 .btn.gray{background:var(--fill);color:var(--label)}
-.btn.small{padding:8px 14px;min-height:36px;font-size:14.5px;border-radius:999px}
+.btn.small{padding:8px 14px;min-height:36px;font-size:14.5px;border-radius:var(--r-inner)}
 .btn.text{background:none;color:var(--tint);padding:8px 10px;min-height:40px}
 .btn:disabled{opacity:.45;cursor:default}
 a.btn{text-decoration:none}
@@ -118,7 +119,7 @@ a.chart-link:hover{text-decoration:underline}
 .sig.taken .logo,.sig.open .logo{background:var(--blue);color:#1D0B26}
 .ticker{font:700 21px/1.1 var(--display);letter-spacing:-.01em}
 .sub{font-size:13.5px;color:var(--label2);margin-top:2px}
-.pill{margin-left:auto;font-size:13px;font-weight:700;padding:5px 11px;border-radius:999px;white-space:nowrap;background:var(--fill);color:var(--label2)}
+.pill{margin-left:auto;font-size:13px;font-weight:700;padding:5px 11px;border-radius:var(--r-inner);white-space:nowrap;background:var(--fill);color:var(--label2)}
 .pill.go{background:var(--goBg);color:var(--go)} .pill.weak{background:var(--warnBg);color:var(--warn)} .pill.open{background:rgba(218,143,255,.15);color:var(--blue)}
 .order{font-size:18px;font-weight:600;margin:14px 0 10px;line-height:1.3}
 .order em{font-style:normal;color:var(--tint)}
@@ -227,7 +228,7 @@ th:first-child,td:first-child{text-align:left;padding-left:2px}
 .drop input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .drop:focus-within{border-color:var(--tint)}
 .found{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.found button{border:0;border-radius:999px;background:var(--card2);color:var(--label);padding:7px 12px;min-height:36px;font-size:14px;cursor:pointer}
+.found button{border:0;border-radius:var(--r-inner);background:var(--card2);color:var(--label);padding:7px 12px;min-height:36px;font-size:14px;cursor:pointer}
 .found button b{color:var(--tint)}
 .read-msg{font-size:14.5px;margin-top:10px}
 .big-now{font:700 30px/1.1 var(--display)}
@@ -247,13 +248,43 @@ th:first-child,td:first-child{text-align:left;padding-left:2px}
 
 /* toast */
 #toast{position:fixed;left:50%;top:max(14px,env(safe-area-inset-top));transform:translateX(-50%);z-index:30;
-  background:var(--card2);color:var(--label);padding:11px 18px;border-radius:999px;font-size:15px;font-weight:500;
-  box-shadow:0 10px 30px rgba(0,0,0,.5);max-width:92vw;display:none}
+  background:var(--card2);color:var(--label);padding:11px 18px;border-radius:var(--r-inner);font-size:15px;font-weight:500;
+  border:1px solid var(--sep);max-width:92vw;display:none}
 #toast.err{background:#3A1412;color:#FFB4AE}
 
 footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2);font-size:12.5px;line-height:1.45}
 @media(min-width:900px){footer{padding-bottom:30px}}
 @media (prefers-reduced-motion:no-preference){.seg button,.tabs button,.btn{transition:background-color .15s ease,color .15s ease}}
+
+/* Desk tab: three panes (list | chart and slips | account), stacked on phones */
+.tvgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
+.tvgrid > *{min-width:0}
+@media(min-width:900px){.tvgrid{grid-template-columns:minmax(0,1fr) 320px}.tv-list{grid-column:1 / -1}}
+@media(min-width:1240px){.tvgrid{grid-template-columns:220px minmax(0,1fr) 320px}.tv-list{grid-column:auto;position:sticky;top:72px}}
+.tv-list{padding:8px;margin:0}
+.tv-list .inp{margin-bottom:8px;text-transform:uppercase}
+.tv-list .inp::placeholder{text-transform:none}
+#tlist{max-height:240px;overflow-y:auto}
+@media(min-width:1240px){#tlist{max-height:calc(100vh - 160px)}}
+.trow{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;min-height:44px;padding:4px 8px;border:0;border-radius:var(--r-inner);background:none;text-align:left;cursor:pointer}
+.trow:hover{background:var(--card2)} .trow[aria-current=true]{background:var(--fill)}
+.trow span:first-child{min-width:0} .trow b{display:block;font-weight:600;font-size:14px}
+.trow small{display:block;font-size:12px;color:var(--label2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px}
+.tag{flex:none;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;background:var(--fill);color:var(--label2)}
+.tag.go{background:var(--goBg);color:var(--go)} .tag.weak{background:var(--warnBg);color:var(--warn)} .tag.bad{background:var(--stopBg);color:var(--stop)} .tag.open{background:oklch(0.74 0.13 300 / 0.15);color:var(--blue)}
+.chartcard{padding:12px}
+.ch-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.ch-sym{font:700 20px/1 var(--display)} .ch-last{font-size:15px;font-weight:600}
+.ch-int{margin:0 0 0 auto;min-width:144px}
+.chart{height:300px;width:100%}
+@media(min-width:900px){.chart{height:440px}}
+.ch-key{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--label2);margin-top:8px}
+.ch-key i{display:inline-block;width:12px;height:2px;margin-right:4px;vertical-align:3px}
+.ch-key b{color:var(--label);font-weight:600}
+.buybar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--sep)}
+.buybar .grow{flex:1 1 240px;font-size:13px;color:var(--label2)} .buybar .grow small{display:block;margin-top:4px}
+.buybar .field{width:88px;padding:4px 8px} .buybar .field input{font-size:15px}
+.tv-side .section-title:first-of-type{margin-top:16px}
 </style>
 </head>
 <body>
@@ -280,15 +311,24 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
 
   <main id="main">
     <section class="view on" id="v-desk" aria-label="Desk">
-      <div class="grid">
-        <div>
-          <div class="card hero">
-            <div class="cap"><span id="acct-cap">Account</span><span class="chip" id="mode-chip"><i></i><span id="mode-text">Today's market</span></span></div>
-            <div class="big num" id="f-equity">–</div>
-            <div class="three num">
-              <div><b id="f-spend">–</b><span>Can spend</span></div>
-              <div><b id="f-risk">–</b><span>Max loss a trade</span></div>
-              <div><b id="f-day">–</b><span>Today</span></div>
+      <div class="tvgrid">
+        <nav class="tv-list card" aria-label="Today's tickers">
+          <form id="find" role="search"><label class="vh" for="find-in">Chart any ticker</label>
+            <input class="inp" id="find-in" placeholder="Find a ticker, press Enter" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="5"></form>
+          <div id="tlist"></div>
+        </nav>
+        <div class="tv-mid">
+          <div class="card chartcard">
+            <div class="ch-head">
+              <b class="ch-sym" id="ch-sym">–</b><span class="num ch-last" id="ch-last"></span>
+              <div class="seg ch-int" role="group" aria-label="Candle size"><button data-int="1m" aria-pressed="false">1m</button><button data-int="5m" aria-pressed="true">5m</button><button data-int="1d" aria-pressed="false">1D</button></div>
+            </div>
+            <div id="chart" class="chart" role="img" aria-label="Candle chart"></div>
+            <div class="ch-key num" id="ch-key"></div>
+            <div class="buybar" id="buybar">
+              <div class="grow" id="ch-risk"></div>
+              <label class="field small"><span>Shares</span><input id="buy-qty" inputmode="numeric" placeholder="max"></label>
+              <button class="btn" id="ch-buy">Paper buy</button>
             </div>
           </div>
           <div id="shorts-note"></div>
@@ -303,7 +343,16 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
           <div id="open"></div>
           <div id="signals"></div>
         </div>
-        <aside>
+        <aside class="tv-side">
+          <div class="card hero">
+            <div class="cap"><span id="acct-cap">Account</span><span class="chip" id="mode-chip"><i></i><span id="mode-text">Today's market</span></span></div>
+            <div class="big num" id="f-equity">–</div>
+            <div class="three num">
+              <div><b id="f-spend">–</b><span>Can spend</span></div>
+              <div><b id="f-risk">–</b><span>Max loss a trade</span></div>
+              <div><b id="f-day">–</b><span>Today</span></div>
+            </div>
+          </div>
           <h2 class="section-title">Today's limits</h2>
           <div class="card" id="limits"></div>
           <h2 class="section-title">What happened</h2>
@@ -416,6 +465,7 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
 </div>
 <footer>This desk reads free, delayed public data and does arithmetic. It never places a real order: you place each one at your broker yourself. It is for education and is not financial advice. Most day traders lose money. A stop is a plan: in a fast market it can fill worse than its price. Check every number against your broker before you send an order.</footer>
 <div id="toast" role="status" aria-live="polite"></div>
+<script src="/vendor/lightweight-charts-4.2.3.js"></script>
 <script>
 "use strict";
 const $ = (s, r=document) => r.querySelector(s);
@@ -502,6 +552,90 @@ async function loadMarket() {
     m.groups.filter(g => g.error).map(g => `<p class="foot-note">${esc(g.name)}: ${esc(g.error)}</p>`).join("") +
     `<p class="foot-note">Since ${esc(m.start)}. The bot's return is a percent of your ${usd(m.balance)} starting balance.</p>`;
 }
+// ---- Desk tab chart: TradingView Lightweight Charts, stored in /vendor (no CDN). Data from /api/chart.
+const C = {up: "#26A69A", down: "#EF5350", vwap: "#F5C518", e9: "#22D3EE", e20: "#A78BFA", grid: "rgba(255,255,255,.05)", text: "#A3A8B5",
+  lv: {pm: ["#9AA0AE", 2], pd: ["#5B9CF6", 2], or: ["#F59E0B", 1], slip: [null, 0]}, slip: {Entry: "#5B9CF6", Stop: "#EF5350", Target: "#26A69A"}};
+const CH = {sym: null, int: "5m", chart: null, lines: [], last: null, busy: false};
+const RISKY_ATR = 5;                      // % a day: a mover that swings this much gets the Risky tag
+function ema(cs, n) { const k = 2 / (n + 1); let e = null; return cs.map(c => ({time: c.time, value: e = e == null ? c.close : c.close * k + e * (1 - k)})); }
+function makeChart() {
+  if (CH.chart || !window.LightweightCharts) return !!CH.chart;
+  const L = LightweightCharts, el = $("#chart");
+  CH.chart = L.createChart(el, {autoSize: true, layout: {background: {color: "transparent"}, textColor: C.text, fontFamily: "Geist, system-ui, sans-serif", fontSize: 11},
+    grid: {vertLines: {color: C.grid}, horzLines: {color: C.grid}}, rightPriceScale: {borderVisible: false},
+    timeScale: {borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: 4}, crosshair: {mode: L.CrosshairMode.Normal},
+    handleScroll: {vertTouchDrag: false}});
+  CH.cs = CH.chart.addCandlestickSeries({upColor: C.up, downColor: C.down, borderVisible: false, wickUpColor: C.up, wickDownColor: C.down});
+  CH.cs.priceScale().applyOptions({scaleMargins: {top: .08, bottom: .24}});
+  CH.vol = CH.chart.addHistogramSeries({priceFormat: {type: "volume"}, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false});
+  CH.chart.priceScale("vol").applyOptions({scaleMargins: {top: .8, bottom: 0}});
+  const line = color => CH.chart.addLineSeries({color, lineWidth: color === C.vwap ? 2 : 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false});
+  CH.vw = line(C.vwap); CH.e9 = line(C.e9); CH.e20 = line(C.e20);
+  return true;
+}
+async function loadChart(sym, quiet) {
+  sym = String(sym || "").trim().toUpperCase();
+  if (!/^[A-Z]{1,5}$/.test(sym)) return quiet || toast("Type a ticker like AAPL.", true);
+  if (!makeChart()) { $("#chart").textContent = "The chart library did not load."; return; }
+  if (CH.busy && quiet) return;
+  CH.busy = true;
+  let d; try { d = await api("/api/chart?symbol=" + encodeURIComponent(sym) + "&interval=" + CH.int); }
+  catch (e) { CH.busy = false; return quiet || toast(e.message, true); }
+  CH.busy = false;
+  const fresh = CH.sym !== sym || CH.shown !== CH.int; CH.sym = sym; CH.shown = CH.int;
+  const cs = d.candles.map(c => ({time: c.time, open: c.open, high: c.high, low: c.low, close: c.close}));
+  CH.cs.setData(cs);
+  CH.vol.setData(d.candles.map(c => ({time: c.time, value: c.volume, color: c.close >= c.open ? "rgba(38,166,154,.35)" : "rgba(239,83,80,.35)"})));
+  CH.vw.setData(d.vwap); CH.e9.setData(ema(cs, 9)); CH.e20.setData(ema(cs, 20));
+  CH.lines.forEach(l => CH.cs.removePriceLine(l));
+  CH.lines = d.levels.map(l => CH.cs.createPriceLine({price: l.price, title: l.name, lineWidth: 1, axisLabelVisible: true,
+    color: l.kind === "slip" ? C.slip[l.name] || C.lv.pd[0] : C.lv[l.kind][0], lineStyle: l.kind === "slip" ? 0 : C.lv[l.kind][1]}));
+  if (fresh) requestAnimationFrame(() => CH.chart.timeScale().fitContent());     // after autoSize has measured the box
+  const last = cs.at(-1), prev = cs.length > 1 ? cs.at(-2).close : null;
+  CH.last = last ? last.close : null;
+  $("#ch-sym").textContent = sym;
+  $("#ch-last").innerHTML = last ? `${px(last.close)} <span class="${last.close >= (prev ?? last.close) ? "pos" : "neg"}">${prev ? (last.close >= prev ? "+" : "−") + px(Math.abs(last.close - prev)) : ""}</span>` : "no candles";
+  $("#ch-key").innerHTML = [["VWAP", C.vwap], ["EMA 9", C.e9], ["EMA 20", C.e20]].map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`).join("") +
+    d.levels.map(l => `<span>${esc(l.name)} <b>${px(l.price)}</b></span>`).join("");
+  document.querySelectorAll("#tlist [data-sym]").forEach(b => b.setAttribute("aria-current", b.dataset.sym === sym));
+  renderBuy();
+}
+// every ticker the desk knows about today, once each: open trades, signals, movers, pre-market, your list
+function tickers() {
+  const s = S, out = new Map(), add = (sym, row) => { if (sym && !out.has(sym)) out.set(sym, row); };
+  s.open_trades.forEach(t => add(t.symbol, {tag: ["Open", "open"], sub: `${t.qty} at ${px(t.entry_price)}`}));
+  s.signals.filter(x => ["ready", "weak"].includes(x.status) && !x.off).forEach(x => add(x.payload.symbol, {tag: x.status === "ready" ? ["Ready", "go"] : ["Weak", "weak"], sub: `${x.payload.side === "short" ? "Short" : "Buy"} at ${px(x.payload.limit)}`}));
+  const wr = s.watchlist_research;
+  ((wr && wr.picks) || []).forEach(p => add(p.symbol, {tag: p.atr_pct >= RISKY_ATR ? ["Risky", "bad"] : ["Mover", "weak"], sub: `moves ${p.atr_pct.toFixed(1)}% a day`, why: p.why, atr: p.atr_pct}));
+  ((s.premarket && s.premarket.hits) || []).forEach(h => add(h.symbol, {tag: ["Setup", ""], sub: (h.setups || []).join(", ").replace(/_/g, " ")}));
+  (s.settings.watchlist || []).forEach(sym => add(sym, {tag: null, sub: "watchlist"}));
+  return out;
+}
+function renderList() {
+  const rows = tickers();
+  $("#tlist").innerHTML = [...rows].map(([sym, r]) => `<button class="trow" data-sym="${esc(sym)}" aria-current="${sym === CH.sym}"${r.why ? ` title="${esc(r.why)}"` : ""}>
+      <span><b>${esc(sym)}</b><small>${esc(r.sub)}</small></span>${r.tag ? `<span class="tag ${r.tag[1]}">${r.tag[0]}</span>` : ""}</button>`).join("") ||
+    `<p class="empty">No tickers yet. Type one above.</p>`;
+  if (!CH.sym && rows.size) loadChart(rows.keys().next().value, true);
+  else renderBuy();
+}
+function renderBuy() {
+  if (!S || !CH.sym) return;
+  const r = tickers().get(CH.sym), paper = S.mode === "paper", risky = r && r.atr >= RISKY_ATR;
+  $("#ch-risk").innerHTML = (risky ? `<b class="neg">Risky:</b> ${esc(CH.sym)} moves about ${r.atr.toFixed(1)}% a day. ` : "") +
+    (paper ? `Paper buy at the last finished candle's close, stop 2% under, target 4% over, sized to your limits. Practice only: no order is sent.`
+           : `Paper buy is off in live mode. The live record only holds real trades.`) + (r && r.why ? `<small>${esc(r.why)}</small>` : "");
+  $("#ch-buy").disabled = !paper || !CH.last;
+  $("#buy-qty").disabled = !paper;
+}
+async function paperBuy() {
+  const q = $("#buy-qty").value.trim();
+  const d = await act("/api/paper/buy", {symbol: CH.sym, qty: q || null});
+  if (d) { $("#buy-qty").value = ""; toast(`Paper bought ${d.qty} ${d.symbol} at ${px(d.price)}. Stop ${px(d.stop)}, target ${px(d.target)}.`); }
+}
+document.addEventListener("submit", e => { if (e.target.id !== "find") return; e.preventDefault(); loadChart($("#find-in").value); $("#find-in").value = ""; $("#find-in").blur(); });
+setInterval(() => { if (!document.hidden && CH.sym && $("#v-desk").classList.contains("on")) loadChart(CH.sym, true); }, 60000);
+
 async function api(path, body) {
   const r = await fetch(path, body ? {method:"POST", headers:{"Content-Type":"application/json", "X-Desk":"1"}, body:JSON.stringify(body)} : {});
   const d = await r.json().catch(() => ({error:"The desk did not answer."}));
@@ -624,9 +758,9 @@ function render() {
   $("#f-risk").textContent = usd(L.max_loss_per_trade);
   $("#f-day").textContent = usd(s.day.realised, true); $("#f-day").className = s.day.realised < 0 ? "neg" : s.day.realised > 0 ? "pos" : "";
   const so = s.shorts || {};
-  $("#shorts-note").innerHTML = so.on ? `<div class="card" style="margin:0 0 12px"><div class="cap"><span>Short signals are on${so.long_on ? "" : " (longs are off)"}</span>${so.paper_only ? `<span class="side-tag paper">PRACTICE ONLY</span>` : ""}</div>
-      ${so.paper_only ? `<div class="callout">Short signals are practice only: this account cannot short for real${S.demo ? " (and this is the demo: place nothing from it)" : ""}. In live mode they are shown but cannot be recorded. ${so.why.map(esc).join(" ")}</div>` : `<div class="callout bad">Your settings say this account can short. The desk cannot check that with your broker.</div>`}
-      <details class="disc"><summary>Short-selling rules and risks</summary><div class="inner">${factsList()}</div></details></div>` : "";
+  $("#shorts-note").innerHTML = so.on ? `<details class="disc card" style="padding:0;margin:0 0 12px"><summary>Short signals are on${so.long_on ? "" : " (longs are off)"}${so.paper_only ? " · practice only" : ""}</summary><div class="inner">
+      ${so.paper_only ? `<p style="margin:0 0 8px">Short signals are practice only: this account cannot short for real${S.demo ? " (and this is the demo: place nothing from it)" : ""}. In live mode they are shown but cannot be recorded. ${so.why.map(esc).join(" ")}</p>` : `<p class="neg" style="margin:0 0 8px">Your settings say this account can short. The desk cannot check that with your broker.</p>`}
+      ${factsList()}</div></details>` : "";
   const ls = s.last_scan, st = $("#status");
   st.className = "card status" + (s.halt ? " halt" : "");
   st.innerHTML = `<div class="grow">${s.halt ? `<b>${esc(s.halt)}</b>` : `<b>Looking for setups.</b> `}
@@ -648,7 +782,7 @@ function render() {
   const isReady = x => (x.status === "ready" || x.status === "weak") && !x.off;
   const nReady = all.filter(isReady).length;
   const counts = {ready:nReady, all:all.length, open:s.open_trades.length};
-  document.querySelectorAll(".seg button").forEach(b => { b.textContent = `${b.dataset.f[0].toUpperCase() + b.dataset.f.slice(1)} · ${counts[b.dataset.f]}`; b.setAttribute("aria-pressed", b.dataset.f === FILTER); });
+  document.querySelectorAll(".seg button[data-f]").forEach(b => { b.textContent = `${b.dataset.f[0].toUpperCase() + b.dataset.f.slice(1)} · ${counts[b.dataset.f]}`; b.setAttribute("aria-pressed", b.dataset.f === FILTER); });
   $("#open").innerHTML = FILTER !== "all" || s.open_trades.length ? s.open_trades.map(openTrade).join("") : "";
   const shown = FILTER === "open" ? [] : FILTER === "ready" ? all.filter(isReady) : all;
   const none = `<div class="card empty"><b>No signals yet today</b>The desk scans after every 5-minute candle closes, from ${esc(t12(s.settings.no_entries_before))} to ${esc(t12(s.settings.no_entries_after))} New York time. Most days have only a few. No signal is a fine day.</div>`;
@@ -674,6 +808,7 @@ function render() {
   $("#stats").innerHTML = [["Closed trades", k.closed], ["Win rate", k.win_rate == null ? "–" : k.win_rate + "%"], ["Total", usd(k.total_pnl, true)], ["Average", k.avg_r == null ? "–" : k.avg_r + "R"], ["Best", usd(k.best, true)], ["Worst", usd(k.worst, true)]].map(([l, v]) => `<div class="tile"><b class="num">${v}</b><span>${l}</span></div>`).join("");
   $("#trades").innerHTML = s.trades.length ? `<table><tr><th>Date</th><th>Stock</th><th>By</th><th>Shares</th><th>In</th><th>Out</th><th>Why</th><th>Result</th><th>R</th></tr>${s.trades.map(t => `<tr><td class="num">${esc(t.date)}</td><td style="text-align:left"><b>${esc(t.symbol)}</b>${sideTags(t.side === "short", practiceTrade(t))}</td><td>${t.note === "auto" ? "Auto" : "You"}</td><td class="num">${t.qty}</td><td class="num">${px(t.entry_price)}</td><td class="num">${t.exit_price ? px(t.exit_price) : "open"}</td><td>${esc(t.exit_reason || "")}</td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${t.pnl == null ? "" : usd(t.pnl, true)}</td><td class="num">${t.r_multiple ?? ""}</td></tr>`).join("")}</table>` : `<div class="empty"><b>No trades yet</b>When you take a signal and record the fill, it lands here.</div>`;
   $("#cashnote").textContent = `Cash ${usd(a.cash)}, of which ${usd(a.settled_cash)} is settled.` + (a.type === "cash" ? " In a cash account, money from a sale can buy again the next business day." : "");
+  renderList();
   renderAccount();
   renderMode();
   renderHealth();
@@ -901,6 +1036,9 @@ document.addEventListener("click", async e => {
   else if (t.id === "paper-reset") {
     if (!confirm("Start the practice account over? Its practice cash goes back to your starting balance and its practice positions and orders are removed. Your journal is not touched.")) return;
     try { await api("/api/paper/reset", {}); toast("The practice account starts over."); } catch (e) { toast(e.message, true); } }
+  else if (t.dataset.int) { CH.int = t.dataset.int; document.querySelectorAll("[data-int]").forEach(b => b.setAttribute("aria-pressed", b === t)); loadChart(CH.sym); }
+  else if (t.dataset.sym) loadChart(t.dataset.sym);
+  else if (t.id === "ch-buy") paperBuy();
   else if (t.dataset.f) { FILTER = t.dataset.f; if (S) render(); }
   else if (t.dataset.take) { const id = +t.dataset.take, sig = S.signals.find(x => x.id === id), d = drafts[id] || {}; if (!d.price) return toast("Type the price you were filled at.", true); await act("/api/take", {signal_id:id, qty:d.qty ?? sig.payload.qty, price:d.price}, "Recorded your fill."); }
   else if (t.dataset.skip) await act("/api/skip", {signal_id:+t.dataset.skip}, "Skipped.");
