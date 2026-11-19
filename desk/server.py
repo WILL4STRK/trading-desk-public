@@ -32,7 +32,9 @@ def make_handler(desk, scheduler=None):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Security-Policy",
                              "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
-                             "connect-src 'self'; frame-ancestors 'none'")
+                             "connect-src 'self'; frame-ancestors 'none'; "
+                             # TradingView charts are cross-origin frames: they cannot read or call this desk
+                             "frame-src https://www.tradingview-widget.com https://s.tradingview.com")
             for k, v in (extra or {}).items():
                 self.send_header(k, v)
             self.end_headers()
@@ -58,6 +60,8 @@ def make_handler(desk, scheduler=None):
                     return self._send(200, desk.congress(refresh="refresh" in parse_qs(u.query)))
                 if u.path == "/api/graph":                  # read-only: made or lost over time, every paper account
                     return self._send(200, desk.graph())
+                if u.path == "/api/benchmarks":             # read-only: the bot against the S&P 500 and friends
+                    return self._send(200, desk.benchmarks())
                 if u.path == "/api/review":                 # read-only: results and the review report
                     return self._send(200, desk.review())
                 if u.path == "/api/export":                 # read-only: text for TradingView and thinkorswim

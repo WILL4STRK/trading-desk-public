@@ -51,7 +51,7 @@ a{color:var(--tint)}
   padding:6px 8px max(8px,env(safe-area-inset-bottom));background:var(--bar);
   -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-top:.5px solid var(--sep)}
 .tabs button{background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;
-  min-width:60px;flex:1;max-width:96px;min-height:48px;padding:4px 2px;font-size:11px;font-weight:500;color:var(--label2);cursor:pointer}
+  min-width:0;flex:1;max-width:96px;min-height:48px;padding:4px 2px;font-size:11px;font-weight:500;color:var(--label2);cursor:pointer}
 .tabs button svg{width:26px;height:26px}
 .tabs button[aria-selected=true]{color:var(--tint)}
 @media(min-width:900px){
@@ -274,6 +274,7 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
     <button role="tab" data-v="journal" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4.5" y="3.5" width="15" height="17" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Journal</button>
     <button role="tab" data-v="research" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>Research</button>
     <button role="tab" data-v="graph" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5h16"/><path d="m4.5 15 4.5-5 4 3.5 6.5-8"/></svg>Graph</button>
+    <button role="tab" data-v="market" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5h16"/><path d="m4.5 14 5-4 4 2 6-6"/><path d="m4.5 17 5-2 4 1 6-3" opacity=".55"/></svg>Market</button>
     <button role="tab" data-v="settings" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</button>
   </nav>
 
@@ -381,6 +382,19 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
       <div class="card" id="g-days"></div>
       <p class="foot-note">Closed trades only, practice money unless the badge says LIVE. Add an account: <code>python3 -m desk --account growth --tickers "TSLA NVDA AMD"</code></p>
     </section>
+    <section class="view" id="v-market" aria-label="Vs market">
+      <h2 class="section-title">The bot against the market</h2>
+      <div class="card" id="m-chart"></div>
+      <h2 class="section-title">Leaderboard</h2>
+      <div class="card" id="m-board"></div>
+      <h2 class="section-title">Charts</h2>
+      <div class="card">
+        <div class="seg" id="tv-seg" role="group" aria-label="Chart"></div>
+        <div id="tv" style="height:460px;border-radius:var(--r-inner);overflow:hidden;background:var(--card2)"></div>
+        <p class="foot-note" style="margin:8px 0 0">Live chart by TradingView. Type any ticker in its symbol box to look it up.</p>
+      </div>
+      <p class="foot-note">Each grouping is its index fund (SPY, QQQ, DIA, IWM), price only, measured from the close before the bot's first closed trade. The bot's line is its closed auto paper trades over your starting balance. Past results say nothing sure about the future.</p>
+    </section>
     <section class="view" id="v-settings" aria-label="Settings">
       <h2 class="section-title">Health</h2>
       <div class="card" id="health"></div>
@@ -412,7 +426,7 @@ const pct = p => Math.round(p * 1000) / 10 + "%";
 const mins = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 const t12 = t => { if (!t) return ""; const [h, m] = t.split(":").map(Number); return ((h + 11) % 12 + 1) + ":" + String(m).padStart(2, "0") + (h < 12 ? " AM" : " PM"); };
 let S = null, drafts = {}, formDirty = false, FILTER = "ready";
-const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Research", graph:"Graph", settings:"Settings"};
+const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Research", graph:"Graph", market:"Vs market", settings:"Settings"};
 
 // The mark: 12 overlapping circles in a ring.
 (function () {
@@ -428,20 +442,20 @@ function toast(msg, err) { const t = $("#toast"); t.textContent = msg; t.classNa
 // ---- Graph tab: running made-or-lost lines, inline SVG
 const GCOL = ["#0A84FF", "#30D158", "#FFB340", "#DA8FFF", "#64D2FF", "#FF6961"];
 const tms = at => Date.parse(String(at).replace(" ", "T")) || 0;
-function lineChart(series, label) {
+function lineChart(series, label, fmt = v => usd(Math.round(v * 100) / 100, true), empty = "No closed trades yet. The line starts with the first one.") {
   const all = series.flatMap(x => x.pts);
-  if (!all.length) return `<p class="empty" style="padding:8px">No closed trades yet. The line starts with the first one.</p>`;
+  if (!all.length) return `<p class="empty" style="padding:8px">${esc(empty)}</p>`;
   const W = 640, H = 220, L = 58, R = 10, T = 12, B = 26;
   const xs = all.map(p => p.t), ys = all.map(p => p.y).concat([0]);
   let x0 = Math.min(...xs), x1 = Math.max(...xs); if (x1 === x0) { x0 -= 3.6e6; x1 += 3.6e6; }
   let y0 = Math.min(...ys), y1 = Math.max(...ys); if (y1 === y0) { y0 -= 1; y1 += 1; }
   const pad = (y1 - y0) * .08; y0 -= pad; y1 += pad;
   const X = t => L + (t - x0) / (x1 - x0) * (W - L - R), Y = v => T + (y1 - v) / (y1 - y0) * (H - T - B);
-  const ticks = [y0 + pad, (y0 + y1) / 2, y1 - pad].map(v => `<text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" style="fill:var(--label2)">${esc(usd(Math.round(v * 100) / 100, true))}</text>`).join("");
+  const ticks = [y0 + pad, (y0 + y1) / 2, y1 - pad].map(v => `<text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" style="fill:var(--label2)">${esc(fmt(v))}</text>`).join("");
   const day = t => new Date(t).toLocaleDateString("en-US", {month: "short", day: "numeric"});
   const lines = series.map(x => x.pts.length ? `<polyline fill="none" stroke="${x.color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="${[{t: x.pts[0].t, y: 0}].concat(x.pts).map(p => X(p.t).toFixed(1) + "," + Y(p.y).toFixed(1)).join(" ")}"/>` +
       `<circle cx="${X(x.pts.at(-1).t).toFixed(1)}" cy="${Y(x.pts.at(-1).y).toFixed(1)}" r="3.5" fill="${x.color}"/>` : "").join("");
-  const key = series.map(x => `<span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px"><i style="width:10px;height:10px;border-radius:3px;background:${x.color}"></i>${esc(x.name)} <b class="num">${usd(x.pts.length ? x.pts.at(-1).y : 0, true)}</b></span>`).join("");
+  const key = series.map(x => `<span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px"><i style="width:10px;height:10px;border-radius:3px;background:${x.color}"></i>${esc(x.name)} <b class="num">${esc(fmt(x.pts.length ? x.pts.at(-1).y : 0))}</b></span>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}" style="width:100%;height:auto;display:block">
       <line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" style="stroke:var(--sep)" stroke-dasharray="3 4"/>${ticks}
       <text x="${L}" y="${H - 6}" font-size="11" style="fill:var(--label2)">${day(x0)}</text><text x="${W - R}" y="${H - 6}" text-anchor="end" font-size="11" style="fill:var(--label2)">${day(x1)}</text>
@@ -458,6 +472,35 @@ async function loadGraph() {
       pts: a.points.map(p => ({t: tms(p.at), y: p.total}))})), "Made or lost over time, every paper account");
   const days = me.days.slice(-20).reverse();
   $("#g-days").innerHTML = days.length ? days.map(d => `<div class="row-kv num"><span>${esc(d.date)} · ${d.trades} trade${d.trades === 1 ? "" : "s"}</span><b style="color:${d.pnl < 0 ? "var(--stop)" : "var(--go)"}">${usd(d.pnl, true)}</b></div>`).join("") : `<p class="empty" style="padding:8px">No closed trades yet.</p>`;
+}
+// ---- Vs market tab: the bot's % return next to the index funds, plus TradingView charts
+const TV = {SPY: "AMEX:SPY", QQQ: "NASDAQ:QQQ", DIA: "AMEX:DIA", IWM: "AMEX:IWM"};
+const pctS = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v * 100) / 100).toFixed(2) + "%";
+let tvSym = "SPY";
+function tvChart(sym) {
+  tvSym = sym;
+  // a cross-origin frame, not TradingView's script: nothing of theirs runs on this desk's page
+  const cfg = {autosize: true, symbol: TV[sym] || sym, interval: "D", timezone: "America/New_York", theme: "dark", style: "1",
+    locale: "en", allow_symbol_change: true, hide_side_toolbar: false, studies: ["STD;SMA"], support_host: "https://www.tradingview.com"};
+  $("#tv").innerHTML = `<iframe title="TradingView chart of ${esc(sym)}" style="width:100%;height:100%;border:0;display:block" referrerpolicy="no-referrer"
+    src="https://www.tradingview-widget.com/embed-widget/advanced-chart/?locale=en#${esc(encodeURIComponent(JSON.stringify(cfg)))}"></iframe>`;
+  $("#tv-seg").innerHTML = Object.keys(TV).map(s => `<button data-tv="${s}" aria-pressed="${s === sym}">${s}</button>`).join("");
+}
+async function loadMarket() {
+  if (!$("#tv iframe")) tvChart(tvSym);
+  let m; try { m = await api("/api/benchmarks"); } catch (e) { return toast(e.message, true); }
+  const t = d => Date.parse(d + "T16:00") || 0;
+  const rows = [m.bot].concat(m.groups);
+  $("#m-chart").innerHTML = lineChart(rows.filter(r => r.points.length).map((r, i) => ({name: r.name, color: r === m.bot ? GCOL[0] : GCOL[1 + (i - 1) % (GCOL.length - 1)],
+      pts: r.points.map(p => ({t: t(p.date), y: p.pct}))})), "Percent return since " + m.start + ", bot against the index funds", pctS, "No market data yet.");
+  const ranked = rows.filter(r => r.pct != null).sort((a, b) => b.pct - a.pct);
+  const beat = m.groups.filter(g => g.pct != null && m.bot.pct > g.pct).length, known = m.groups.filter(g => g.pct != null).length;
+  $("#m-board").innerHTML = (known ? `<p style="margin:0 0 10px;font-weight:600">${beat === known ? "The bot is beating every grouping." : beat ? `The bot is beating ${beat} of ${known} groupings.` : "The bot is behind every grouping."}</p>` : "") +
+    `<div style="overflow-x:auto"><table class="num" style="font-size:14.5px"><tr><th>Who</th><th>Return</th><th>Bot ahead</th></tr>` +
+    ranked.map((r, i) => `<tr${r === m.bot ? ' style="color:var(--tint);font-weight:700"' : ""}><td style="white-space:normal">${i + 1}. ${esc(r.name)}${r === m.bot ? "" : ` <small style="color:var(--label2)">${esc(r.symbol)}</small>`}</td>
+      <td style="text-align:right" class="${r.pct < 0 ? "neg" : "pos"}">${pctS(r.pct)}</td><td style="text-align:right">${r === m.bot ? `<small style="color:var(--label2)">${usd(m.bot.pnl, true)}</small>` : `<span class="${m.bot.pct - r.pct < 0 ? "neg" : "pos"}">${pctS(m.bot.pct - r.pct)}</span>`}</td></tr>`).join("") + `</table></div>` +
+    m.groups.filter(g => g.error).map(g => `<p class="foot-note">${esc(g.name)}: ${esc(g.error)}</p>`).join("") +
+    `<p class="foot-note">Since ${esc(m.start)}. The bot's return is a percent of your ${usd(m.balance)} starting balance.</p>`;
 }
 async function api(path, body) {
   const r = await fetch(path, body ? {method:"POST", headers:{"Content-Type":"application/json", "X-Desk":"1"}, body:JSON.stringify(body)} : {});
@@ -844,7 +887,9 @@ document.addEventListener("click", async e => {
     if (t.dataset.v === "research") congress(false);
     if (t.dataset.v === "journal") loadReview();
     if (t.dataset.v === "graph") loadGraph();
+    if (t.dataset.v === "market") loadMarket();
   }
+  else if (t.dataset.tv) tvChart(t.dataset.tv);
   else if (t.dataset.useCash) { (drafts.acct ||= {}).cash = Number(t.dataset.useCash).toFixed(2); renderAccount(); }
   else if (t.id === "acct-save-cash") { const v = (drafts.acct || {}).cash; if (!v) return toast("Type your cash, or drop a screenshot of it.", true); const d = await act("/api/cash", {kind:"set", amount:v}, "Saved your balance."); if (d) { drafts.acct = {}; shots.balance = null; render(); } }
   else if (t.id === "sw-auto") { const on = t.getAttribute("aria-checked") !== "true";

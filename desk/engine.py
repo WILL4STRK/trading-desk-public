@@ -13,6 +13,7 @@ from . import decide
 from . import agent as AG
 from . import auto as A
 from . import breaking as BN
+from . import benchmarks as BM
 from . import breaker
 from . import changes
 from . import charts
@@ -953,6 +954,11 @@ class Desk:
     def graph(self):
         """The Graph tab: made or lost over time, for this record and every paper account (desk/graph.py)."""
         return G.summary(self.j.path)
+
+    def benchmarks(self):
+        """The Vs market tab: the bot's return next to the S&P 500 and other index ETFs (desk/benchmarks.py)."""
+        days = [d for d in G.curve([t for t in G._closed(self.j.path) if t.get("note") == A.AUTO])["days"] if d["date"]]
+        return BM.summary(days, demo=self.src.demo)
 
     def exports(self):
         """Today's stocks as text for TradingView and thinkorswim. Read-only: nothing is sent anywhere."""
