@@ -6,7 +6,10 @@ day-trader-skill tools read.
 """
 import json
 import math
+import os
 import re
+import tempfile
+import threading
 
 from .paths import data_dir
 
@@ -169,25 +172,38 @@ def path():
     return data_dir() / "settings.json"
 
 
+_LOCK = threading.RLock()          # readers and writers share the replace boundary, including on Windows
+
+
 def load():
-    p = path()
-    if not p.exists():
-        return validate({})
-    return validate(json.loads(p.read_text()))
+    with _LOCK:
+        p = path()
+        if not p.exists():
+            return validate({})
+        return validate(json.loads(p.read_text()))
 
 
 def save(raw):
     s = validate(raw)
-    tmp = path().with_suffix(".tmp")
-    tmp.write_text(json.dumps(s, indent=2) + "\n")
-    tmp.replace(path())
+    with _LOCK:
+        fd, tmp = tempfile.mkstemp(prefix="settings-", suffix=".tmp", dir=str(path().parent))
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(json.dumps(s, indent=2) + "\n")
+            os.replace(tmp, path())
+        except BaseException:
+            os.unlink(tmp)
+            raise
     return s
 
 
 def update(changes):
-    cur = load()
-    cur.update(changes)
-    return save(cur)
+    """Reads, changes and saves the settings as one step. changes: a dict, or a function of the
+    current settings that returns one (for edits that depend on the current value, like a list)."""
+    with _LOCK:
+        cur = load()
+        cur.update(changes(cur) if callable(changes) else changes)
+        return save(cur)
 
 
 PAPER_TRADES_CAP = 50   # paper mode: no practical trades-a-day cap, so auto paper can learn; loss and cash limits still apply
@@ -227,6 +243,17 @@ def limits(s, equity):
         "max_position": round(eq * s["max_position_pct"] / 100 * leverage(s), 2),
         "trades_cap": trades_cap(s),
     }
+
+
+def for_day(s, closes):
+    """The day's rules. On an early close (the market clock's closes, like "13:00") trades are out
+    5 minutes before the bell and new entries stop 30 minutes before it; a normal day is unchanged."""
+    try:
+        h, m = (int(x) for x in str(closes).split(":"))
+    except ValueError:
+        return s
+    t = lambda back: "%02d:%02d" % divmod(h * 60 + m - back, 60)
+    return dict(s, flat_by=min(s["flat_by"], t(5)), no_entries_after=min(s["no_entries_after"], t(30)))
 
 
 def skills_config(s, equity):

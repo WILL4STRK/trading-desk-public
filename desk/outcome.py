@@ -10,6 +10,7 @@ target the stop is counted (the careful answer). Nothing here changes a signal o
 """
 
 import math
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
 from . import shorts
 from .charts import OPEN_MIN
@@ -109,41 +110,54 @@ def _hhmm(minutes):
     return "%02d:%02d" % (minutes // 60, minutes % 60)
 
 
-def _breakout(bars, or_minutes, no_entries_after, min_volume_x, bar_minutes=5):
-    """The long mirror of shorts.breakdown: the first completed bar after the range that closes above its high."""
+def _breakout(bars, or_minutes, no_entries_after, min_volume_x, bar_minutes=5, no_entries_before="09:45"):
+    """The first completed bar after the range that closes above its high on enough volume. Unlike
+    shorts.breakdown, a close on thin volume is passed over: the entry timer waits for a later bar."""
     rng = shorts.opening_range(bars, or_minutes, bar_minutes)
     if not rng:
         return None, None, "the opening range is not complete"
+    thin = False
     for b in bars:
         if b["minute"] < OPEN_MIN + or_minutes or not b["c"] > rng["high"] + 1e-9:
             continue
         closes = b["minute"] + bar_minutes
+        if closes < _minute(no_entries_before):
+            continue
         if closes > _minute(no_entries_after):
-            return rng, None, "the first close above the range came after the last entry time"
+            return rng, None, "the first close above the range on enough volume came after the last entry time"
         if min_volume_x > 0 and (not rng["avg_volume"] or b["v"] / rng["avg_volume"] < min_volume_x):
-            return rng, None, "the first close above the range was under the volume floor"
+            thin = True
+            continue
         return rng, {"close_time": _hhmm(closes), "price": round(b["c"], 2)}, ""
-    return rng, None, "no close above the range high"
+    return rng, None, ("every close above the range high was under the volume floor" if thin
+                       else "no close above the range high")
 
 
 def _floor_cent(x):
     return math.floor(x * 100 + 1e-6) / 100          # as desk/pipeline.py rounds the long plan
 
 
+def _cents(x, how=ROUND_FLOOR):
+    """x to the cent in decimal arithmetic, without binary-float errors at a cent boundary."""
+    return float(Decimal(str(x)).quantize(Decimal("0.01"), rounding=how))
+
+
 def _long_plan(entry, rng, stop_rule, target_r, chase_r):
     head, _, tail = str(stop_rule).partition(":")
+    hi, lo = round(rng["high"], 2), round(rng["low"], 2)       # the range as quoted, to the cent
     if stop_rule == "or-mid":
-        stop = _floor_cent((rng["high"] + rng["low"]) / 2)
+        stop = _cents((Decimal(str(hi)) + Decimal(str(lo))) / 2)
     elif stop_rule == "or-low":
-        stop = rng["low"]
+        stop = lo
     elif head == "pct":
-        stop = _floor_cent(entry * (1 - float(tail) / 100))
+        stop = _cents(Decimal(str(entry)) * (1 - Decimal(tail) / 100))
     else:
         raise ValueError("the stop rule %s needs the exit planner; the comparison skips it" % stop_rule)
     risk = round(entry - stop, 2)
     if risk <= 0:
         raise ValueError("no room for a stop under the entry")
-    return {"entry": entry, "stop": stop, "target": round(entry + target_r * risk, 2),
+    return {"entry": entry, "stop": stop, "risk_per_share": risk,
+            "target": _cents(Decimal(str(entry)) + Decimal(str(target_r)) * Decimal(str(risk)), ROUND_HALF_UP),
             "limit": _floor_cent(entry + chase_r * risk)}
 
 
@@ -151,21 +165,31 @@ def watchlist_replay(bars, rules, side):
     """How one watchlist pick would have done today with the morning's rules, signalled or not: the first
     opening-range breakout (long) or breakdown (short), its plan, then replay(). A shadow benchmark that
     puts the formula's and Claude's lists on the same footing. It never makes a signal, a fill or an order.
-    shortcut: the first qualifying close only (the long entry timer can wait for a later volume bar), no
-    min-stop check and no atr stops; fine for comparing two lists, not a backtest of every setting."""
+    shortcut: no atr stops (they need the exit planner); fine for comparing two lists, not a backtest of
+    every setting."""
     blank = {"entry": None, "exit": None, "exit_time": None, "r": None, "trigger": None,
              "limit": None, "stop": None, "target": None}
-    if not bars or not shorts.opening_range(bars, rules["or_minutes"]):
+    want = set(range(OPEN_MIN, OPEN_MIN + int(rules["or_minutes"]), 5))
+    if not bars or not want <= {b["minute"] for b in bars}:           # every slot of the range, not just enough bars
         return dict(blank, result=NO_DATA, note="The day's opening range candles are missing.")
     short = side == "short"
-    rng, trig, why = (shorts.breakdown if short else _breakout)(
-        bars, rules["or_minutes"], rules["no_entries_after"], rules["min_volume_x"])
+    args = (bars, rules["or_minutes"], rules["no_entries_after"], rules["min_volume_x"])
+    rng, trig, why = shorts.breakdown(*args) if short else _breakout(
+        *args, no_entries_before=rules.get("no_entries_before") or "09:45")
     if not trig:
         return dict(blank, result=NO_TRIGGER, note=why)
     try:
         pl = (shorts.plan if short else _long_plan)(trig["price"], rng, rules["stop_rule"], rules["target_r"], rules["chase_r"])
     except (shorts.ShortError, ValueError) as e:
         return dict(blank, result=UNSUPPORTED, note=str(e)[:200])
-    p = dict(pl, side=side, trigger_close_time=trig["close_time"], flat_by=rules["flat_by"],
-             valid_until=_hhmm(_minute(trig["close_time"]) + int(rules["signal_valid_minutes"])))
+    floor = rules.get("min_stop_pct")
+    if floor and 100.0 * pl["risk_per_share"] / pl["entry"] + 1e-9 < floor:          # as guards.stop_too_close
+        return dict(blank, result=NO_PLAN, trigger=trig["close_time"],
+                    note="The stop is closer than your %g%% floor, so no signal would have been made." % floor)
+    valid = _minute(trig["close_time"]) + int(rules["signal_valid_minutes"])
+    start = max(_minute(trig["close_time"]), _minute(rules.get("no_entries_before") or "00:00"))
+    if start >= valid:                                  # it went stale before entries were allowed
+        return dict(blank, result=NO_TRIGGER, trigger=trig["close_time"],
+                    note="The breakout came and went before the first entry time.")
+    p = dict(pl, side=side, trigger_close_time=_hhmm(start), flat_by=rules["flat_by"], valid_until=_hhmm(valid))
     return dict(replay(p, bars), trigger=trig["close_time"], limit=pl["limit"], stop=pl["stop"], target=pl["target"])

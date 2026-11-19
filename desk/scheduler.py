@@ -20,6 +20,7 @@ class Scheduler(threading.Thread):
         self.premarket_day = None
         self.last_paper = 0.0
         self.last_news = 0.0
+        self.news_worker = None          # breaking news runs here, so a slow Claude call never holds up a scan
         self.wake = threading.Event()
 
     def stop(self):
@@ -36,6 +37,17 @@ class Scheduler(threading.Thread):
         except Exception:
             self.log("%s failed:\n%s" % (name, traceback.format_exc()))
 
+    def _news(self, now):
+        """One breaking-news look. A stock it adds to the watchlist is scanned at once."""
+        if not self._safe("market clock", lambda: self.desk.clock(now).get("open")):
+            return
+        b = self._safe("breaking news", self.desk.breaking_news)
+        if b and (b["calls"] or b["errors"]):
+            self.log("%s breaking news: %s" % (now, "; ".join(
+                ["%s %s" % (c["action"], c["symbol"]) for c in b["calls"]] + b["errors"])))
+        if b and b["added"]:
+            self.scan_now()
+
     def tick(self, wall=None):
         """One pass of the loop. Split out so the tests can drive it."""
         wall = time.time() if wall is None else wall
@@ -48,16 +60,12 @@ class Scheduler(threading.Thread):
                     now, len(w["core"]), len(w["picks"]), w["by"], " (failed, kept yesterday's)" if w["kept_old"] else ""))
             self._safe("pre-market scan", self.desk.premarket)
             self._safe("congress", self.desk.congress)
-        # breaking news (desk/breaking.py): a stock it adds to the watchlist is scanned at once
-        if (not self.desk.src.demo and st["breaking_news"] and wall - self.last_news >= st["breaking_news_minutes"] * 60):
+        # breaking news (desk/breaking.py), one look at a time in its own thread
+        if (not self.desk.src.demo and st["breaking_news"] and wall - self.last_news >= st["breaking_news_minutes"] * 60
+                and not (self.news_worker and self.news_worker.is_alive())):
             self.last_news = wall
-            if self.desk.clock(now).get("open"):
-                b = self._safe("breaking news", self.desk.breaking_news)
-                if b and (b["calls"] or b["errors"]):
-                    self.log("%s breaking news: %s" % (now, "; ".join(
-                        ["%s %s" % (c["action"], c["symbol"]) for c in b["calls"]] + b["errors"])))
-                if b and b["added"]:
-                    self.last_scan_slot = None
+            self.news_worker = threading.Thread(target=self._news, args=(now,), daemon=True, name="desk-news")
+            self.news_worker.start()
         # scan once per slot; in live a slot starts 25 seconds after each bar closes
         every = st["scan_every_seconds"]
         slot = "demo-" + now if self.desk.src.demo else int((wall - 25) // every)
@@ -85,6 +93,6 @@ class Scheduler(threading.Thread):
 
     def run(self):
         while not self.stop_flag.is_set():
-            self.tick()
+            self._safe("scheduler pass", self.tick)     # one bad pass (a broken settings file) never ends the loop
             self.wake.wait(5)
             self.wake.clear()

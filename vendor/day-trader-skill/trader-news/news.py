@@ -158,13 +158,13 @@ def sec_user_agent(cli=None, config="trader/config.json"):
 # ---------------------------------------------------------------- fetching
 
 class Fetcher(object):
-    def __init__(self, sec_ua=None, offline=None, pause=0.15):
+    def __init__(self, sec_ua=None, offline=None, pause=0.4):    # trading-desk: 0.15 upstream; slower, so feeds do not throttle it
         self.sec_ua = sec_ua
         self.offline = offline
         self.pause = pause
         self._last = 0.0
 
-    def get(self, url, name, sec=False):
+    def get(self, url, name, sec=False, retry=True):
         if self.offline:
             path = os.path.join(self.offline, name)
             if not os.path.isfile(path):
@@ -186,6 +186,14 @@ class Fetcher(object):
                     data = gzip.decompress(data)
                 return data
         except urllib.error.HTTPError as exc:
+            if retry and exc.code in (429, 503):                    # trading-desk: throttled, back off once
+                try:
+                    wait = float(exc.headers.get("Retry-After") or 5)
+                except (TypeError, ValueError):
+                    retry_at = parse_time(exc.headers.get("Retry-After") or "")
+                    wait = retry_at.timestamp() - time.time() if retry_at else 5.0
+                time.sleep(max(wait, 1.0))                  # trading-desk: never retry before the server permits it
+                return self.get(url, name, sec, retry=False)
             raise NewsError("HTTP %s for %s" % (exc.code, url))
         except urllib.error.URLError as exc:
             raise NewsError("could not reach %s: %s" % (url, exc.reason))
@@ -248,7 +256,7 @@ def parse_rss(data, ticker):
     for it in root.iter("item"):
         title = _text(it, "title")
         link = _text(it, "link")
-        guid = _text(it, "guid") or link
+        guid = _text(it, "guid") or link or ("title:" + hashlib.sha256(title.encode("utf-8")).hexdigest())  # trading-desk: distinct IDs without guid/link
         out.append({"id": "rss:" + guid, "source": "Yahoo Finance", "kind": "headline",
                     "ticker": ticker, "title": title, "summary": _text(it, "description"),
                     "link": link, "time": parse_time(_text(it, "pubDate"))})

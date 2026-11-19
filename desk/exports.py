@@ -48,34 +48,41 @@ def todays_symbols(state):
     return out
 
 
-def tv_symbol(sym):
-    ex = EXCHANGES.get(sym)
+def known(state):
+    """EXCHANGES plus the exchanges today's watchlist research saw for its movers."""
+    picks = (state.get("watchlist_research") or {}).get("picks") or []
+    return dict({p["symbol"]: p["exchange"] for p in picks if p.get("exchange")}, **EXCHANGES)
+
+
+def tv_symbol(sym, ex_map=EXCHANGES):
+    ex = ex_map.get(sym)
     return "%s:%s" % (ex, sym) if ex else sym
 
 
-def tradingview_text(symbols):
+def tradingview_text(symbols, ex_map=EXCHANGES):
     """(file text, symbols with no known exchange)."""
-    return ",".join(tv_symbol(s) for s in symbols) + "\n", [s for s in symbols if s not in EXCHANGES]
+    return ",".join(tv_symbol(s, ex_map) for s in symbols) + "\n", [s for s in symbols if s not in ex_map]
 
 
 def thinkorswim_text(symbols):
     return "".join(s + "\n" for s in symbols)
 
 
-def chart_url(sym):
-    return CHART + quote(tv_symbol(sym), safe=".")
+def chart_url(sym, ex_map=EXCHANGES):
+    return CHART + quote(tv_symbol(sym, ex_map), safe=".")
 
 
 def chart_urls(state):
     syms = todays_symbols(state)
     for h in (state.get("premarket") or {}).get("hits") or []:
         _add(syms, h.get("symbol"))
-    return {s: chart_url(s) for s in syms}
+    ex_map = known(state)
+    return {s: chart_url(s, ex_map) for s in syms}
 
 
 def bundle(state):
     syms = todays_symbols(state)
-    tv, unknown = tradingview_text(syms)
+    tv, unknown = tradingview_text(syms, known(state))
     date = str(state.get("now") or "")[:10]
     return {"date": date, "count": len(syms), "symbols": syms,
             "tradingview": tv, "thinkorswim": thinkorswim_text(syms),

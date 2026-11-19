@@ -22,6 +22,9 @@ ATR_DAYS = 14
 MAX_CANDIDATES = 40             # daily charts read per morning: be polite to a free endpoint
 PAUSE = 0.3                     # seconds between daily-chart requests
 TICKER = re.compile(r"[A-Z]{1,5}")
+# Yahoo exchange codes -> TradingView prefixes, so the export can place a mover (desk/exports.py)
+TV_EXCHANGE = {"NMS": "NASDAQ", "NGM": "NASDAQ", "NCM": "NASDAQ", "NAS": "NASDAQ",
+               "NYQ": "NYSE", "ASE": "AMEX", "PCX": "AMEX", "BTS": "CBOE"}
 
 
 def screen(name, count=25, timeout=15):
@@ -58,7 +61,8 @@ def candidates(quotes_by_screen, core, blocked, min_price, max_price):
             if (q.get("quoteType") != "EQUITY" or not TICKER.fullmatch(sym) or sym in core or sym in blocked
                     or not price or not (min_price <= price <= max_price) or vol < MIN_AVG_VOLUME):
                 continue
-            c = out.setdefault(sym, {"price": round(float(price), 2), "avg_volume": int(vol), "from": []})
+            c = out.setdefault(sym, {"price": round(float(price), 2), "avg_volume": int(vol), "from": [],
+                                     "exchange": TV_EXCHANGE.get(q.get("exchange"))})
             c["from"].append(name)
     return out
 

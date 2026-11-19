@@ -77,6 +77,15 @@ class Files(DeskCase):
         self.assertEqual(b["thinkorswim"].splitlines()[0], "TSLA")
         self.assertTrue(b["tradingview"].startswith("NASDAQ:TSLA,"))
 
+    def test_movers_use_the_exchange_the_research_saw(self):
+        st = fake_state(watchlist_research={"picks": [{"symbol": "ZZZQ", "exchange": "NASDAQ"},
+                                                      {"symbol": "TSLA", "exchange": "NYSE"}]})
+        b = exports.bundle(st)
+        self.assertIn("NASDAQ:ZZZQ", b["tradingview"])
+        self.assertIn("NASDAQ:TSLA", b["tradingview"])        # the checked table wins
+        self.assertEqual(b["unknown_exchange"], [])
+        self.assertEqual(exports.chart_urls(st)["ZZZQ"], "https://www.tradingview.com/chart/?symbol=NASDAQ%3AZZZQ")
+
     def test_chart_urls_cover_signals_trades_watchlist_and_premarket(self):
         urls = exports.chart_urls(fake_state())
         self.assertEqual(set(urls), {"TSLA", "ZZZQ", "F", "AAPL", "KO", "NVDA"})

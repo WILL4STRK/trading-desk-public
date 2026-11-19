@@ -27,7 +27,7 @@ class Breaking(DeskCase):
         def ask(text):
             seen["text"] = text
             return answer
-        r = BN.check(S.validate({}), ["TSLA"], held or {}, Path(self.tmp), ask=ask, get=lambda t, st, wd: items)
+        r = BN.check(S.validate({}), ["TSLA"], held or {}, Path(self.tmp), ask=ask, get=lambda t, st, wd: {"items": items, "notes": []})
         return r, seen
 
     def test_light_news_never_asks_claude(self):
@@ -55,7 +55,7 @@ class Breaking(DeskCase):
         def boom(text):
             raise RuntimeError("not logged in")
         r = BN.check(S.validate({}), ["TSLA"], {}, Path(self.tmp), ask=boom,
-                     get=lambda t, st, wd: [item("TSLA", "Tesla to acquire X")])
+                     get=lambda t, st, wd: {"items": [item("TSLA", "Tesla to acquire X")], "notes": []})
         self.assertEqual(r["calls"], [])
         self.assertIn("not logged in", r["errors"][0])
 
@@ -65,7 +65,7 @@ class Breaking(DeskCase):
 
     def test_market_feeds_and_open_trades_are_always_read(self):
         got = {}
-        BN.check(S.validate({}), ["TSLA"], {"AMD": "short"}, Path(self.tmp), get=lambda t, st, wd: got.setdefault("t", t) and [])
+        BN.check(S.validate({}), ["TSLA"], {"AMD": "short"}, Path(self.tmp), get=lambda t, st, wd: got.setdefault("t", t) and {"items": [], "notes": []})
         self.assertEqual(got["t"], ["TSLA", "AMD", "SPY", "QQQ"])
 
 
@@ -74,6 +74,7 @@ class DeskActs(DeskCase):
         d = Desk(Journal(), Demo())
         d.src.demo = False
         d._auto = mock.Mock(news_exit=mock.Mock(return_value=1))
+        d.clock = mock.Mock(return_value={"open": True})
         S.update({"watchlist": ["TSLA", "AMD"], "blocked": ["GME"]})
         full = [dict(c, title="headline", source="Yahoo", link="") for c in calls]
         p = mock.patch.object(BN, "check", return_value={"calls": full, "heavy": len(full), "errors": []})

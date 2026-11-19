@@ -36,7 +36,9 @@ from .paths import FIXTURES, account_name, data_dir
 MAX_EVALS_PER_SCAN = 8
 COMPARE_RULES = ("or_minutes", "stop_rule", "target_r", "chase_r", "min_volume_x", "min_stop_pct",
                  "signal_valid_minutes", "no_entries_before", "no_entries_after", "flat_by")
-COMPARE_PAUSE = 0.4      # seconds between chart reads for the watchlist comparison
+COMPARE_PAUSE = 0.4
+COMPARE_TRIES = 12       # passes (about one an hour) before a pick with no usable candles is given up
+COMPARE_DAYS = 28        # older comparisons cannot be recovered from the requested one-month chart
 
 
 class DeskError(ValueError):
@@ -106,10 +108,10 @@ class Desk:
         if not c.get("open"):
             return "The market is closed (%s)." % (c.get("reason") or "closed")
         t = _minutes(now[11:16])
-        shift = 180 if c.get("early_close") else 0
+        st = S.for_day(st, c.get("closes"))
         if t < _minutes(st["no_entries_before"]):
             return "No entries before %s. The opening range is still forming." % st["no_entries_before"]
-        if t >= _minutes(st["no_entries_after"]) - shift:
+        if t >= _minutes(st["no_entries_after"]):
             return "No new entries this late in the day."
         day = self.j.day(now[:10])
         lim = S.limits(st, self.j.equity())
@@ -174,7 +176,10 @@ class Desk:
         st, now = S.load(), self.src.now()
         if self.src.demo or not (st["auto_watchlist"] or force):
             return None
-        spend = self.spendable(st, now)
+        saved = self.j.get("watchlist_research") or {}
+        if not force and saved.get("date") == now[:10] and saved.get("applied"):
+            return saved                         # a restart must not choose or pay for the same morning again
+        spend, before = self.spendable(st, now), list(st["watchlist"])
         if st["watchlist_agent"]:
             r = AG.research(st, spend, data_dir() / "work" / now[:10] / "_agent")
         else:
@@ -189,60 +194,89 @@ class Desk:
                              "formula": r.get("formula_picks", r["picks"]), "claude": r.get("claude_picks"),
                              "rules": {k: st[k] for k in COMPARE_RULES}})
         if not kept:
-            S.update({"watchlist": r["watchlist"]})
+            with self.lock:                 # additions, removals and news avoids made during research stay
+                avoid = set(self.news_avoid(now))
+                current = S.update(lambda cur: {"watchlist": [x for x in dict.fromkeys(
+                    r["watchlist"] + [x for x in cur["watchlist"] if x not in before])
+                    if x not in avoid and not (x in before and x not in cur["watchlist"])]})
+                out["watchlist"] = current["watchlist"]
         self.j.put("watchlist_research", out)
         who = "Claude picked" if r["by"] == "claude" else "The formula picked"
         msg = ("Watchlist research failed, so yesterday's list stays: %s" % "; ".join(r["errors"][:2]) if kept else
-               "Today's watchlist: your %d core tickers plus %d movers. %s %s." % (
+               "Watchlist research: %d core tickers and %d proposed movers. %s %s." % (
                    len(r["core"]), len(r["picks"]), who,
                    ", ".join("%s (moves %.1f%% a day)" % (p["symbol"], p["atr_pct"]) for p in r["picks"]) or "none today"))
         self.j.add_event("watchlist", msg, now, key="watchlist-%s" % now[:10])
         return out
 
+    def news_avoid(self, now=None):
+        """Today's tickers breaking news said to avoid: no new entry in them today (scan and auto paper)."""
+        return self.j.get("news_avoid:" + (now or self.src.now())[:10]) or []
+
     def breaking_news(self):
         """Market hours, every few minutes: acts on news that can move a stock or the market hard today
         (desk/breaking.py). Buy or short adds the stock to today's watchlist, so the next scan grades it with
         your usual rules; exit closes auto paper's trade and alerts you for yours; avoid drops it from today's
-        list. Never trades live money. Live data only. Returns {calls, heavy, errors, added} or None when off."""
+        list and blocks new entries in it today. Never trades live money. Live data only.
+        Returns {calls, heavy, errors, added} or None when off."""
         st, now = S.load(), self.src.now()
         if self.src.demo or not st["breaking_news"]:
             return None
         held = {t["symbol"]: t.get("side") or "long" for t in self.j.open_trades()}
-        r = BN.check(st, st["watchlist"], held, data_dir() / "news-watch")
+        wd = data_dir() / "news-watch"
+        r = BN.check(st, st["watchlist"], held, wd)            # slow (feeds, Claude): outside the lock
         added = []
-        for c in r["calls"]:
-            sym, act = c["symbol"], c["action"]
-            key = "news-%s-%s-%s" % (now[:10], sym, act)
-            if self.j.has_event(key):                       # once per stock and action a day
-                continue
-            head = "Breaking news on %s: %s (%s). Claude says %s: %s" % (sym, c["title"], c["source"], act, c["why"])
-            st = S.load()
-            if act in ("buy", "short") and sym in st["blocked"]:
-                did = "It is on your blocked list, so nothing was done."
-            elif act in ("buy", "short"):
-                if sym not in st["watchlist"]:
-                    S.update({"watchlist": st["watchlist"] + [sym]})
-                    added.append(sym)
-                did = ("Added to today's watchlist: the next scan grades it with your usual rules."
-                       if sym in added else "Already on your watchlist: the next scan grades it.")
-                if act == "short" and st["directions"] == "long":
-                    did += " Shorts are off (Settings > Directions), so only a breakout buy can come of it."
-            elif act == "exit":
-                n = self.auto.news_exit(sym, "breaking news") if st["mode"] == "paper" else 0
-                mine = any(t["symbol"] == sym and t.get("note") != A.AUTO for t in self.j.open_trades())
-                did = " ".join(x for x in ("Auto paper is closing its trade." if n else "",
-                                           "Close your trade at your broker, then record the exit here." if mine else "") if x) \
-                    or "Nothing is open in it any more."
-            else:                                           # avoid
-                if sym in st["watchlist"]:
-                    S.update({"watchlist": [s for s in st["watchlist"] if s != sym]})
-                if st["mode"] == "paper":
-                    self.auto.news_exit(sym, "breaking news: avoid", close_open=False)
-                did = "Dropped from today's watchlist (it comes back with tomorrow's research if it is a core ticker)."
-            text = "%s %s" % (head, did)
-            if self.j.add_event("news", text, now, sym, key=key):
-                notify.send_news(c, did, st, st["mode"], self.src.demo)
+        with self.lock:
+            st2, now2 = S.load(), self.src.now()
+            stale = ("breaking news was turned off" if not st2["breaking_news"] else
+                     "the mode changed" if st2["mode"] != st["mode"] else
+                     "the day changed" if now2[:10] != now[:10] else
+                     "the market closed" if r["calls"] and not self.clock(now2).get("open") else None)
+            if stale:                                       # nothing acted on; the stories come back next time
+                return dict(r, calls=[], added=[], errors=r["errors"] + ["%s while Claude was reading" % stale])
+            for c in r["calls"]:
+                added += self._news_call(c, now2)
+            BN.acknowledge(wd, r.get("ack_ids") or [])
+        if r["errors"]:                                     # kept for the review, once an hour at most
+            self.j.add_event("news", "Breaking news check had problems: %s" % "; ".join(r["errors"])[:500],
+                             now, key="news-errors-%s" % now[:13])
         return dict(r, added=added)
+
+    def _news_call(self, c, now):
+        """Applies one breaking-news call (under self.lock). Returns the tickers it added to the watchlist."""
+        sym, act = c["symbol"], c["action"]
+        key = "news-%s-%s-%s-%s" % (now[:10], sym, act, c.get("item_id") or "")
+        if self.j.has_event(key):                           # once per story, stock and action
+            return []
+        head = "Breaking news on %s: %s (%s). Claude says %s: %s" % (sym, c["title"], c["source"], act, c["why"])
+        st, added = S.load(), []
+        if act in ("buy", "short") and (sym in st["blocked"] or sym in self.news_avoid(now)):
+            did = "It is on your blocked list or today's avoid list, so nothing was done."
+        elif act in ("buy", "short"):
+            if sym not in st["watchlist"]:
+                S.update(lambda cur: {"watchlist": list(dict.fromkeys(cur["watchlist"] + [sym]))})
+                added.append(sym)
+            did = ("Added to today's watchlist: the next scan grades it with your usual rules."
+                   if added else "Already on your watchlist: the next scan grades it.")
+            if act == "short" and st["directions"] == "long":
+                did += " Shorts are off (Settings > Directions), so only a breakout buy can come of it."
+        elif act == "exit":
+            n = self.auto.news_exit(sym, "breaking news") if st["mode"] == "paper" else 0
+            mine = any(t["symbol"] == sym and t.get("note") != A.AUTO for t in self.j.open_trades())
+            did = " ".join(x for x in ("Auto paper is closing its trade." if n else "",
+                                       "Close your trade at your broker, then record the exit here." if mine else "") if x) \
+                or "Nothing is open in it any more."
+        else:                                               # avoid
+            day = "news_avoid:" + now[:10]
+            self.j.put(day, sorted(set(self.j.get(day) or []) | {sym}))
+            S.update(lambda cur: {"watchlist": [x for x in cur["watchlist"] if x != sym]})
+            if st["mode"] == "paper":
+                self.auto.news_exit(sym, "breaking news: avoid", close_open=False)
+            did = ("Dropped from today's watchlist and no new entry in it today "
+                   "(it comes back with tomorrow's research if it is a core ticker).")
+        if self.j.add_event("news", "%s %s" % (head, did), now, sym, key=key):
+            notify.send_news(c, did, st, st["mode"], self.src.demo)
+        return added
 
     def _universe_due(self, st, now):
         if self.src.demo or not st["scan_universe"]:
@@ -279,6 +313,8 @@ class Desk:
         both or nothing, and why (desk/decide.py)."""
         with self.lock:
             st, now = S.load(), self.src.now()
+            st = dict(st, blocked=st["blocked"] + self.news_avoid(now))   # today's breaking-news avoids count as blocked
+            st = S.for_day(st, self.clock(now).get("closes"))            # early close: out by 12:55, not 15:55
             summary = {"at": now, "scanned": 0, "hits": 0, "fresh": 0, "evaluated": 0, "too_expensive": 0,
                        "stale": 0, "already": 0, "new_signals": 0, "halt": self.halt_reason(st, now), "error": None,
                        "directions": st["directions"], "short_hits": 0, "short_new": 0}
@@ -482,8 +518,7 @@ class Desk:
             self.j.put("outcomes_retry", now[:13])   # at most once an hour: replays that got no candles (offline, asleep)
             for d in self.j.outcome_gaps():
                 self.record_outcomes(d, only_gaps=True)
-            if self.j.get("outcomes_done"):
-                self.compare_watchlists(self.j.get("outcomes_done"))     # charts that did not answer after the close
+            self.compare_pending()                   # charts that did not answer after the close, any day
 
     def record_outcomes(self, date, only_gaps=False):
         """After the close: how every signal of the day would have done with its own numbers (desk/outcome.py).
@@ -512,17 +547,44 @@ class Desk:
                              now, key="outcomes-%s" % date)
         return done
 
+    def compare_pending(self):
+        """Every kept morning comparison still missing results, from days whose close has been replayed."""
+        today, done = self.src.now()[:10], self.j.get("outcomes_done")
+        for k in self.j.get_prefix("watchlist_comparison:"):
+            date = k.split(":", 1)[1]
+            if date < today or date == done:
+                self.compare_watchlists(date)
+
     def compare_watchlists(self, date, got=None):
         """After the close: the morning's formula picks and Claude picks, each replayed long and short with the
         same saved rules (outcome.watchlist_replay), stored as watchlist_results:<date>. Shadow only: no signal,
-        fill or order. A symbol with no candles is tried again on a later pass. Returns how many it replayed."""
+        fill or order. A symbol whose candles are missing or stop before the flat-by time is tried again on a
+        later pass, COMPARE_TRIES passes at most (watchlist_retry:<date>), then kept as given up ("final").
+        Returns how many it tried."""
         cmp_ = self.j.get("watchlist_comparison:" + date)
         if not cmp_ or self.src.demo:
             return 0
         key, got = "watchlist_results:" + date, got if got is not None else {}
         res = dict(self.j.get(key) or {})
-        todo = sorted({p["symbol"] for g in ("formula", "claude") for p in (cmp_.get(g) or [])}
-                      - {s for s, v in res.items() if "error" not in v})
+
+        def finished(v):
+            return isinstance(v, dict) and (v.get("final") or ("error" not in v and all(
+                isinstance(v.get(side), dict) and v[side].get("result") not in (None, outcome.NO_DATA, outcome.OPEN)
+                for side in ("long", "short"))))
+        todo = sorted(s for s in {p["symbol"] for g in ("formula", "claude") for p in (cmp_.get(g) or [])}
+                      if not finished(res.get(s)))
+        if not todo:
+            return 0
+        tries = int(self.j.get("watchlist_retry:" + date) or 0) + 1
+        age = (datetime.date.fromisoformat(self.src.now()[:10]) - datetime.date.fromisoformat(date)).days
+        if age > COMPARE_DAYS:
+            res.update({sym: {"error": "The comparison is outside the chart history window.", "final": True}
+                        for sym in todo})
+            self.j.put(key, res)
+            return 0
+        last = tries >= COMPARE_TRIES
+        rules = S.for_day(cmp_["rules"], self.clock(date + " 10:00").get("closes"))
+        flat = min(_minutes(rules["flat_by"]), charts.CLOSE_MIN - 5)
         for i, sym in enumerate(todo):
             try:
                 if sym not in got:
@@ -530,11 +592,16 @@ class Desk:
                         time.sleep(COMPARE_PAUSE)
                     got[sym] = charts.fetch(sym, "1mo", "5m")
                 bars = charts.session_bars(got[sym], date + " 16:00")
-                res[sym] = {side: outcome.watchlist_replay(bars, cmp_["rules"], side) for side in ("long", "short")}
+                if not bars or bars[-1]["minute"] < flat:
+                    raise charts.ChartError("the day's candles stop before %s" % rules["flat_by"])
+                required = set(range(charts.OPEN_MIN, flat + 1, 5))
+                if not required <= {b["minute"] for b in bars}:
+                    raise charts.ChartError("the day's candles have missing five-minute slots")
+                res[sym] = {side: outcome.watchlist_replay(bars, rules, side) for side in ("long", "short")}
             except charts.ChartError as e:
-                res[sym] = {"error": str(e)[:200]}
-        if todo:
-            self.j.put(key, res)
+                res[sym] = {"error": str(e)[:200], "final": last}
+        self.j.put(key, res)
+        self.j.put("watchlist_retry:" + date, tries)
         return len(todo)
 
     # ---- what you did ------------------------------------------------
@@ -867,7 +934,7 @@ class Desk:
         }
         out["health"] = self.health(st, now, halt)
         out["chart_urls"] = exports.chart_urls(out)
-        out["export_unknown"] = exports.tradingview_text(exports.todays_symbols(out))[1]
+        out["export_unknown"] = exports.tradingview_text(exports.todays_symbols(out), exports.known(out))[1]
         return out
 
     def review(self, journal=None, mode=None):

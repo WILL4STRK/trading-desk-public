@@ -67,7 +67,7 @@ class Comparison(DeskCase):
         kept = d.j.get("watchlist_comparison:" + date)
         self.assertEqual((kept["formula"][0]["symbol"], kept["claude"][0]["symbol"]), ("A", "B"))
         self.assertEqual(set(kept["rules"]), set(COMPARE_RULES))
-        bars = [dict(b, date=date) for b in day([(10.3, 10.6, 10.3, 10.5)])]
+        bars = [dict(b, date=date) for b in day([(10.3, 10.6, 10.3, 10.5)] + [(10.5, 10.6, 10.4, 10.5)] * 74)]
         with mock.patch("desk.charts.fetch", return_value={"bars": bars}), mock.patch("desk.engine.COMPARE_PAUSE", 0):
             self.assertEqual(d.compare_watchlists(date), 2)
             self.assertEqual(d.compare_watchlists(date), 0)              # done: not read again

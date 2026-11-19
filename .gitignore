@@ -5,3 +5,10 @@ __pycache__/
 build/
 .DS_Store
 *.tmp
+research/backtest/cache/
+research/backtest/out/
+research/backtest/tmp/
+research/REPORT.md
+research/stats-output.txt
+codex-*.md
+ntfy-prompt.md

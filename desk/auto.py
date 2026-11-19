@@ -129,21 +129,28 @@ class AutoPaper:
                 continue
             flat_by = str(p.get("flat_by") or st["flat_by"])
             late = now[:10] > str(e.get("filled_at") or e["at"])[:10] or now[11:16] >= flat_by
-            if late and not e.get("flat_order") and self.d.clock(now).get("open"):
+            news = e.get("news_exit")                   # breaking news said get out (news_exit): retried until out
+            if (late or news) and not e.get("flat_order") and self.d.clock(now).get("open"):
+                verb = "buying to cover" if e.get("side") == "short" else "selling"
                 oid = self._flatten(acct, e, rows)
-                if oid:
-                    self._event("%s is still open at %s: %s at the market."
-                                % (sym, flat_by, "buying to cover" if e.get("side") == "short" else "selling"), now, sym)
-                    rows = self._rows(acct)
-                    fo = rows.get(str(oid))
-                    if fo and fo["status"] == "FILLED":
-                        price = round(fo["avg_fill"], 2)
-                        pnl = self.d.j.close_trade(e["trade_id"], price, "flat", now, self.d.settle_date(now))
-                        e.update(state="closed", exit=price, reason="flat", pnl=pnl, closed_at=now)
-                        out["closed"] += 1
-                        self._event("%s %d %s at %.2f (flat by the close). %s $%.2f."
-                                    % (_closed_word(e), e["qty"], sym, price, "Made" if pnl >= 0 else "Lost", abs(pnl)),
-                                    now, sym)
+                if not oid:
+                    self._event("could not close %s at the market right now; it tries again on the next pass." % sym,
+                                now, sym, key="auto-noflat-%s-%s" % (sid, now[:13]))
+                    continue
+                if late:
+                    self._event("%s is still open at %s: %s at the market." % (sym, flat_by, verb), now, sym)
+                else:
+                    self._event("%s %s at the market (%s)." % (verb, sym, news), now, sym)
+                rows = self._rows(acct)
+                fo = rows.get(str(oid))
+                if fo and fo["status"] == "FILLED":
+                    price = round(fo["avg_fill"], 2)
+                    pnl = self.d.j.close_trade(e["trade_id"], price, "flat", now, self.d.settle_date(now))
+                    e.update(state="closed", exit=price, reason="flat", pnl=pnl, closed_at=now)
+                    out["closed"] += 1
+                    self._event("%s %d %s at %.2f (%s). %s $%.2f."
+                                % (_closed_word(e), e["qty"], sym, price, "flat by the close" if late else news,
+                                   "Made" if pnl >= 0 else "Lost", abs(pnl)), now, sym)
 
     def _cancel(self, acct, order_id):
         try:
@@ -157,6 +164,10 @@ class AutoPaper:
         for r in rows.values():
             if r["parent"] == str(e["order_id"]) and r["open"]:
                 self._cancel(acct, r["id"])
+        current = self._rows(acct)              # cancellation can itself fill a stop or target
+        kids = [r for r in current.values() if r["parent"] == str(e["order_id"])]
+        if any(r["status"] == "FILLED" or r["open"] for r in kids):
+            return None                         # reconcile a fill, or retry a failed cancellation; never sell twice
         out = P.cover_market(e["symbol"], int(e["qty"])) if e.get("side") == "short" \
             else O.single(e["symbol"], "SELL", int(e["qty"]), "MARKET")
         try:
@@ -184,7 +195,7 @@ class AutoPaper:
             short = p.get("side") == "short"
             if short and st["directions"] == "long":
                 continue                                # short signals switched off: leave it, the slip says so
-            why = None
+            why = "breaking news said to avoid it today" if sym in self.d.news_avoid(now) else None
             day = self.d.j.day(now[:10])
             qty = int(p.get("qty") or 0)
             # a short sets aside its value at the stop, the most it can be worth before it is out (desk/shorts.py)
@@ -192,7 +203,9 @@ class AutoPaper:
             risk = round(qty * abs(p["limit"] - p["stop"]), 2)
             if self.d.halt_reason(st, now):
                 return
-            if day["trades"] + len(working) >= S.trades_cap(st):
+            if why:
+                pass
+            elif day["trades"] + len(working) >= S.trades_cap(st):
                 why = "%d of %d trades today already" % (day["trades"] + len(working), S.trades_cap(st))
             elif qty < 1:
                 why = "no size"
@@ -241,28 +254,37 @@ class AutoPaper:
 
     def news_exit(self, symbol, why, close_open=True):
         """Breaking news turned against auto paper's trade in symbol (desk/breaking.py): cancels a waiting buy
-        and sells (or covers) an open one at the market. Paper mode, practice account only. Returns how many."""
+        and closes an open one at the market. A buy that filled before the cancel counts as open. A close that
+        cannot be placed now (market shut, no price) is retried by every pass until the trade is out.
+        Paper mode, practice account only. Returns how many trades it cancelled or is closing."""
         with self.d.lock:
-            if S.load()["mode"] != "paper":
+            st = S.load()
+            if st["mode"] != "paper":
                 return 0
             acct, now = self.d.paper, self.d.src.now()
             if not isinstance(acct, P.PaperAccount) or acct.account_hash() != P.ACCOUNT:
                 raise RuntimeError("auto paper only trades the practice account")
-            book, rows, n = self.book(), None, 0
+            book, n = self.book(), 0
+            out = {"placed": 0, "filled": 0, "closed": 0, "cancelled": 0, "declined": 0}
+            self._follow(acct, book, st, now, out)          # fills since the last pass first
             for e in book.values():
                 if e.get("symbol") != symbol:
                     continue
                 if e.get("state") == "working":
                     self._cancel(acct, e["order_id"])
+                    row = self._rows(acct).get(str(e["order_id"]))
+                    if row and row["status"] == "FILLED":   # filled before the cancel: close it as an open trade
+                        if close_open:
+                            e["news_exit"] = why
+                            n += 1
+                        continue
                     e["state"] = "cancelled"
                     n += 1
                     self._event("cancelled the buy for %s (%s)." % (symbol, why), now, symbol)
-                elif close_open and e.get("state") == "open" and not e.get("flat_order") and self.d.clock(now).get("open"):
-                    rows = rows or self._rows(acct)
-                    if self._flatten(acct, e, rows):        # the next pass records the fill as a "flat" exit
-                        n += 1
-                        self._event("%s %s at the market (%s)." % ("buying to cover" if e.get("side") == "short"
-                                                                   else "selling", symbol, why), now, symbol)
+                elif close_open and e.get("state") == "open" and not e.get("flat_order"):
+                    e["news_exit"] = why
+                    n += 1
+            self._follow(acct, book, st, now, out)          # opens a just-filled buy, closes what news_exit marked
             self.d.j.put(KEY, book)
             return n
 

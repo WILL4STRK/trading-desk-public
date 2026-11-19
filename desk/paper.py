@@ -26,7 +26,6 @@ import copy
 import datetime
 import json
 import os
-import threading
 import time
 
 from . import orders as O
@@ -64,7 +63,7 @@ class PaperAccount:
         self.d = desk
         self.clock = time.time
         self.quotes = self._yahoo               # tests swap this
-        self._lock = threading.RLock()
+        self._lock = desk.lock                  # all paper operations share the desk transaction
         self._seen = (0.0, {})
 
     # ---- the file ----------------------------------------------------------------

@@ -13,6 +13,7 @@ Run it by hand with `python3 -m desk agent` (add --apply to write the list),
 or let the desk run it at 9:00 AM New York (Settings > Watchlist agent).
 """
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -71,14 +72,15 @@ def prompt(cands, news, n, core):
 
 def ask_claude(text, run=subprocess.run, system=SYSTEM, schema=SCHEMA):
     """One headless Claude Code call. Returns the structured answer, or raises RuntimeError."""
-    exe = shutil.which("claude")
+    exe = os.environ.get("DESK_CLAUDE") or shutil.which("claude")     # DESK_CLAUDE: its full path, if not on PATH
     if not exe:
-        raise RuntimeError("the claude command is not installed")
+        raise RuntimeError("the claude command is not installed (or set DESK_CLAUDE to its full path)")
     cmd = [exe, "-p", "--model", MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
            "--no-session-persistence", "--disable-slash-commands", "--output-format", "json",
            "--system-prompt", system, "--json-schema", json.dumps(schema)]
     with tempfile.TemporaryDirectory(prefix="desk-agent-") as cwd:      # no project files for it to read
-        p = run(cmd, input=text, capture_output=True, text=True, timeout=TIMEOUT, cwd=cwd,
+        p = run(cmd, input=text, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=TIMEOUT, cwd=cwd,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))   # no console flash on Windows
     if p.returncode != 0:
         raise RuntimeError("claude exited %d: %s" % (p.returncode, (p.stderr or p.stdout)[:200]))

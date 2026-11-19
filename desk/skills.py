@@ -6,6 +6,7 @@ so two candidates never share entry.json / plan.json / orders.json, and runs
 the scripts as subprocesses with the same Python that runs the desk.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -50,7 +51,10 @@ def run(tool, args, cwd, timeout=180):
     Path(cwd).mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, str(script)] + [str(a) for a in args]
     try:
-        p = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+        # UTF-8 both ways: a Windows console code page cannot print every headline; no console window either
+        p = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout, env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return Result(tool, p.returncode, p.stdout, p.stderr)
     except subprocess.TimeoutExpired:
         return Result(tool, 124, "", "%s took longer than %d seconds" % (tool, timeout))
