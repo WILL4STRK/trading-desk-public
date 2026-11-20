@@ -8,6 +8,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from . import meme
 from . import memebot
 from . import settings as S
 from .engine import DeskError
@@ -59,6 +60,14 @@ def make_handler(desk, scheduler=None):
                     return self._send(200, desk.congress(refresh="refresh" in parse_qs(u.query)))
                 if u.path == "/api/review":                 # read-only: results and the review report
                     return self._send(200, desk.review())
+                if u.path == "/api/meme":                   # read-only: model 4, the memecoin paper accounts
+                    return self._send(200, meme.view())
+                if u.path == "/api/meme/chart":             # read-only: one coin's candles (GeckoTerminal) and levels
+                    q = parse_qs(u.query)
+                    try:
+                        return self._send(200, meme.chart((q.get("key") or [""])[0], (q.get("ivl") or ["5m"])[0]))
+                    except meme.MemeError as e:
+                        return self._send(400, {"error": str(e)})
                 if u.path == "/api/memebot":                # read-only: the separate memebot paper loop's files
                     return self._send(200, memebot.status())
                 if u.path == "/api/export":                 # read-only: text for TradingView and thinkorswim
@@ -94,6 +103,11 @@ def make_handler(desk, scheduler=None):
             try:
                 if path == "/api/paper/reset":            # the dashboard: start the practice account over
                     desk.paper.reset()
+                    out = {}
+                elif path == "/api/meme/reset":            # start the memecoin practice account over; the record stays
+                    if body.get("sure") is not True:
+                        raise DeskError("Starting the memecoin account over needs sure: true.")
+                    meme.reset()
                     out = {}
                 elif path == "/api/take":
                     out = {"trade_id": desk.take(body.get("signal_id"), body.get("qty"), body.get("price"))}

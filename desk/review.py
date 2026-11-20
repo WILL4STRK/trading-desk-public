@@ -401,6 +401,12 @@ def report(mode, s, now, rules_hash=None):
         L.append("    %s = %s" % (h, ", ".join("%s %s" % kv for kv in sorted((v.get("rules") or {}).items()))))
     L += ["", "SETTINGS CHANGES (newest first)"]
     L += ["  %s  %s" % (e["ts"], e["message"]) for e in s["settings_changes"]] or ["  none logged"]
+    try:
+        from . import meme
+        ml = meme.lines(s["meme"]) if s.get("meme") else ["  not loaded"]
+    except Exception as e:          # a damaged memecoin file must not break the review
+        ml = ["  unreadable: %s" % e]
+    L += ["", "MODEL 4: MEMECOINS (paper only, its own practice accounts; docs/MEME.md)"] + ml
     L += ["", "Reading this: a number from fewer than %d trades is noise. " % s["min_trades"] +
           ("Paper fills are simulated, so good paper results show the routine works, not that live results will match."
            if mode == "paper" else "Real fills include slippage the slip cannot see; compare the fill and stop lines above."),

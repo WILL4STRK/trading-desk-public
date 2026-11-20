@@ -749,6 +749,11 @@ class Desk:
         summ = R.summary(j.trades(limit=100000), j.signals(limit=100000), j.events(limit=100000), j.get("rulesets", {}),
                          outcomes=j.outcomes(), scans=j.scans(limit=100000))
         summ["decisions"] = decide.counts(j.decisions(limit=100000))
+        try:
+            from . import meme
+            summ["meme"] = meme.view()
+        except Exception:               # a damaged memecoin file must not break the stocks review
+            summ["meme"] = None
         return {"mode": mode, "now": now, "summary": summ, "text": R.report(mode, summ, now, stamp.rules_hash(st))}
 
     def exports(self):
