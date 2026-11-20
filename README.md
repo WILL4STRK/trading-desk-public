@@ -55,6 +55,25 @@ The demo keeps its data in `data-demo/`, apart from your real record in
 `data/`. Never trade from the demo: it is one old day with the clock stuck at
 10:15 AM.
 
+## Memebot tab
+
+The **Memebot** tab shows the separate memecoin paper-research loop from
+[meambot](https://github.com/WILL4STRK/meambot): whether it is running, the loop status, the cycle
+table, the verdict, any frozen parameters and recent paper trades. It only
+reads that program's files. It never buys anything.
+
+The tab looks for a `meambot` (or `memebot`) folder next to this Trading Desk
+folder. If the folder is somewhere else, start the desk with `MEMEBOT_DIR` set
+to it:
+
+```bash
+MEMEBOT_DIR=/path/to/meambot python3 -m desk          # macOS / Linux
+```
+
+```bash
+$env:MEMEBOT_DIR="C:\meambot"; python -m desk          # Windows PowerShell
+```
+
 ## What a day looks like
 
 1. Before the open the desk lists daily-chart setups to watch.

@@ -8,6 +8,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from . import memebot
 from . import settings as S
 from .engine import DeskError
 from .paths import STATIC
@@ -58,6 +59,8 @@ def make_handler(desk, scheduler=None):
                     return self._send(200, desk.congress(refresh="refresh" in parse_qs(u.query)))
                 if u.path == "/api/review":                 # read-only: results and the review report
                     return self._send(200, desk.review())
+                if u.path == "/api/memebot":                # read-only: the separate memebot paper loop's files
+                    return self._send(200, memebot.status())
                 if u.path == "/api/export":                 # read-only: text for TradingView and thinkorswim
                     return self._send(200, desk.exports())
                 if u.path == "/api/export/tradingview.txt":

@@ -273,6 +273,7 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
     <button role="tab" data-v="account" aria-selected="false" id="tab-account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M3.5 9.5h17M7 15h4"/></svg>Account</button>
     <button role="tab" data-v="journal" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4.5" y="3.5" width="15" height="17" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Journal</button>
     <button role="tab" data-v="research" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>Research</button>
+    <button role="tab" data-v="memebot" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 17l5-6 4 3 7-8"/><circle cx="20" cy="6" r="1.4" fill="currentColor"/><path d="M4 20.5h16"/></svg>Memebot</button>
     <button role="tab" data-v="settings" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</button>
   </nav>
 
@@ -369,6 +370,11 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
       </div>
     </section>
 
+    <section class="view" id="v-memebot" aria-label="Memebot">
+      <div class="callout" style="margin:0 0 12px">Memecoin paper research only. The memebot never buys real coins, and this tab only reads its files. Paper results here are not proof that anything would make money.</div>
+      <div id="mb-body"><div class="empty"><b>Loading…</b></div></div>
+    </section>
+
     <section class="view" id="v-settings" aria-label="Settings">
       <h2 class="section-title">Health</h2>
       <div class="card" id="health"></div>
@@ -400,7 +406,7 @@ const pct = p => Math.round(p * 1000) / 10 + "%";
 const mins = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 const t12 = t => { if (!t) return ""; const [h, m] = t.split(":").map(Number); return ((h + 11) % 12 + 1) + ":" + String(m).padStart(2, "0") + (h < 12 ? " AM" : " PM"); };
 let S = null, drafts = {}, formDirty = false, FILTER = "ready";
-const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Research", settings:"Settings"};
+const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Research", memebot:"Memebot", settings:"Settings"};
 
 // The mark: 12 overlapping circles in a ring.
 (function () {
@@ -786,6 +792,7 @@ document.addEventListener("click", async e => {
     window.scrollTo(0, 0);
     if (t.dataset.v === "research") congress(false);
     if (t.dataset.v === "journal") loadReview();
+    if (t.dataset.v === "memebot") loadMemebot();
   }
   else if (t.dataset.useCash) { (drafts.acct ||= {}).cash = Number(t.dataset.useCash).toFixed(2); renderAccount(); }
   else if (t.id === "acct-save-cash") { const v = (drafts.acct || {}).cash; if (!v) return toast("Type your cash, or drop a screenshot of it.", true); const d = await act("/api/cash", {kind:"set", amount:v}, "Saved your balance."); if (d) { drafts.acct = {}; shots.balance = null; render(); } }
@@ -816,6 +823,35 @@ document.addEventListener("click", async e => {
       $("#earnings").innerHTML = `<p style="margin:4px 0 8px"><b>${esc(d.entity)}</b></p><table><tr><th>Quarter</th><th>Revenue</th><th>vs last year</th><th>Profit</th><th>vs last year</th><th>EPS</th><th>Net margin</th><th>Filed</th></tr>${d.rows.map(r => `<tr><td>${esc(r.fiscal)}</td><td class="num">${big(r.revenue)}</td><td class="num">${g(r.revenue_yoy)}</td><td class="num">${big(r.net_income)}</td><td class="num">${g(r.net_income_yoy)}</td><td class="num">${r.eps_diluted ?? "–"}</td><td class="num">${r.net_margin ?? "–"}%</td><td class="num">${esc(r.filed)}</td></tr>`).join("")}</table>`; } catch (err) { toast(err.message, true); } }
   else if (t.id === "cong-go") congress(true);
 });
+// ---- Memebot tab: read-only view of the separate memecoin paper-research loop
+const ago = ts => { if (!ts) return "never"; const s = Math.max(0, Date.now() / 1000 - ts); return s < 90 ? Math.round(s) + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 172800 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
+async function loadMemebot() {
+  let d; try { d = await api("/api/memebot"); } catch (e) { $("#mb-body").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; return; }
+  if (!d.found) { $("#mb-body").innerHTML = `<div class="empty"><b>Memebot folder not found</b>${esc(d.hint)}${d.dir ? `<br><span class="num">Looked in: ${esc(d.dir)}</span>` : ""}</div>`; return; }
+  const L = d.log || {}, T = d.trade_summary || {}, cyc = (L.cycles || {});
+  const chip = `<span class="chip ${d.running ? "live" : ""}"><i></i>${d.running ? "Running" : "Not running"}</span>`;
+  const table = cyc.head && cyc.head.length ? `<div class="scroll"><table><tr>${cyc.head.map(h => `<th>${esc(h)}</th>`).join("")}</tr>${cyc.rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>` : `<div class="empty"><b>No cycles yet</b>The loop log has no cycle table.</div>`;
+  const trades = d.trades && d.trades.length ? `<div class="scroll"><table><tr><th>Token</th><th>Result</th><th>Return</th><th>Exit</th><th>Held</th><th>When</th></tr>${d.trades.slice(0, 50).map(t => `<tr><td style="text-align:left"><b>${esc(t.symbol)}</b></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${typeof t.pnl === "number" ? usd(t.pnl, true) : esc(t.pnl)}</td><td class="num">${typeof t.ret === "number" ? (t.ret * 100).toFixed(1) + "%" : ""}</td><td>${esc(t.why)}</td><td class="num">${t.hold_min != null ? esc(t.hold_min) + " min" : ""}</td><td class="num">${esc(ago(t.t_out))}</td></tr>`).join("")}</table></div>` : `<div class="empty"><b>No closed paper trades yet</b></div>`;
+  $("#mb-body").innerHTML = `
+    <div class="card hero">
+      <div class="cap"><span>Loop</span>${chip}</div>
+      <p style="margin:8px 0 4px"><b>${esc(L.status || "No LOOP_LOG.md found yet")}</b></p>
+      <p class="foot-note" style="margin:0">Last file written ${esc(ago(d.last_write))}${L.updated ? ` · log updated ${esc(L.updated)}` : ""}</p>
+      <div class="three num" style="margin-top:12px">
+        <div><b>${d.discoveries ?? "–"}</b><span>Tokens discovered</span></div>
+        <div><b>${T.count ? `${T.wins}/${T.count}` : "–"}</b><span>Paper wins / trades</span></div>
+        <div><b class="${T.pnl >= 0 ? "pos" : "neg"}">${T.count ? usd(T.pnl, true) : "–"}</b><span>Paper result, all files</span></div>
+      </div>
+    </div>
+    ${L.verdict ? `<h2 class="section-title">Verdict</h2><div class="card"><p style="margin:0;white-space:pre-wrap">${esc(L.verdict)}</p></div>` : ""}
+    <h2 class="section-title">Cycles</h2><div class="card">${table}</div>
+    ${d.frozen_params ? `<h2 class="section-title">Frozen parameters</h2><div class="card"><pre class="num" style="margin:0;white-space:pre-wrap;font-size:13px">${esc(JSON.stringify(d.frozen_params, null, 1))}</pre></div>` : ""}
+    <h2 class="section-title">Recent paper trades</h2><div class="card">${trades}</div>
+    ${L.text ? `<h2 class="section-title">Full loop log</h2><div class="card"><details><summary>Show LOOP_LOG.md</summary><pre style="white-space:pre-wrap;font-size:13px;margin:10px 0 0">${esc(L.text)}</pre></details></div>` : ""}
+    <p class="foot-note">Reading ${esc(d.dir)}. Refreshes every 30 seconds while this tab is open.</p>`;
+}
+setInterval(() => { if ($("#v-memebot").classList.contains("on") && !document.hidden) loadMemebot(); }, 30000);
+
 async function congress(refresh) { try { const d = await api("/api/congress" + (refresh ? "?refresh=1" : ""));
   $("#congress").innerHTML = d.filings.length ? `<ul class="plain">${d.filings.map(f => `<li><span class="num">${esc(f.filed)}</span> <b>${esc(f.name)}</b> ${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.type)}</a>` : esc(f.type)}</li>`).join("")}</ul>` : `<div class="empty">${esc(d.error || "No filings found for the members in your settings.")}</div>`; } catch (err) { toast(err.message, true); } }
 // refresh every 10 s, but not while you are typing in a field (it would wipe what you typed)
