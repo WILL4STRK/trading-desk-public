@@ -578,7 +578,7 @@ async function loadGraph() {
 }
 // ---- Vs market tab: the bot's % return next to the index funds, plus TradingView charts
 const TV = {SPY: "AMEX:SPY", QQQ: "NASDAQ:QQQ", DIA: "AMEX:DIA", IWM: "AMEX:IWM"};
-const pctS = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v * 100) / 100).toFixed(2) + "%";
+const pctM = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v * 100) / 100).toFixed(2) + "%";
 let tvSym = "SPY";
 function tvChart(sym) {
   tvSym = sym;
@@ -595,13 +595,13 @@ async function loadMarket() {
   const t = d => Date.parse(d + "T16:00") || 0;
   const rows = [m.bot].concat(m.groups);
   $("#bm-chart").innerHTML = lineChart(rows.filter(r => r.points.length).map((r, i) => ({name: r.name, color: r === m.bot ? GCOL[0] : GCOL[1 + (i - 1) % (GCOL.length - 1)],
-      pts: r.points.map(p => ({t: t(p.date), y: p.pct}))})), "Percent return since " + m.start + ", bot against the index funds", pctS, "No market data yet.");
+      pts: r.points.map(p => ({t: t(p.date), y: p.pct}))})), "Percent return since " + m.start + ", bot against the index funds", pctM, "No market data yet.");
   const ranked = rows.filter(r => r.pct != null).sort((a, b) => b.pct - a.pct);
   const beat = m.groups.filter(g => g.pct != null && m.bot.pct > g.pct).length, known = m.groups.filter(g => g.pct != null).length;
   $("#bm-board").innerHTML = (known ? `<p style="margin:0 0 10px;font-weight:600">${beat === known ? "The bot is beating every grouping." : beat ? `The bot is beating ${beat} of ${known} groupings.` : "The bot is behind every grouping."}</p>` : "") +
     `<div style="overflow-x:auto"><table class="num" style="font-size:14.5px"><tr><th>Who</th><th>Return</th><th>Bot ahead</th></tr>` +
     ranked.map((r, i) => `<tr${r === m.bot ? ' style="color:var(--tint);font-weight:700"' : ""}><td style="white-space:normal">${i + 1}. ${esc(r.name)}${r === m.bot ? "" : ` <small style="color:var(--label2)">${esc(r.symbol)}</small>`}</td>
-      <td style="text-align:right" class="${r.pct < 0 ? "neg" : "pos"}">${pctS(r.pct)}</td><td style="text-align:right">${r === m.bot ? `<small style="color:var(--label2)">${usd(m.bot.pnl, true)}</small>` : `<span class="${m.bot.pct - r.pct < 0 ? "neg" : "pos"}">${pctS(m.bot.pct - r.pct)}</span>`}</td></tr>`).join("") + `</table></div>` +
+      <td style="text-align:right" class="${r.pct < 0 ? "neg" : "pos"}">${pctM(r.pct)}</td><td style="text-align:right">${r === m.bot ? `<small style="color:var(--label2)">${usd(m.bot.pnl, true)}</small>` : `<span class="${m.bot.pct - r.pct < 0 ? "neg" : "pos"}">${pctS(m.bot.pct - r.pct)}</span>`}</td></tr>`).join("") + `</table></div>` +
     m.groups.filter(g => g.error).map(g => `<p class="foot-note">${esc(g.name)}: ${esc(g.error)}</p>`).join("") +
     `<p class="foot-note">Since ${esc(m.start)}. The bot's return is a percent of your ${usd(m.balance)} starting balance.</p>`;
 }
