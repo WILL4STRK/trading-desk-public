@@ -74,6 +74,14 @@ class Memebot(unittest.TestCase):
         os.utime(path, (old, old))
         self.assertFalse(memebot.status()["running"])
 
+    def test_archive_and_copies_are_not_counted_twice(self):
+        row = json.dumps({"sym": "LOOSY", "pnl": -1.7, "t_out": 100}) + "\n"
+        self.write("trades_live.jsonl", row)
+        self.write("backup/trades_copy.jsonl", row)
+        self.write("claude-session/trades_live.jsonl", json.dumps({"sym": "OLD", "pnl": 9, "t_out": 5}) + "\n")
+        s = memebot.status()
+        self.assertEqual([t["symbol"] for t in s["trades"]], ["LOOSY"])
+
     def test_skips_git_folder(self):
         self.write(".git/trades_x.jsonl", json.dumps({"sym": "HIDDEN", "pnl": 5}) + "\n")
         self.assertEqual(memebot.status()["trades"], [])

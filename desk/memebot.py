@@ -19,7 +19,7 @@ from .paths import ROOT
 FRESH_SECONDS = 15 * 60          # a file written this recently means the loop is still running
 MAX_LOG_BYTES = 300_000
 MAX_TRADES = 200
-SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv"}
+SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", "claude-session"}   # claude-session: the old first run's archive
 _count_cache = {}
 
 
@@ -127,8 +127,14 @@ def _trades(files):
                     "hold_min": r.get("hold_min"),
                     "t_out": r.get("t_out") or r.get("ts"),
                 })
-    rows.sort(key=lambda r: r["t_out"] or 0, reverse=True)
-    return rows[:MAX_TRADES]
+    seen, uniq = set(), []
+    for r in rows:                              # the same trade copied into two files counts once
+        k = (r["symbol"], r["t_out"], r["pnl"])
+        if k not in seen:
+            seen.add(k)
+            uniq.append(r)
+    uniq.sort(key=lambda r: r["t_out"] or 0, reverse=True)
+    return uniq[:MAX_TRADES]
 
 
 def status(now=None):
