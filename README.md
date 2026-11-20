@@ -69,23 +69,31 @@ more is tagged **Risky**.
 record: at the last finished 5-minute candle's close, stop 2% under, target 4% over, as many
 shares as your limits allow (or fewer, if you type a number). It counts like any fill: cash,
 open trades, P&L. Paper mode only; nothing is sent to a broker. Record the exit as usual.
-## Memebot tab
 
-The **Memebot** tab shows the separate memecoin paper-research loop from
-[meambot](https://github.com/WILL4STRK/meambot): whether it is running, the loop status, the cycle
-table, the verdict, any frozen parameters and recent paper trades. It only
-reads that program's files. It never buys anything.
+## Memecoins tab (model 4, paper only)
 
-The tab looks for a `meambot` (or `memebot`) folder next to this Trading Desk
-folder. If the folder is somewhere else, start the desk with `MEMEBOT_DIR` set
-to it:
+A separate paper-trading model for memecoins on Solana, Base, BSC and Ethereum, with its own $100 practice accounts.
+Every minute while the desk runs, any day and hour, it finds coins on DexScreener, safety-checks them (RugCheck for
+Solana, GoPlus for the others; missing data is never a pass), records what seven fixed rules would buy, and trades
+practice accounts on them. No rule has made money after costs so far: read [docs/MEME.md](docs/MEME.md) and
+[research/meme/REPORT.md](research/meme/REPORT.md). It has no wallet and no keys and cannot buy a real coin.
 
 ```bash
-MEMEBOT_DIR=/path/to/meambot python3 -m desk          # macOS / Linux
+python3 -m desk meme                     # one memecoin pass in the terminal, then its summary
+python3 -m research.meme.backtest dev    # the backtest's development half (holdout is a one-time look)
+python3 tools/meme_graph.py              # SVG charts into docs/meme/
+```
+
+The bottom of the tab also shows the separate research loop from
+[meambot](https://github.com/WILL4STRK/meambot): whether it is running, its cycle table, verdict and recent paper
+trades. It looks for a `meambot` or `memebot` folder next to this one, or set `MEMEBOT_DIR`:
+
+```bash
+MEMEBOT_DIR=/path/to/memebot python3 -m desk          # macOS / Linux
 ```
 
 ```bash
-$env:MEMEBOT_DIR="C:\meambot"; python -m desk          # Windows PowerShell
+$env:MEMEBOT_DIR="C:\Trading\memebot"; python -m desk  # Windows PowerShell
 ```
 
 ## What a day looks like

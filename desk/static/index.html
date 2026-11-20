@@ -306,7 +306,7 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
     <button role="tab" data-v="research" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>Research</button>
     <button role="tab" data-v="graph" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5h16"/><path d="m4.5 15 4.5-5 4 3.5 6.5-8"/></svg>Graph</button>
     <button role="tab" data-v="market" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5h16"/><path d="m4.5 14 5-4 4 2 6-6"/><path d="m4.5 17 5-2 4 1 6-3" opacity=".55"/></svg>Market</button>
-    <button role="tab" data-v="memebot" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 17l5-6 4 3 7-8"/><circle cx="20" cy="6" r="1.4" fill="currentColor"/><path d="M4 20.5h16"/></svg>Memebot</button>
+    <button role="tab" data-v="meme" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M14.5 9.2c-.5-.8-1.4-1.2-2.5-1.2-1.5 0-2.6.8-2.6 2s1.1 1.6 2.6 2 2.6.8 2.6 2-1.1 2-2.6 2c-1.1 0-2-.4-2.5-1.2M12 6.5V8M12 16v1.5"/></svg>Memecoins</button>
     <button role="tab" data-v="settings" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>Settings</button>
   </nav>
 
@@ -434,9 +434,9 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
     </section>
     <section class="view" id="v-market" aria-label="Vs market">
       <h2 class="section-title">The bot against the market</h2>
-      <div class="card" id="m-chart"></div>
+      <div class="card" id="bm-chart"></div>
       <h2 class="section-title">Leaderboard</h2>
-      <div class="card" id="m-board"></div>
+      <div class="card" id="bm-board"></div>
       <h2 class="section-title">Charts</h2>
       <div class="card">
         <div class="seg" id="tv-seg" role="group" aria-label="Chart"></div>
@@ -445,8 +445,55 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
       </div>
       <p class="foot-note">Each grouping is its index fund (SPY, QQQ, DIA, IWM), price only, measured from the close before the bot's first closed trade. The bot's line is its closed auto paper trades over your starting balance. Past results say nothing sure about the future.</p>
     </section>
-    <section class="view" id="v-memebot" aria-label="Memebot">
-      <div class="callout" style="margin:0 0 12px">Memecoin paper research only. The memebot never buys real coins, and this tab only reads its files. Paper results here are not proof that anything would make money.</div>
+    <section class="view" id="v-meme" aria-label="Memecoins">
+      <div class="callout" style="margin:0 0 12px">Practice money only. The memecoin model reads DexScreener, RugCheck, GoPlus and GeckoTerminal (public, read-only) and has no wallet and no keys: it cannot buy a real coin. Memecoins swing far harder than stocks and most lose. No rule has made money after costs yet (<span class="num">docs/MEME.md</span>).</div>
+      <div class="grid">
+        <div>
+          <div class="card hero">
+            <div class="cap"><span>Memecoin account</span><span class="chip"><i></i>Practice · no wallet</span></div>
+            <div class="big num" id="m-eq">–</div>
+            <div class="three num">
+              <div><b id="m-cash">–</b><span>Cash</span></div>
+              <div><b id="m-ret">–</b><span>Since start</span></div>
+              <div><b id="m-won">–</b><span>Closed, won</span></div>
+            </div>
+          </div>
+          <div class="card" id="m-status"><div class="empty"><b>Loading…</b></div></div>
+          <div class="seg" role="group" aria-label="Show">
+            <button data-mf="open" aria-pressed="true">Holding</button>
+            <button data-mf="closed" aria-pressed="false">Closed</button>
+          </div>
+          <div id="m-pos"></div>
+        </div>
+        <div>
+          <div class="card">
+            <div class="hrow" style="margin:0 0 8px"><b style="font-size:17px">Coins</b><small class="foot-note" id="m-meta" style="margin:0"></small><span style="flex:1"></span><label class="vh" for="m-find">Find a coin</label><input class="inp" id="m-find" placeholder="Find by name or chain" autocomplete="off" spellcheck="false"></div>
+            <div class="scroll" id="m-list" style="max-height:440px;overflow-y:auto"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+            <div class="hrow" style="margin:0 0 10px">
+              <b id="mch-sym" style="font-size:17px">–</b><span class="num" id="mch-last"></span>
+              <span style="flex:1"></span>
+              <div class="seg" role="group" aria-label="Candle size" style="margin:0;min-width:150px">
+                <button data-mivl="5m" aria-pressed="true">5m</button><button data-mivl="15m" aria-pressed="false">15m</button><button data-mivl="1h" aria-pressed="false">1h</button>
+              </div>
+              <a class="btn small gray" id="mch-dex" target="_blank" rel="noopener noreferrer" hidden>DexScreener<span class="vh">, opens in a new window</span>&nbsp;↗</a>
+            </div>
+            <div id="m-chart" role="img" aria-label="Coin candle chart"><div class="empty"><b>Pick a coin</b>Its 5-minute candles load from GeckoTerminal.</div></div>
+            <div id="m-facts" aria-live="polite"></div>
+          </div>
+      <h2 class="section-title">Practice accounts</h2>
+      <div class="card scroll" id="m-books"></div>
+      <h2 class="section-title">Made or lost, main memecoin account</h2>
+      <div class="card" id="m-curve"></div>
+      <h2 class="section-title">Forward test: every rule, after costs</h2>
+      <div class="card scroll" id="m-fw"></div>
+      <h2 class="section-title">Memecoin settings</h2>
+      <div class="group" id="meme-form"></div>
+      <div class="hrow"><button class="btn" id="meme-save">Save memecoin settings</button><button class="btn gray" id="meme-reset">Start the account over</button></div>
+      <h2 class="section-title">Research loop (meambot)</h2>
       <div id="mb-body"><div class="empty"><b>Loading…</b></div></div>
     </section>
 
@@ -482,7 +529,7 @@ const pct = p => Math.round(p * 1000) / 10 + "%";
 const mins = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 const t12 = t => { if (!t) return ""; const [h, m] = t.split(":").map(Number); return ((h + 11) % 12 + 1) + ":" + String(m).padStart(2, "0") + (h < 12 ? " AM" : " PM"); };
 let S = null, drafts = {}, formDirty = false, FILTER = "ready";
-const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Research", graph:"Graph", market:"Vs market", memebot:"Memebot", settings:"Settings"};
+const TITLES = {desk:"Desk", account:"Account", journal:"Journal", research:"Research", graph:"Graph", market:"Vs market", meme:"Memecoins", settings:"Settings"};
 
 // The mark: 12 overlapping circles in a ring.
 (function () {
@@ -547,11 +594,11 @@ async function loadMarket() {
   let m; try { m = await api("/api/benchmarks"); } catch (e) { return toast(e.message, true); }
   const t = d => Date.parse(d + "T16:00") || 0;
   const rows = [m.bot].concat(m.groups);
-  $("#m-chart").innerHTML = lineChart(rows.filter(r => r.points.length).map((r, i) => ({name: r.name, color: r === m.bot ? GCOL[0] : GCOL[1 + (i - 1) % (GCOL.length - 1)],
+  $("#bm-chart").innerHTML = lineChart(rows.filter(r => r.points.length).map((r, i) => ({name: r.name, color: r === m.bot ? GCOL[0] : GCOL[1 + (i - 1) % (GCOL.length - 1)],
       pts: r.points.map(p => ({t: t(p.date), y: p.pct}))})), "Percent return since " + m.start + ", bot against the index funds", pctS, "No market data yet.");
   const ranked = rows.filter(r => r.pct != null).sort((a, b) => b.pct - a.pct);
   const beat = m.groups.filter(g => g.pct != null && m.bot.pct > g.pct).length, known = m.groups.filter(g => g.pct != null).length;
-  $("#m-board").innerHTML = (known ? `<p style="margin:0 0 10px;font-weight:600">${beat === known ? "The bot is beating every grouping." : beat ? `The bot is beating ${beat} of ${known} groupings.` : "The bot is behind every grouping."}</p>` : "") +
+  $("#bm-board").innerHTML = (known ? `<p style="margin:0 0 10px;font-weight:600">${beat === known ? "The bot is beating every grouping." : beat ? `The bot is beating ${beat} of ${known} groupings.` : "The bot is behind every grouping."}</p>` : "") +
     `<div style="overflow-x:auto"><table class="num" style="font-size:14.5px"><tr><th>Who</th><th>Return</th><th>Bot ahead</th></tr>` +
     ranked.map((r, i) => `<tr${r === m.bot ? ' style="color:var(--tint);font-weight:700"' : ""}><td style="white-space:normal">${i + 1}. ${esc(r.name)}${r === m.bot ? "" : ` <small style="color:var(--label2)">${esc(r.symbol)}</small>`}</td>
       <td style="text-align:right" class="${r.pct < 0 ? "neg" : "pos"}">${pctS(r.pct)}</td><td style="text-align:right">${r === m.bot ? `<small style="color:var(--label2)">${usd(m.bot.pnl, true)}</small>` : `<span class="${m.bot.pct - r.pct < 0 ? "neg" : "pos"}">${pctS(m.bot.pct - r.pct)}</span>`}</td></tr>`).join("") + `</table></div>` +
@@ -1002,6 +1049,8 @@ document.addEventListener("input", e => {
   const t = e.target;
   if (t.dataset.d) { (drafts[t.dataset.id] ||= {})[t.dataset.d] = t.value; }
   if (t.dataset.k) formDirty = true;
+  if (t.dataset.mk) MMDIRTY = true;
+  if (t.id === "m-find") renderMemeList();
 });
 document.addEventListener("change", e => { const t = e.target; if (t.dataset.d) { (drafts[t.dataset.id] ||= {})[t.dataset.d] = t.value; } });
 async function copyForTos() {
@@ -1019,6 +1068,8 @@ async function copyForTos() {
 }
 document.addEventListener("click", async e => {
   if (e.target.closest && e.target.closest("#copy-tos")) return copyForTos();
+  const mrow = e.target.closest && e.target.closest("[data-mkey]");
+  if (mrow && mrow.tagName !== "BUTTON") { MSEL = mrow.dataset.mkey; renderMemeList(); return loadMemeChart(true); }
   const t = e.target.closest("button"); if (!t) return;
   if (t.dataset.v) {
     document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b === t));
@@ -1029,7 +1080,18 @@ document.addEventListener("click", async e => {
     if (t.dataset.v === "journal") loadReview();
     if (t.dataset.v === "graph") loadGraph();
     if (t.dataset.v === "market") loadMarket();
-    if (t.dataset.v === "memebot") loadMemebot();
+    if (t.dataset.v === "meme") { loadMeme(); loadMemebot(); }
+  }
+  else if (t.dataset.mivl) { MIVL = t.dataset.mivl; document.querySelectorAll("[data-mivl]").forEach(b => b.setAttribute("aria-pressed", b === t)); loadMemeChart(true); }
+  else if (t.dataset.mf) { MF = t.dataset.mf; document.querySelectorAll("[data-mf]").forEach(b => b.setAttribute("aria-pressed", b === t)); renderMemePos(); }
+  else if (t.id === "meme-save") {
+    const ch = {}; document.querySelectorAll("#meme-form [data-mk]").forEach(el => { const k = el.dataset.mk, cur = S.settings[k]; const v = el.value.trim();
+      ch[k] = k === "meme_news_words" ? v.split("\n").map(x => x.trim()).filter(Boolean) : Array.isArray(cur) ? v.split(/[\s,]+/).filter(Boolean) : typeof cur === "boolean" ? v === "true" : typeof cur === "number" ? Number(v) : v; });
+    if (await act("/api/settings", {changes:ch}, "Saved memecoin settings.")) { MMDIRTY = false; loadMeme(); }
+  }
+  else if (t.id === "meme-reset") {
+    if (!confirm("Start the main memecoin practice account over at its starting cash? Its trades are cleared; the forward test record and the other practice accounts are kept.")) return;
+    try { await api("/api/meme/reset", {sure:true}); toast("The memecoin account starts over."); loadMeme(); } catch (err) { toast(err.message, true); }
   }
   else if (t.dataset.tv) tvChart(t.dataset.tv);
   else if (t.dataset.useCash) { (drafts.acct ||= {}).cash = Number(t.dataset.useCash).toFixed(2); renderAccount(); }
@@ -1057,7 +1119,7 @@ document.addEventListener("click", async e => {
   else if (t.id === "scan") { await act("/api/scan", {}, "Scanning."); setTimeout(load, 4000); }
   else if (t.id === "stops-reset") { if (!confirm("Reset the stops? Read the review in the Journal tab first. The losing run and the drop from your best point will count again from now.")) return; await act("/api/stops/reset", {}, "Stops reset. The desk is looking for setups again."); }
   else if (t.id === "save") {
-    const ch = {}; document.querySelectorAll("[data-k]").forEach(el => { const k = el.dataset.k, cur = S.settings[k]; let v = el.value.trim();
+    const ch = {}; document.querySelectorAll("#form [data-k]").forEach(el => { const k = el.dataset.k, cur = S.settings[k]; let v = el.value.trim();
       ch[k] = Array.isArray(cur) ? v.split(/[\s,]+/).filter(Boolean) : typeof cur === "boolean" ? v === "true" : typeof cur === "number" ? Number(v) : v; });
     formDirty = false; const d = await act("/api/settings", {changes:ch}, "Saved settings."); if (!d) formDirty = true;
   }
@@ -1066,6 +1128,158 @@ document.addEventListener("click", async e => {
       $("#earnings").innerHTML = `<p style="margin:4px 0 8px"><b>${esc(d.entity)}</b></p><table><tr><th>Quarter</th><th>Revenue</th><th>vs last year</th><th>Profit</th><th>vs last year</th><th>EPS</th><th>Net margin</th><th>Filed</th></tr>${d.rows.map(r => `<tr><td>${esc(r.fiscal)}</td><td class="num">${big(r.revenue)}</td><td class="num">${g(r.revenue_yoy)}</td><td class="num">${big(r.net_income)}</td><td class="num">${g(r.net_income_yoy)}</td><td class="num">${r.eps_diluted ?? "–"}</td><td class="num">${r.net_margin ?? "–"}%</td><td class="num">${esc(r.filed)}</td></tr>`).join("")}</table>`; } catch (err) { toast(err.message, true); } }
   else if (t.id === "cong-go") congress(true);
 });
+// ---- Memecoins tab: model 4 (desk/meme.py, docs/MEME.md). Paper only; reads /api/meme and /api/meme/chart.
+const MEME_FIELDS = [
+  ["meme_enabled","Run the memecoin model","Scans DexScreener every minute while the desk runs, day and night, and keeps the forward record.","select",["true","false"]],
+  ["meme_paused","Pause new practice buys","Open positions still close by the rules, and every rule is still recorded.","select",["false","true"]],
+  ["meme_policy","Rule the main account trades","careful = any rule, only coins that pass the strict check and no research filter (the least-bad in the tests). learn = any rule, plain check, trades often. Every rule is recorded either way.","select",["careful","learn","auto","aged_liquid","calm_aged","dip_aged","news","breakout","hype"]],
+  ["meme_starting_balance","Starting cash, $","Changing it starts every memecoin practice account over."],
+  ["meme_position_pct","Size of each buy, % of the account",""],
+  ["meme_max_open","Most coins held at once",""],
+  ["meme_cost_pct","Round-trip cost, %","Fees, priority fee, MEV and spread, in and out together. Measured near 4% in real trading; price impact is added on top. Ethereum is charged at least 6% (gas)."],
+  ["meme_chains","Chains","Any of: solana base bsc ethereum.","area"],
+  ["meme_search_new","Also search for brand-new pools","Adds DexScreener search results under a day old to the coins it watches. Same rules and checks.","select",["true","false"]],
+  ["meme_news_words","News you are watching","One phrase per line, like GTA 6 launch. A coin named after one counts for the news rule.","area"],
+];
+const RULE_NAME = {careful:"Careful: strict check, no research filter", learn:"Learning: any of the six rules", auto:"The backtest's pick"};
+const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative"};
+const VARIANTS = [["", "any coin"], ["+screen", "passed the check"], ["+strict", "passed the strict check"], ["+evidence", "check + research filters"]];
+const cpx = n => n == null ? "–" : n >= 1 ? Number(n).toFixed(4) : Number(n).toPrecision(4);
+const pctS = (x, d = 2) => x == null ? "–" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d) + "%";
+const tone = x => x == null ? "" : x > 0 ? "pos" : x < 0 ? "neg" : "";
+const money = n => n == null ? "–" : n >= 1e9 ? "$" + (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? "$" + (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? "$" + (n / 1e3).toFixed(1) + "K" : "$" + Math.round(n);
+const SAFE = {pass: ["pos", "Pass"], fail: ["neg", "Fail"], unknown: ["", "Unknown"]};
+let MM = null, MSEL = null, MIVL = "5m", MF = "open", MCHKEY = "", MCHAT = 0, MMDIRTY = false;
+async function loadMeme() {
+  try { MM = await api("/api/meme"); } catch (e) { $("#m-status").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; return; }
+  const m = MM, a = m.account, st = S && S.settings;
+  if (!MSEL || !m.candidates.some(c => c.key === MSEL)) MSEL = (m.candidates[0] || {}).key || null;
+  $("#m-eq").textContent = usd(a.equity); $("#m-cash").textContent = usd(a.cash);
+  $("#m-ret").innerHTML = `<span class="${tone(a.return_pct)}">${pctS(a.return_pct)}</span>`; $("#m-won").textContent = `${a.trades}, ${a.wins}`;
+  $("#m-meta").textContent = `${m.tracked} watched · ${m.discoveries} found`;
+  renderMemeList();
+  const pass = m.verdict.every(c => c.ok);
+  const kv = (k, v) => `<div class="li"><span>${k}</span><b>${v}</b></div>`;
+  $("#m-status").innerHTML = `<div class="list">${kv("Trades", esc(RULE_INFO[m.policy] || RULE_NAME[m.policy] || m.policy))}
+    ${kv("Safety checks", `${m.screens.pass} pass · ${m.screens.fail} fail · ${m.screens.unknown} unknown`)}
+    ${kv("Rules watching", m.open_shadows + " open")}
+    ${kv("Last look", esc(m.checked ? m.checked.slice(11, 16) + " UTC" : "not yet") + (m.enabled ? (m.paused ? " · buys paused" : "") : " · model off"))}</div>
+    ${m.error ? `<div class="callout bad">Last try failed: ${esc(m.error)}</div>` : ""}
+    <div class="callout ${pass ? "" : "bad"}">${pass ? "The account has met the pass bar on its own record. That earns a fresh test, not real money."
+      : "Not proven: " + m.verdict.filter(c => !c.ok).map(c => esc(c.check)).join("; ") + "."}</div>
+    <p class="foot-note">${esc(m.policy_why)}. ${st ? st.meme_position_pct : 20}% a coin, at most ${st ? st.meme_max_open : 4}. Stop ${m.rules.stop}%, target +${m.rules.target}%, out after ${m.rules.hold_min / 60} h. Costs ${m.cost_pct}% round trip plus price impact.</p>`;
+  renderMemePos();
+  $("#m-curve").innerHTML = curveSvg(m.curve, a.start) + `<p class="foot-note">Since ${esc(a.started || "the first run")}, ${usd(a.start)} start. Realized ${usd(a.realized, true)}. A pulled pool counts as a total loss.</p>`;
+  const bname = n => n === "main" ? "Main (" + (RULE_NAME[m.policy] || RULE_INFO[m.policy] || m.policy) + ")" : n === "careful" ? RULE_NAME.careful : (RULE_INFO[n] || n);
+  const allUp = m.books.length && m.books.every(b => b.return_pct > 0);
+  $("#m-books").innerHTML = `<table><tr><th style="text-align:left">Account</th><th>Balance</th><th>Since start</th><th>Closed</th><th>Won</th><th>Holding</th></tr>
+    ${m.books.map(b => `<tr><td style="text-align:left">${esc(bname(b.name))}</td><td class="num">${usd(b.equity)}</td><td class="num ${tone(b.return_pct)}">${pctS(b.return_pct)}</td><td class="num">${b.trades}</td><td class="num">${b.wins}</td><td class="num">${b.open}</td></tr>`).join("")}</table>
+    <p class="foot-note">${allUp ? "Every account is above its start right now. That is a snapshot, not proof: it has to hold over 100+ trades." : "Each account starts with " + usd(a.start) + " and trades only its own rule, on coins that passed the safety check."} Balances count held coins at their last price after costs.</p>`;
+  const rng = (lo, hi) => lo == null ? "" : `<small style="display:block;color:var(--label2)">${lo}% to ${hi}%</small>`;
+  const fr = x => !x || !x.n ? `<td colspan="7" style="text-align:left;color:var(--label2)">none closed yet</td>` :
+    `<td class="num">${x.n} / ${x.tokens}</td><td class="num ${tone(x.mean)}">${pctS(x.mean)}${rng(x.mean_lo, x.mean_hi)}</td><td class="num ${tone(x.median)}">${pctS(x.median)}</td><td class="num">${x.win_pct}%${rng(x.win_lo, x.win_hi)}</td><td class="num ${tone(x.mean_no_top3)}">${pctS(x.mean_no_top3)}</td><td class="num">${(x.folds || []).length ? x.folds_pos + " of 4" : "–"}</td><td class="num neg">${pctS(x.tail5)}</td>`;
+  $("#m-fw").innerHTML = `<table><tr><th style="text-align:left">Rule</th><th style="text-align:left">Coins it counts</th><th>Trades / coins</th><th>Average (95% range)</th><th>Middle</th><th>Won (95% range)</th><th>Without best 3</th><th>Slices up</th><th>Worst 5%</th></tr>
+    ${Object.keys(RULE_INFO).flatMap(k => VARIANTS.map(([v, label], i) => `<tr${i === 0 ? ' style="border-top:2px solid var(--sep)"' : ""}><td style="text-align:left">${i === 0 ? `<b>${esc(RULE_INFO[k])}</b>` : ""}</td><td style="text-align:left">${label}</td>${fr(m.forward[k + v])}</tr>`)).join("")}</table>
+    <p class="foot-note">Every rule is recorded on every coin it would buy, traded or not, with the same exits and costs. A line passes only with 100+ trades on 50+ coins, average and middle above 0, still above 0 without its best 3, positive in 3 of 4 time slices, and better than buying everything. With 28 lines about 1 in 20 looks good by luck, so a line that passes earns its own fresh test, not real money.</p>`;
+  if (st && !MMDIRTY && !$("#meme-form").contains(document.activeElement)) $("#meme-form").innerHTML = MEME_FIELDS.map(([k, l, h, type, opts]) => {
+    const v = Array.isArray(st[k]) ? st[k].join(k === "meme_news_words" ? "\n" : " ") : String(st[k]), id = "mset-" + k;
+    const ctl = type === "select" ? `<select id="${id}" data-mk="${k}">${opts.map(o => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>`
+      : type === "area" ? `<textarea id="${id}" data-mk="${k}" rows="2">${esc(v)}</textarea>` : `<input id="${id}" data-mk="${k}" value="${esc(v)}" inputmode="decimal">`;
+    return `<div class="frow ${type === "area" ? "full" : ""}"><label for="${id}">${l}<small>${h}</small></label>${ctl}</div>`;
+  }).join("");
+  loadMemeChart();
+}
+function renderMemeList() {
+  if (!MM) return;
+  const q = ($("#m-find").value || "").trim().toLowerCase();
+  const rows = MM.candidates.filter(c => !q || (c.symbol || "").toLowerCase().includes(q) || c.chain.includes(q)).slice(0, 150);
+  $("#m-list").innerHTML = rows.length ? `<table><tr><th style="text-align:left">Coin</th><th>1 hour</th><th>Safety</th></tr>${rows.map(c => {
+    const r1 = c.f && c.f.r1h, [cls, word] = SAFE[c.screen] || SAFE.unknown, rules = c.rules.filter(r => r !== "all");
+    return `<tr data-mkey="${esc(c.key)}" style="cursor:pointer${c.key === MSEL ? ";background:var(--fill)" : ""}" tabindex="0" aria-current="${c.key === MSEL}"><td style="text-align:left"><b>${esc(c.symbol || "?")}</b>${c.held ? ' <span class="chip live" style="padding:1px 7px;font-size:11px">HELD</span>' : ""}<small style="display:block;color:var(--label2)">${esc(c.chain + (rules.length ? " · " + rules.map(r => (RULE_INFO[r] || r).split(" (")[0]).join(", ") : ""))}</small></td><td class="num ${tone(r1)}">${pctS(r1, 1)}</td><td class="${cls}">${word}</td></tr>`;
+  }).join("")}</table>` : `<div class="empty"><b>No coins yet</b>The first look reads DexScreener's boosted, profiled, takeover, ad and trending lists.</div>`;
+}
+function renderMemePos() {
+  const m = MM; if (!m) return;
+  if (MF === "open") $("#m-pos").innerHTML = m.positions.length ? m.positions.map(p => `<article class="card" data-mkey="${esc(p.key)}" style="cursor:pointer"><div class="chead"><div class="logo" aria-hidden="true">${initials(p.symbol || "?")}</div><div><b>${esc(p.symbol)}</b> <small style="color:var(--label2)">${esc(p.chain)} · ${esc(RULE_INFO[p.policy] || p.policy)}</small></div><span class="${tone(p.pnl)} num" style="margin-left:auto;font-weight:600">${pctS(p.move_pct, 1)}</span></div>
+      <div class="list" style="margin-top:8px">
+      <div class="li num"><span>Bought ${esc(p.at.slice(11, 16))} UTC at</span><b>${cpx(p.px)}</b></div>
+      <div class="li num"><span>Now</span><b>${cpx(p.now_px)}</b></div>
+      <div class="li num"><span>Stop · target</span><b>${cpx(p.stop)} · ${cpx(p.target)}</b></div>
+      <div class="li num"><span>Worth after costs</span><b class="${tone(p.pnl)}">${usd(p.value)} (${usd(p.pnl, true)})</b></div>
+      <div class="li num"><span>Sells by</span><b>${esc(p.ends.slice(11, 16))} UTC</b></div></div></article>`).join("")
+    : `<div class="card empty"><b>Nothing held</b>A buy happens when a rule fires on a coin that passed the safety check. Careful mode trades rarely.</div>`;
+  else $("#m-pos").innerHTML = m.closed.length ? `<div class="card scroll"><table><tr><th style="text-align:left">Coin</th><th>Why</th><th>Return</th><th>Result</th></tr>${m.closed.map(t => `<tr><td style="text-align:left"><b>${esc(t.symbol)}</b> <small style="color:var(--label2)">${esc(t.exit_at.slice(5, 16))}</small></td><td>${esc(t.why)}</td><td class="num ${tone(t.ret_pct)}">${pctS(t.ret_pct, 1)}</td><td class="num ${tone(t.pnl)}">${usd(t.pnl, true)}</td></tr>`).join("")}</table></div>`
+    : `<div class="card empty"><b>No closed trades yet</b></div>`;
+}
+function curveSvg(curve, start) {
+  const pts = (curve || []).map(c => [c.ts, c.equity - start]);
+  if (pts.length < 2) return `<div class="empty"><b>Not enough history yet</b>A point is added every hour and at every closed trade.</div>`;
+  const W = 720, H = 200, L = 52, R = 10, T = 12, B = 22, x0 = pts[0][0], x1 = pts.at(-1)[0] || x0 + 1;
+  const ys = pts.map(p => p[1]).concat([0]), lo = Math.min(...ys), hi = Math.max(...ys), span = (hi - lo) || 1;
+  const X = t => L + (t - x0) / ((x1 - x0) || 1) * (W - L - R), Y = v => T + (hi - v) / span * (H - T - B);
+  const d = pts.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1)).join(" "), last = pts.at(-1)[1];
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Made or lost over time, now ${usd(last, true)}" style="display:block">
+    <line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--sep)" stroke-dasharray="4 4"/>
+    <text x="${L - 6}" y="${Y(hi) + 4}" text-anchor="end" font-size="11" fill="var(--label2)">${usd(hi, true)}</text>
+    <text x="${L - 6}" y="${Y(lo) + 4}" text-anchor="end" font-size="11" fill="var(--label2)">${usd(lo, true)}</text>
+    <path d="${d}" fill="none" stroke="${last >= 0 ? "var(--go)" : "var(--stop)"}" stroke-width="2" stroke-linejoin="round"/></svg>`;
+}
+function candleSvg(d) {
+  const bars = d.bars.slice(-120);
+  if (!bars.length) return `<div class="empty"><b>No candles for this coin yet</b>GeckoTerminal has no trades for its pool in this window.</div>`;
+  const W = 720, H = 300, L = 8, R = 70, T = 10, VB = 46, PB = H - VB - 16;
+  const prices = bars.flatMap(b => [b.high, b.low]).concat(d.levels.map(v => v.price));
+  let lo = Math.min(...prices), hi = Math.max(...prices); if (hi === lo) { hi *= 1.01; lo *= 0.99; }
+  const pad = (hi - lo) * 0.04; lo -= pad; hi += pad;
+  const n = bars.length, cw = (W - L - R) / n, X = i => L + i * cw + cw / 2, Y = p => T + (hi - p) / (hi - lo) * (PB - T);
+  const vmax = Math.max(...bars.map(b => b.volume || 0)) || 1;
+  const COLS = {entry: "var(--tint)", stop: "var(--stop)", target: "var(--go)"};
+  let g = "";
+  for (let k = 0; k <= 4; k++) { const p = lo + (hi - lo) * k / 4; g += `<line x1="${L}" x2="${W - R}" y1="${Y(p)}" y2="${Y(p)}" stroke="var(--sep)" stroke-width=".5"/><text x="${W - R + 6}" y="${Y(p) + 4}" font-size="11" fill="var(--label2)">${cpx(p)}</text>`; }
+  bars.forEach((b, i) => {
+    const up = b.close >= b.open, c = up ? "var(--go)" : "var(--stop)", bw = Math.max(1, cw * 0.7);
+    g += `<line x1="${X(i)}" x2="${X(i)}" y1="${Y(b.high)}" y2="${Y(b.low)}" stroke="${c}" stroke-width="1"/>`;
+    g += `<rect x="${X(i) - bw / 2}" y="${Math.min(Y(b.open), Y(b.close))}" width="${bw}" height="${Math.max(1, Math.abs(Y(b.open) - Y(b.close)))}" fill="${c}"/>`;
+    const vh = (b.volume || 0) / vmax * VB;
+    g += `<rect x="${X(i) - bw / 2}" y="${H - 16 - vh}" width="${bw}" height="${vh}" fill="${c}" opacity=".35"/>`;
+  });
+  d.levels.forEach(v => { g += `<line x1="${L}" x2="${W - R}" y1="${Y(v.price)}" y2="${Y(v.price)}" stroke="${COLS[v.kind] || "var(--label2)"}" stroke-dasharray="5 4"/><text x="${L + 4}" y="${Y(v.price) - 4}" font-size="11" fill="${COLS[v.kind] || "var(--label2)"}">${esc(v.title)} ${cpx(v.price)}</text>`; });
+  const t0 = bars[0].time, idx = t => { let j = 0; bars.forEach((b, i) => { if (b.time <= t) j = i; }); return j; };
+  d.trades.filter(x => x.time >= t0).forEach(x => { const i = idx(x.time), b = bars[i], buy = x.side === "buy";
+    g += `<text x="${X(i)}" y="${buy ? Y(b.low) + 14 : Y(b.high) - 6}" text-anchor="middle" font-size="12" fill="${buy ? "var(--tint)" : "#FFB340"}">${buy ? "▲" : "▼"}</text>`; });
+  const fmt = t => new Date(t * 1000).toISOString().slice(11, 16);
+  g += `<text x="${L}" y="${H - 2}" font-size="11" fill="var(--label2)">${fmt(t0)} UTC</text><text x="${W - R}" y="${H - 2}" text-anchor="end" font-size="11" fill="var(--label2)">${fmt(bars.at(-1).time)} UTC</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" aria-hidden="true">${g}</svg>`;
+}
+async function loadMemeChart(force) {
+  if (!MM || !MSEL) return;
+  const key = MSEL + MIVL, c = MM.candidates.find(x => x.key === MSEL) || {};
+  renderMemeFacts(c);
+  $("#mch-sym").textContent = (c.symbol || "?") + " · " + (c.chain || "");
+  if (!force && key === MCHKEY && Date.now() - MCHAT < 55000) return;
+  MCHKEY = key; MCHAT = Date.now();
+  let d;
+  try { d = await api(`/api/meme/chart?key=${encodeURIComponent(MSEL)}&ivl=${MIVL}`); }
+  catch (e) { $("#m-chart").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; MCHKEY = ""; return; }
+  if (key !== MSEL + MIVL) return;
+  $("#m-chart").innerHTML = candleSvg(d);
+  $("#m-chart").setAttribute("aria-label", `${d.symbol || "coin"} ${MIVL} candles` + (d.bars.length ? `, last ${cpx(d.bars.at(-1).close)}` : ""));
+  $("#mch-last").textContent = d.bars.length ? cpx(d.bars.at(-1).close) : "";
+  const dx = $("#mch-dex"); dx.href = d.url; dx.hidden = false;
+}
+function renderMemeFacts(c) {
+  if (!c.key) { $("#m-facts").innerHTML = ""; return; }
+  const f = c.f || {}, age = f.age_h == null ? "–" : f.age_h < 48 ? f.age_h.toFixed(1) + " h" : (f.age_h / 24).toFixed(1) + " days";
+  const kv = (k, v) => `<div class="li num"><span>${k}</span><b>${v}</b></div>`, [cls, word] = SAFE[c.screen] || SAFE.unknown;
+  $("#m-facts").innerHTML = `<div class="list" style="margin-top:10px">${kv("Age", age)}${kv("Pool", c.liq == null ? "bonding curve" : money(c.liq))}${kv("Value (FDV)", money(c.fdv))}${kv("Volume, 1 h · 24 h", money(f.v1h) + " · " + money(c.v24))}
+    ${kv("Move, 5 min · 1 h · 6 h", `<span class="${tone(f.r5)}">${pctS(f.r5, 1)}</span> · <span class="${tone(f.r1h)}">${pctS(f.r1h, 1)}</span> · <span class="${tone(f.r6h)}">${pctS(f.r6h, 1)}</span>`)}
+    ${kv("Buys, last 5 min", f.buy_ratio_m5 == null ? "–" : Math.round(f.buy_ratio_m5 * 100) + "% of " + f.tx_m5)}
+    ${kv("Safety", `<span class="${cls}">${word}</span>`)}
+    ${kv("Rules that would buy now", esc(c.rules.filter(r => r !== "all").map(r => RULE_INFO[r]).join(", ") || "none"))}</div>
+    <p class="foot-note">${esc(c.why.join("; "))}. Found ${esc(c.first_seen.slice(5, 16))} UTC on ${esc(c.sources.join(", "))}.</p>`;
+}
+document.addEventListener("keydown", e => { const r = e.target.closest && e.target.closest("tr[data-mkey]"); if (r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); r.click(); } });
+
 // ---- Memebot tab: read-only view of the separate memecoin paper-research loop
 const ago = ts => { if (!ts) return "never"; const s = Math.max(0, Date.now() / 1000 - ts); return s < 90 ? Math.round(s) + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 172800 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
 async function loadMemebot() {
@@ -1093,7 +1307,7 @@ async function loadMemebot() {
     ${L.text ? `<h2 class="section-title">Full loop log</h2><div class="card"><details><summary>Show LOOP_LOG.md</summary><pre style="white-space:pre-wrap;font-size:13px;margin:10px 0 0">${esc(L.text)}</pre></details></div>` : ""}
     <p class="foot-note">Reading ${esc(d.dir)}. Refreshes every 30 seconds while this tab is open.</p>`;
 }
-setInterval(() => { if ($("#v-memebot").classList.contains("on") && !document.hidden) loadMemebot(); }, 30000);
+setInterval(() => { if ($("#v-meme").classList.contains("on") && !document.hidden) { loadMeme(); loadMemebot(); } }, 30000);
 
 async function congress(refresh) { try { const d = await api("/api/congress" + (refresh ? "?refresh=1" : ""));
   $("#congress").innerHTML = d.filings.length ? `<ul class="plain">${d.filings.map(f => `<li><span class="num">${esc(f.filed)}</span> <b>${esc(f.name)}</b> ${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.type)}</a>` : esc(f.type)}</li>`).join("")}</ul>` : `<div class="empty">${esc(d.error || "No filings found for the members in your settings.")}</div>`; } catch (err) { toast(err.message, true); } }

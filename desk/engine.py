@@ -992,6 +992,11 @@ class Desk:
         summ["watchlists"] = R.watchlist_comparison(
             [dict(c, results=res.get("watchlist_results:" + c["date"]) or {})
              for c in j.get_prefix("watchlist_comparison:").values()])
+        try:
+            from . import meme
+            summ["meme"] = meme.view()
+        except Exception:               # a damaged memecoin file must not break the stocks review
+            summ["meme"] = None
         return {"mode": mode, "now": now, "summary": summ, "text": R.report(mode, summ, now, stamp.rules_hash(st))}
 
     def chart(self, symbol, interval="5m"):

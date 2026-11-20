@@ -16,9 +16,9 @@ from .paths import ROOT
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python3 -m desk", description="Trading Desk: day-trading signals you place by hand at your broker. It never places a real order.")
-    ap.add_argument("command", nargs="?", choices=("run", "review", "agent"), default="run",
+    ap.add_argument("command", nargs="?", choices=("run", "review", "agent", "meme"), default="run",
                     help="run (default) starts the desk; review prints the record and exits; "
-                         "agent picks today's watchlist movers and exits")
+                         "agent picks today's watchlist movers and exits; meme runs one memecoin pass and prints it")
     ap.add_argument("--apply", action="store_true", help="with agent: write the picks into the watchlist")
     ap.add_argument("--demo", action="store_true", help="run on saved data from Monday 2026-10-19, no network")
     ap.add_argument("--demo-now", default="2026-10-19 10:15", help='the demo clock, New York time')
@@ -49,6 +49,14 @@ def main(argv=None):
     from . import mode as M
     from . import settings as S
 
+    if a.command == "meme":                         # one memecoin pass (paper only), then its review section
+        if a.demo:
+            print("The memecoin model reads live public data; it has no demo. Run it without --demo.")
+            return 2
+        from . import meme
+        print(meme.run())
+        print("\n".join(meme.lines()))
+        return 0
     if a.command == "review":
         return print_review(Demo(a.demo_now) if a.demo else Live())
     if a.command == "agent":

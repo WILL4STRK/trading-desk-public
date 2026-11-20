@@ -2,6 +2,7 @@
 import os
 import stat
 import tempfile
+import unittest
 from unittest import mock
 
 from desk import agent, charts
@@ -57,6 +58,8 @@ class PaperBuy(DemoCase):
 
 
 class FindClaude(DemoCase):
+    @unittest.skipIf(os.name == "nt", "POSIX-only fixture: on Windows expanduser('~') reads USERPROFILE, not HOME, "
+                                      "and shutil.which needs an extension (.exe/.cmd), so an extensionless 'claude' is never found")
     def test_finds_claude_in_local_bin_when_path_is_bare(self):
         home = tempfile.mkdtemp()
         os.makedirs(os.path.join(home, ".local", "bin"))

@@ -67,7 +67,21 @@ DEFAULTS = {
     "short_approved": False,         # your broker approved this account for short selling; off = shorts are paper only
     "auto_paper": False,             # paper mode only: the desk takes ready signals itself in the practice account (desk/auto.py)
     "auto_paper_weak": False,        # auto paper also takes "weak" signals (odds under the floor), to learn from more trades
+    # Model 4, memecoins (desk/meme.py, docs/MEME.md): paper only, its own accounts in data/accounts/meme
+    "meme_enabled": True,            # scan DexScreener and keep the forward record while the desk runs
+    "meme_paused": False,            # no new paper entries; open ones still close by the rules
+    "meme_starting_balance": 100.0,  # changing it starts the memecoin accounts over
+    "meme_position_pct": 20.0,       # of the account's value, per position
+    "meme_max_open": 4,
+    "meme_cost_pct": 3.5,            # round trip, half on each side, plus price impact
+    "meme_policy": "careful",        # careful | learn | auto | one rule by name
+    "meme_chains": ["solana", "base", "bsc", "ethereum"],
+    "meme_search_new": True,         # also search DexScreener for pools under a day old (more new coins, same rules)
+    "meme_news_words": [],           # news you are watching, e.g. "GTA 6 launch": coins named after it count as news
 }
+
+MEME_CHAINS = ("solana", "base", "bsc", "ethereum")
+MEME_POLICIES = ("careful", "learn", "auto", "hype", "breakout", "calm_aged", "dip_aged", "aged_liquid", "news")
 
 _RANGES = {
     "starting_balance": (1, 1e9), "risk_per_trade_pct": (0.1, 10), "max_daily_loss_pct": (0.2, 30),
@@ -79,6 +93,7 @@ _RANGES = {
     "universe_scan_every_min": (5, 390), "scan_every_seconds": (60, 3600),
     "monitor_every_seconds": (20, 3600), "news_hours": (1, 240), "auto_watchlist_movers": (0, 40),
     "breaking_news_minutes": (5, 120),
+    "meme_starting_balance": (10, 1e7), "meme_position_pct": (1, 100), "meme_max_open": (1, 20), "meme_cost_pct": (0, 20),
 }
 
 
@@ -149,7 +164,8 @@ def validate(raw):
         raise SettingsError("max_daily_loss_pct cannot be under risk_per_trade_pct")
     if s["directions"] not in ("long", "short", "both"):
         raise SettingsError("directions must be long, short or both")
-    for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak", "auto_watchlist", "watchlist_agent", "breaking_news"):
+    for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak", "auto_watchlist", "watchlist_agent", "breaking_news",
+              "meme_enabled", "meme_paused", "meme_search_new"):
         if not isinstance(s[k], bool):
             raise SettingsError("%s must be true or false" % k)
     s["blocked"] = _tickers(s["blocked"], "blocked")
@@ -165,6 +181,17 @@ def validate(raw):
     s["ntfy_server"] = str(s["ntfy_server"]).strip()
     if not re.fullmatch(r"https://[^\s/]+(/\S*)?", s["ntfy_server"]):
         raise SettingsError("ntfy_server must start with https://")
+    if s["meme_policy"] not in MEME_POLICIES:
+        raise SettingsError("meme_policy must be one of %s" % ", ".join(MEME_POLICIES))
+    ch = s["meme_chains"].replace(",", " ").split() if isinstance(s["meme_chains"], str) else s["meme_chains"]
+    if not isinstance(ch, list) or not ch or any(c not in MEME_CHAINS for c in ch):
+        raise SettingsError("meme_chains must be one or more of %s" % ", ".join(MEME_CHAINS))
+    s["meme_chains"] = [c for c in MEME_CHAINS if c in ch]
+    nw = s["meme_news_words"]
+    nw = [x for x in re.split(r"[\n,;]+", nw)] if isinstance(nw, str) else nw
+    if not isinstance(nw, list) or len(nw) > 50:
+        raise SettingsError("meme_news_words must be a list of up to 50 phrases")
+    s["meme_news_words"] = [str(x).strip()[:80] for x in nw if str(x).strip()]
     return s
 
 

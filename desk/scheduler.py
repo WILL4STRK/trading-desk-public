@@ -5,9 +5,11 @@ import threading
 import time
 import traceback
 
+from . import meme
 from . import settings as S
 
 PAPER_EVERY = 30         # seconds between looks at the practice account's open orders
+MEME_EVERY = 60          # seconds between memecoin passes (model 4, desk/meme.py)
 
 
 class Scheduler(threading.Thread):
@@ -21,6 +23,7 @@ class Scheduler(threading.Thread):
         self.last_paper = 0.0
         self.last_news = 0.0
         self.news_worker = None          # breaking news runs here, so a slow Claude call never holds up a scan
+        self.last_meme = 0.0
         self.wake = threading.Event()
 
     def stop(self):
@@ -47,6 +50,12 @@ class Scheduler(threading.Thread):
                 ["%s %s" % (c["action"], c["symbol"]) for c in b["calls"]] + b["errors"])))
         if b and b["added"]:
             self.scan_now()
+    def _meme(self):
+        try:
+            meme.run()
+        except Exception as e:          # kept on the tab; tried again next minute
+            meme.note_error(time.time(), e)
+            self.log("memecoins: %s" % e)
 
     def tick(self, wall=None):
         """One pass of the loop. Split out so the tests can drive it."""
@@ -78,6 +87,11 @@ class Scheduler(threading.Thread):
                 self.log("%s scan: %s" % (now, s.get("halt") or s.get("error") or
                                             "%d charts, %d breakouts, %d fresh, %d new signals"
                                             % (s["scanned"], s["hits"], s["fresh"], s["new_signals"])))
+        # model 4, memecoins (desk/meme.py): every minute, any day and hour (crypto never closes), never in demo, in its
+        # own thread so DexScreener, RugCheck and GeckoTerminal never delay a stock scan
+        if st["meme_enabled"] and not self.desk.src.demo and wall - self.last_meme >= MEME_EVERY:
+            self.last_meme = wall
+            threading.Thread(target=self._meme, daemon=True, name="desk-meme").start()
         if wall - self.last_monitor >= st["monitor_every_seconds"]:
             self.last_monitor = wall
             self._safe("monitor", self.desk.monitor)

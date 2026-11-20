@@ -1,0 +1,427 @@
+"""Model 4, memecoins (desk/meme.py, desk/memerules.py, docs/MEME.md): rules, costs, screen, the paper account,
+catch-up from candles, the route and the scheduler. No network: a fake API answers every GET."""
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
+from unittest import mock
+
+from desk import meme
+from desk import memerules as R
+from desk import settings as S
+from desk.scheduler import Scheduler
+from desk.server import serve
+
+from .base import DeskCase
+from .test_desk import DemoCase
+
+T0 = 1795000000.0
+SOL = "So1aNaMeme1111111111111111111111111111pump"
+BSC = "0xabc0000000000000000000000000000000000001"
+
+
+class FakeAPI:
+    """Answers the desk's read-only GETs from a few dicts the test changes between runs."""
+
+    def __init__(self):
+        self.feed = [{"chainId": "solana", "tokenAddress": SOL}]
+        self.pairs = {SOL: self.pair(SOL, "POOL1", 1.0, 100000.0)}
+        self.rug = {"score_normalised": 5, "risks": [], "lpLockedPct": 90}
+        self.goplus = {}
+        self.bars = []
+        self.calls = []
+
+    @staticmethod
+    def pair(addr, pool, price, liq, age_h=48.0, now=T0, dex="raydium", **pc):
+        change = {"m5": 0.2, "h1": 2.0, "h6": 0.0, "h24": 5.0}
+        change.update(pc)
+        return {"chainId": "solana", "dexId": dex, "pairAddress": pool, "baseToken": {"address": addr, "symbol": "MEME"},
+                "priceUsd": str(price), "liquidity": None if liq is None else {"usd": liq}, "fdv": 1e6,
+                "pairCreatedAt": (now - age_h * 3600) * 1000, "priceChange": change,
+                "volume": {"m5": 3000.0, "h1": 50000.0, "h6": 300000.0, "h24": 1000000.0},
+                "txns": {"m5": {"buys": 30, "sells": 20}}}
+
+    def __call__(self, url):
+        self.calls.append(url)
+        if "/tokens/v1/" in url:
+            return [p for p in self.pairs.values() if p["baseToken"]["address"] in url]
+        if "dexscreener.com/token-boosts/latest" in url:
+            return self.feed
+        if "dexscreener.com" in url:
+            return []
+        if "rugcheck" in url:
+            return self.rug
+        if "gopluslabs" in url:
+            return {"code": 1, "result": self.goplus}
+        if "geckoterminal" in url:
+            return {"data": {"attributes": {"ohlcv_list": list(reversed(self.bars))}}}
+        raise AssertionError(url)
+
+
+class Rules(DeskCase):
+    def test_cost_is_half_on_each_side_and_break_even_needs_about_3_56_pct(self):
+        self.assertAlmostEqual(R.net_pct(1.0, 1.0), (0.9825 / 1.0175 - 1) * 100)
+        self.assertAlmostEqual(R.net_pct(1.0, 1.0356), 0.0, delta=0.01)
+        self.assertEqual(R.net_pct(1.0, 0.0), -100.0)
+
+    def test_unknown_is_never_a_pass(self):
+        self.assertEqual(R.screen_verdict("solana", None)[0], "unknown")
+        self.assertEqual(R.screen_verdict("solana", {"risks": []})[0], "unknown")
+        self.assertEqual(R.screen_verdict("bsc", {"is_honeypot": "0"})[0], "unknown")
+        ok = {"is_honeypot": "0", "buy_tax": "0", "sell_tax": "0.02", "cannot_sell_all": "0", "is_open_source": "1"}
+        self.assertEqual(R.screen_verdict("bsc", ok), ("pass", []))
+        self.assertEqual(R.screen_verdict("bsc", dict(ok, is_honeypot="1"))[0], "fail")
+        self.assertEqual(R.screen_verdict("bsc", dict(ok, sell_tax="0.25"))[0], "fail")
+        self.assertEqual(R.screen_verdict("solana", {"score_normalised": 5, "risks": [{"name": "x", "level": "danger"}]})[0], "fail")
+        self.assertEqual(R.screen_verdict("solana", {"score_normalised": 60, "risks": []})[0], "fail")
+
+    def test_stop_gaps_fill_at_the_open_and_a_bar_touching_both_is_a_stop(self):
+        self.assertEqual(R.replay(0, 1.0, [[0, 0.7, 0.8, 0.6, 0.7, 1]])["price"], 0.7)        # opened under the stop
+        both = R.replay(0, 1.0, [[0, 1.0, 1.5, 0.8, 1.2, 1]])
+        self.assertEqual((both["why"], both["price"]), ("stop", 0.85))
+        self.assertEqual(R.replay(0, 1.0, [[0, 1.0, 1.31, 0.95, 1.2, 1]])["why"], "target")
+        self.assertIsNone(R.replay(0, 1.0, [[0, 1.0, 1.1, 0.95, 1.0, 1]]))
+
+    def test_a_dead_pool_is_a_total_loss_never_dropped_and_never_before_the_buy(self):
+        r = R.replay(1000, 1.0, [[700, 1, 1, 1, 1, 1]], dead=True)
+        self.assertEqual((r["price"], r["why"]), (0.0, "rug"))
+        self.assertGreaterEqual(r["ts"], 1000)
+
+    def test_time_stop_closes_a_quiet_pool_at_its_last_price(self):
+        r = R.replay(0, 1.0, [[0, 1.0, 1.05, 0.95, 1.02, 1]], now=R.HOLD_MIN * 60 + 1)
+        self.assertEqual((r["why"], r["price"]), ("time", 1.02))
+
+    def test_policies(self):
+        f = R.features_from_pair(FakeAPI.pair(SOL, "P", 1.0, 1e5), T0 * 1000)
+        d = R.decide(f)
+        self.assertTrue(d["all"] and d["calm_aged"])
+        self.assertFalse(d["dip_aged"] or d["hype"] or d["breakout"])
+        young = R.decide(R.features_from_pair(FakeAPI.pair(SOL, "P", 1.0, 1e5, age_h=2), T0 * 1000))
+        self.assertFalse(young["calm_aged"])
+        self.assertTrue(R.decide(dict(f, r1h=-15.0))["dip_aged"])
+
+    def test_settings_are_validated(self):
+        for bad in ({"meme_policy": "moon"}, {"meme_chains": ["doge"]}, {"meme_cost_pct": -1}, {"meme_enabled": "yes"}):
+            with self.assertRaises(S.SettingsError):
+                S.validate(bad)
+        self.assertEqual(S.validate({"meme_chains": "bsc, solana"})["meme_chains"], ["solana", "bsc"])
+        self.assertEqual(S.validate({"meme_news_words": "GTA 6 launch\n, trump "})["meme_news_words"], ["GTA 6 launch", "trump"])
+
+
+class Research(DeskCase):
+    def test_aged_liquid_needs_a_deep_pool_and_no_boost(self):
+        p = FakeAPI.pair(SOL, "P", 1.0, 100000.0, age_h=100, h24=5.0, h1=1.0)
+        p["marketCap"] = 500000
+        f = R.features_from_pair(p, T0 * 1000)
+        self.assertTrue(R.decide(f)["aged_liquid"])
+        self.assertFalse(R.decide(dict(f, boosts_active=3))["aged_liquid"])
+        self.assertFalse(R.decide(dict(f, liq=20000.0))["aged_liquid"])
+
+    def test_vetoes(self):
+        self.assertEqual(R.vetoes({"age_h": 2}), ["R1 under 24 h old"])
+        self.assertEqual(R.vetoes({"age_h": 48, "boosts_active": 1}), ["R2 paid promotion"])
+        self.assertEqual(R.vetoes({"age_h": 48, "rvol": 6, "r1h": 1}), ["R3 flat volume burst"])
+        self.assertEqual(R.vetoes({"age_h": 48, "rvol": 6, "r1h": 12}), [])
+
+    def test_strict_check_solana(self):
+        rep = {"topHolders": [{"owner": "POOL", "pct": 50}, {"owner": "w1", "pct": 10}, {"owner": "w2", "pct": 5}],
+               "markets": [{"pubkey": "POOL", "lp": {"lpLockedPct": 100}}], "knownAccounts": {},
+               "token": {"supply": 1000}, "creatorBalance": 0}
+        self.assertEqual(R.strict_verdict("solana", rep, "POOL"), ("pass", []))   # the pool's own share is left out
+        rep["topHolders"].append({"owner": "w3", "pct": 20})
+        self.assertEqual(R.strict_verdict("solana", rep, "POOL")[0], "fail")
+        self.assertEqual(R.strict_verdict("solana", dict(rep, topHolders=[]), "POOL")[0], "unknown")
+        self.assertEqual(R.strict_verdict("solana", None)[0], "unknown")
+
+    def test_strict_check_evm_owner_powers_unless_renounced(self):
+        ok = {"creator_percent": "0.01", "owner_percent": "0", "holders": [{"address": "0x1", "percent": "0.1"}],
+              "owner_address": "0xabc", "honeypot_with_same_creator": "0"}
+        self.assertEqual(R.strict_verdict("bsc", ok)[0], "pass")
+        self.assertEqual(R.strict_verdict("bsc", dict(ok, hidden_owner="1"))[0], "fail")
+        self.assertEqual(R.strict_verdict("bsc", dict(ok, hidden_owner="1", owner_address=R.DEAD[1]))[0], "pass")
+        self.assertEqual(R.strict_verdict("bsc", dict(ok, creator_percent="0.6"))[0], "fail")
+
+    def test_news_words_come_from_watch_lines_and_match_a_coin(self):
+        S.save({"meme_news_words": ["TTWO GTA 6 launches 2026-11-19"]})
+        words = meme.news_words(S.load())
+        self.assertIn("GTA", words)
+        self.assertNotIn("LAUNCHES", words)
+        self.assertTrue(meme.news_match({"symbol": "GTA6", "name": "GTA Six Coin"}, words))
+        self.assertFalse(meme.news_match({"symbol": "BONK", "name": "Bonk"}, words))
+        self.assertTrue(meme.news_match({"symbol": "X", "sources": ["meta:ai"]}, set()))
+
+    def test_ethereum_pays_more(self):
+        self.assertEqual(meme.cost_pct(S.load(), "ethereum"), 6.0)
+        self.assertEqual(meme.cost_pct(S.load(), "solana"), 3.5)
+
+    def test_shadows_carry_the_strict_check_and_the_vetoes(self):
+        api = FakeAPI()
+        api.rug = {"score_normalised": 5, "risks": [], "topHolders": [{"owner": "w", "pct": 5}],
+                   "markets": [{"pubkey": "POOL1", "lp": {"lpLockedPct": 100}}], "knownAccounts": {},
+                   "token": {"supply": 100}, "creatorBalance": 0}
+        meme.run(now=T0, fetch=api)
+        sh = meme.load()["shadows"][0]
+        self.assertEqual((sh["strict"], sh["veto"]), ("pass", ["R2 paid promotion"]))   # it came from the boost feed
+        fw = meme.forward([dict(sh, net_pct=1.0)])
+        self.assertEqual((fw["all+strict"]["n"], fw["all+evidence"]["n"]), (1, 0))
+
+
+class Conclusion(DeskCase):
+    def rows(self, policy, vals, coins=60):
+        return [{"key": "c%d" % (i % coins), "policy": policy, "screen": "pass", "strict": "pass", "veto": [],
+                 "net_pct": v, "ts": T0 + i * 600} for i, v in enumerate(vals)]
+
+    def test_the_pass_bar_needs_3_of_4_time_slices(self):
+        # every trade wins in the first quarter and loses after: a good average from one lucky stretch
+        vals = [40.0] * 30 + [-2.0] * 90
+        x = meme.stats(self.rows("aged_liquid", vals))
+        self.assertGreater(x["mean"], 0)
+        self.assertEqual(x["folds_pos"], 1)
+        self.assertFalse(meme.bar(x))
+        self.assertIn({"check": "positive in 3 of 4 time slices", "ok": False},
+                      meme.verdict({"all": {}}, "learn", self.rows("aged_liquid", vals)))
+
+    def test_rows_without_times_have_no_folds(self):
+        self.assertEqual(meme.folds([{"net_pct": 1.0}]), [])
+
+    def test_collecting_then_no_edge_then_pass(self):
+        self.assertEqual(meme.conclusion(meme.forward([]))[0], "collecting")
+        losing = [r for p in ("all", "hype", "calm_aged", "dip_aged") for r in self.rows(p, [-8.0, -3.0, 1.0] * 40)]
+        self.assertEqual(meme.conclusion(meme.forward(losing))[0], "no_edge")
+        winning = losing + self.rows("aged_liquid", [6.0, 2.0, -1.0] * 40)
+        state, lines = meme.conclusion(meme.forward(winning))
+        self.assertEqual(state, "pass")
+        self.assertIn("aged_liquid", lines)
+
+
+class Search(DeskCase):
+    def test_search_new_adds_only_young_pools_on_the_chosen_chains(self):
+        young = {"chainId": "solana", "baseToken": {"address": "NEW1"}, "pairCreatedAt": (T0 - 3600) * 1000}
+        old = {"chainId": "solana", "baseToken": {"address": "OLD1"}, "pairCreatedAt": (T0 - 5 * 86400) * 1000}
+        other = {"chainId": "tron", "baseToken": {"address": "TRX1"}, "pairCreatedAt": (T0 - 60) * 1000}
+        seen = []
+
+        def fetch(url):
+            seen.append(url)
+            return {"pairs": [young, old, other]} if "/latest/dex/search" in url else []
+        found = meme.discover(S.load(), fetch, now=T0, turn=1)
+        self.assertEqual(found, {("solana", "NEW1"): ["search-new"]})
+        terms = [u.split("q=")[1] for u in seen if "q=" in u]
+        self.assertEqual(len(terms), meme.SEARCH_PER_PASS)
+        S.update({"meme_search_new": False})
+        self.assertEqual(meme.discover(S.load(), fetch, now=T0), {})
+
+    def test_the_turn_rotates_the_words(self):
+        def words(turn):
+            got = []
+            meme.discover(S.load(), lambda u: got.append(u) or {}, now=T0, turn=turn)
+            return [u.split("q=")[1] for u in got if "q=" in u]
+        self.assertNotEqual(words(0), words(1))
+
+
+class Throttle(DeskCase):
+    def test_a_busy_geckoterminal_is_skipped_at_once_not_waited_on(self):
+        import io
+        err = urllib.error.HTTPError("u", 429, "slow down", {}, io.BytesIO(b""))
+        with mock.patch.object(meme, "get", meme.__dict__["_real_get"]), \
+                mock.patch("urllib.request.urlopen", side_effect=err) as op:
+            meme._cool.clear()
+            with self.assertRaises(meme.MemeError):
+                meme.get("https://api.geckoterminal.com/api/v2/x")
+            t = time.time()
+            with self.assertRaises(meme.MemeError):
+                meme.get("https://api.geckoterminal.com/api/v2/y")
+            self.assertLess(time.time() - t, 0.5)
+            self.assertEqual(op.call_count, 1)                  # the second call never left the Mac
+            meme._cool.clear()
+
+
+class Learning(DeskCase):
+    def test_careful_is_the_default_and_skips_a_promoted_coin(self):
+        self.assertEqual(S.load()["meme_policy"], "careful")
+        out = meme.run(now=T0, fetch=FakeAPI())                  # from the boost feed: research filter R2
+        self.assertEqual(out["bought"], 0)
+        self.assertEqual(meme.view()["policy"], "careful")
+
+    def test_learning_mode_buys_on_any_of_the_rules(self):
+        S.save({"meme_policy": "learn"})
+        api = FakeAPI()
+        api.pairs[SOL] = FakeAPI.pair(SOL, "POOL1", 1.0, 100000.0, h1=-15.0)     # a dip: calm_aged says no
+        out = meme.run(now=T0, fetch=api)
+        self.assertEqual(out["bought"], 1)
+        self.assertEqual(meme.load()["account"]["positions"][0]["policy"], "dip_aged")
+        self.assertEqual(meme.view()["policy"], "learn")
+
+
+class Book(DeskCase):
+    def setUp(self):
+        super().setUp()
+        S.save({"meme_policy": "calm_aged"})
+        self.api = FakeAPI()
+
+    def run_at(self, t):
+        return meme.run(now=t, fetch=self.api)
+
+    def test_first_sighting_is_logged_screened_shadowed_and_bought(self):
+        out = self.run_at(T0)
+        self.assertEqual((out["new"], out["bought"]), (1, 1))
+        disc = meme._jsonl("discoveries.jsonl")
+        self.assertEqual(disc[0]["sources"], ["boosts-latest"])
+        s = meme.load()
+        self.assertEqual(sorted(sh["policy"] for sh in s["shadows"]), ["all", "calm_aged"])
+        self.assertTrue(all(sh["screen"] == "pass" for sh in s["shadows"]))
+        pos = s["account"]["positions"][0]
+        self.assertAlmostEqual(pos["cost"], 20.0)                           # 20% of $100
+        self.assertAlmostEqual(pos["fill"], 1.0 * (1 + 0.0175 + 20 / 50000))  # half the cost plus price impact
+        self.assertAlmostEqual(s["account"]["cash"], 80.0)
+
+    def test_a_stop_sells_at_the_sampled_price_after_costs_and_closes_the_shadows(self):
+        self.run_at(T0)
+        self.api.pairs[SOL] = FakeAPI.pair(SOL, "POOL1", 0.80, 100000.0)
+        out = self.run_at(T0 + 60)
+        self.assertEqual((out["sold"], out["shadows_closed"]), (1, 2))
+        t = meme.load()["account"]["closed"][0]
+        self.assertEqual(t["why"], "stop")
+        qty = 20.0 / (1.0175 + 20 / 50000)
+        proceeds = qty * 0.80 * (1 - 0.0175 - qty * 0.80 / 50000)
+        self.assertAlmostEqual(t["pnl"], proceeds - 20.0, places=3)
+        sh = meme._jsonl("shadows.jsonl")
+        self.assertAlmostEqual(sh[0]["net_pct"], R.net_pct(1.0, 0.80), places=2)
+        self.assertEqual(meme.view()["account"]["trades"], 1)
+
+    def test_an_unknown_screen_records_shadows_but_never_buys(self):
+        self.api.rug = None
+        out = self.run_at(T0)
+        self.assertEqual(out["bought"], 0)
+        self.assertEqual({sh["screen"] for sh in meme.load()["shadows"]}, {"unknown"})
+
+    def test_a_bonding_curve_with_no_liquidity_field_is_not_a_rug_and_is_not_bought(self):
+        self.api.pairs[SOL] = FakeAPI.pair(SOL, "CURVE", 1.0, None, dex="pumpfun")
+        out = self.run_at(T0)
+        self.assertEqual(out["bought"], 0)
+        self.assertEqual(len(meme.load()["shadows"]), 2)
+        self.api.pairs[SOL] = FakeAPI.pair(SOL, "CURVE", 1.1, None, dex="pumpfun")
+        out = self.run_at(T0 + 60)
+        self.assertEqual(out["shadows_closed"], 0)
+
+    def test_a_pulled_pool_is_a_total_loss(self):
+        self.run_at(T0)
+        self.api.pairs[SOL] = FakeAPI.pair(SOL, "POOL1", 0.99, 500.0)
+        self.run_at(T0 + 60)
+        t = meme.load()["account"]["closed"][0]
+        self.assertEqual((t["why"], t["pnl"]), ("rug", -20.0))
+        self.assertTrue(all(x["net_pct"] == -100.0 for x in meme._jsonl("shadows.jsonl")))
+
+    def test_while_the_desk_was_off_open_trades_are_replayed_from_candles(self):
+        self.run_at(T0)
+        later = T0 + 3600
+        self.api.pairs[SOL] = FakeAPI.pair(SOL, "POOL1", 0.95, 100000.0, now=later)
+        self.api.bars = [[T0 + 300, 1.0, 1.02, 0.97, 1.0, 10], [T0 + 600, 0.84, 0.86, 0.80, 0.82, 10]]
+        self.run_at(later)
+        t = meme.load()["account"]["closed"][0]
+        self.assertEqual((t["why"], t["exit_px"], t["exit_ts"]), ("stop", 0.84, T0 + 600))   # gapped: filled at the open
+        self.assertTrue(any("geckoterminal" in u for u in self.api.calls))
+
+    def test_cooldown_and_one_position_per_coin(self):
+        self.run_at(T0)
+        self.run_at(T0 + 16 * 60)
+        s = meme.load()
+        self.assertEqual(len(s["account"]["positions"]), 1)
+        self.assertEqual(len(s["shadows"]), 2)
+
+    def test_a_new_starting_balance_starts_the_account_over_and_reset_keeps_the_record(self):
+        self.run_at(T0)
+        S.update({"meme_starting_balance": 250})
+        self.run_at(T0 + 60)
+        self.assertEqual(meme.load()["account"]["start"], 250)
+        meme.reset()
+        self.assertEqual(meme.load()["account"]["positions"], [])
+        self.assertEqual(len(meme._jsonl("discoveries.jsonl")), 1)
+
+    def test_forward_stats_and_the_pass_bar(self):
+        rows = [{"key": "k%d" % i, "policy": "calm_aged", "screen": "pass", "net_pct": v}
+                for i, v in enumerate([10.0, -5.0, 2.0, 50.0])]
+        fw = meme.forward(rows)
+        self.assertEqual((fw["calm_aged+screen"]["n"], fw["calm_aged+screen"]["median"]), (4, 6.0))
+        self.assertEqual(fw["calm_aged+screen"]["mean_no_top3"], -5.0)
+        v = meme.verdict(fw, "calm_aged")
+        self.assertFalse(v[0]["ok"])                    # 4 trades is far from 100
+
+    def test_each_rule_has_its_own_account_and_careful_skips_promoted_coins(self):
+        self.run_at(T0)
+        books = {b["name"]: b for b in meme.view()["books"]}
+        self.assertEqual(books["all"]["open"], 1)
+        self.assertEqual(books["calm_aged"]["open"], 1)
+        self.assertEqual(books["hype"]["open"], 0)
+        self.assertEqual(books["careful"]["open"], 0)            # came from the boost feed: research filter R2
+        self.api.pairs[SOL] = FakeAPI.pair(SOL, "POOL1", 1.40, 100000.0)
+        self.run_at(T0 + 60)
+        books = {b["name"]: b for b in meme.view()["books"]}
+        self.assertEqual((books["calm_aged"]["trades"], books["calm_aged"]["wins"]), (1, 1))
+        self.assertTrue(books["calm_aged"]["return_pct"] > 0)
+        self.assertFalse(meme.all_positive())                   # hype never traded: still at its start, not above
+
+    def test_money_table_line(self):
+        self.assertIsNone(meme.money("2026-11-20")["balance"])
+        self.run_at(T0)
+        m = meme.money("2099-01-01")
+        self.assertEqual(m["start"], 100.0)
+        self.assertAlmostEqual(m["balance"], m["total"] + 100.0, places=2)
+
+    def test_review_has_a_model_4_section(self):
+        self.run_at(T0)
+        self.assertTrue(any("Forward record" in l for l in meme.lines()))
+
+
+class Route(DemoCase):
+    def setUp(self):
+        super().setUp()
+        self.d = self.desk()
+        self.httpd = serve(self.d, None, 0)
+        self.port = self.httpd.server_address[1]
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.addCleanup(self.httpd.server_close)
+        self.addCleanup(self.httpd.shutdown)
+
+    def call(self, path, body=None, headers=None):
+        req = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path),
+                                     data=None if body is None else json.dumps(body).encode(), headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def test_view_and_reset(self):
+        code, v = self.call("/api/meme")
+        self.assertEqual((code, v["paper_only"]), (200, True))
+        h = {"Content-Type": "application/json", "X-Desk": "1"}
+        self.assertEqual(self.call("/api/meme/reset", {"sure": True}, {"Content-Type": "application/json"})[0], 403)
+        self.assertEqual(self.call("/api/meme/reset", {}, h)[0], 400)
+        self.assertEqual(self.call("/api/meme/reset", {"sure": True}, h)[0], 200)
+
+
+class Schedule(DemoCase):
+    def test_memecoins_run_on_a_weekend_and_never_in_demo(self):
+        d = self.desk()
+        ran = []
+        with mock.patch.object(Scheduler, "_meme", lambda self: ran.append(1)), \
+                mock.patch.object(d, "scan", return_value=None), mock.patch.object(d, "premarket"), \
+                mock.patch.object(d, "congress"), mock.patch.object(d, "monitor"), \
+                mock.patch.object(d.auto, "tick", return_value=None):
+            sch = Scheduler(d, log=lambda *a: None)
+            sch.tick(wall=1000.0)
+            time.sleep(0.05)
+            self.assertEqual(ran, [])                                   # the demo never runs it
+            d.src.demo = False
+            with mock.patch.object(d.src, "now", return_value="2026-11-21 13:00"), \
+                    mock.patch.object(d.paper, "settle", return_value=None):  # a Saturday: NYSE shut
+                sch.tick(wall=2000.0)
+                sch.tick(wall=2030.0)                                   # under a minute later: not again
+                time.sleep(0.05)
+                self.assertEqual(ran, [1])
+                S.update({"meme_enabled": False})
+                sch.tick(wall=3000.0)
+                time.sleep(0.05)
+                self.assertEqual(ran, [1])
