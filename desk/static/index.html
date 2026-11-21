@@ -1224,33 +1224,45 @@ function curveSvg(curve, start) {
     <text x="${L - 6}" y="${Y(lo) + 4}" text-anchor="end" font-size="11" fill="var(--label2)">${usd(lo, true)}</text>
     <path d="${d}" fill="none" stroke="${last >= 0 ? "var(--go)" : "var(--stop)"}" stroke-width="2" stroke-linejoin="round"/></svg>`;
 }
-function candleSvg(d) {
-  const bars = d.bars.slice(-120);
-  if (!bars.length) return `<div class="empty"><b>No candles for this coin yet</b>GeckoTerminal has no trades for its pool in this window.</div>`;
-  const W = 720, H = 300, L = 8, R = 70, T = 10, VB = 46, PB = H - VB - 16;
+function candleSvg(d, cwPx) {
+  if (!d.bars.length) return `<div class="empty"><b>No candles for this coin yet</b>GeckoTerminal has no trades for its pool in this window.</div>`;
+  // Drawn at the card's real pixel width (1 SVG unit = 1 px) so text stays 12px at any width; price tags live in the right gutter.
+  const W = Math.max(280, Math.round(cwPx || 720)), H = W < 520 ? 300 : 340, FS = 12, L = 6, R = Math.max(74, Math.ceil(Math.max(0, ...d.levels.map(v => (v.title + " " + cpx(v.price)).length)) * 7.4) + 14), T = 10, VB = 44, PB = H - VB - 24;
+  const plotW = W - L - R, bars = d.bars.slice(-Math.max(30, Math.min(120, Math.floor(plotW / 3))));
   const prices = bars.flatMap(b => [b.high, b.low]).concat(d.levels.map(v => v.price));
   let lo = Math.min(...prices), hi = Math.max(...prices); if (hi === lo) { hi *= 1.01; lo *= 0.99; }
   const pad = (hi - lo) * 0.04; lo -= pad; hi += pad;
-  const n = bars.length, cw = (W - L - R) / n, X = i => L + i * cw + cw / 2, Y = p => T + (hi - p) / (hi - lo) * (PB - T);
+  const n = bars.length, cw = plotW / n, X = i => L + i * cw + cw / 2, Y = p => T + (hi - p) / (hi - lo) * (PB - T);
   const vmax = Math.max(...bars.map(b => b.volume || 0)) || 1;
-  const COLS = {entry: "var(--tint)", stop: "var(--stop)", target: "var(--go)"};
+  const COLS = {entry: "var(--tint)", stop: "var(--stop)", target: "var(--go)"}, TAGTXT = {entry: "#06121f", stop: "#2a0605", target: "#032118"};
+  // level tags: sorted top to bottom and nudged apart so none overlap
+  const tags = d.levels.map(v => ({v, y: Y(v.price)})).sort((a, b) => a.y - b.y); const TH = 18;
+  tags.forEach((t, i) => { if (i && t.y < tags[i - 1].y + TH + 2) t.y = tags[i - 1].y + TH + 2; });
+  const over = tags.length ? tags.at(-1).y + TH / 2 - PB : 0; if (over > 0) tags.forEach(t => t.y -= over);
   let g = "";
-  for (let k = 0; k <= 4; k++) { const p = lo + (hi - lo) * k / 4; g += `<line x1="${L}" x2="${W - R}" y1="${Y(p)}" y2="${Y(p)}" stroke="var(--sep)" stroke-width=".5"/><text x="${W - R + 6}" y="${Y(p) + 4}" font-size="11" fill="var(--label2)">${cpx(p)}</text>`; }
+  for (let k = 0; k <= 4; k++) { const p = lo + (hi - lo) * k / 4, y = Y(p);
+    g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="var(--sep)" stroke-width=".5"/>`;
+    if (!tags.some(t => Math.abs(t.y - y) < TH)) g += `<text x="${W - R + 6}" y="${y + 4}" font-size="${FS}" fill="var(--label2)">${cpx(p)}</text>`; }
   bars.forEach((b, i) => {
     const up = b.close >= b.open, c = up ? "var(--go)" : "var(--stop)", bw = Math.max(1, cw * 0.7);
     g += `<line x1="${X(i)}" x2="${X(i)}" y1="${Y(b.high)}" y2="${Y(b.low)}" stroke="${c}" stroke-width="1"/>`;
     g += `<rect x="${X(i) - bw / 2}" y="${Math.min(Y(b.open), Y(b.close))}" width="${bw}" height="${Math.max(1, Math.abs(Y(b.open) - Y(b.close)))}" fill="${c}"/>`;
     const vh = (b.volume || 0) / vmax * VB;
-    g += `<rect x="${X(i) - bw / 2}" y="${H - 16 - vh}" width="${bw}" height="${vh}" fill="${c}" opacity=".35"/>`;
+    g += `<rect x="${X(i) - bw / 2}" y="${H - 24 - vh}" width="${bw}" height="${vh}" fill="${c}" opacity=".35"/>`;
   });
-  d.levels.forEach(v => { g += `<line x1="${L}" x2="${W - R}" y1="${Y(v.price)}" y2="${Y(v.price)}" stroke="${COLS[v.kind] || "var(--label2)"}" stroke-dasharray="5 4"/><text x="${L + 4}" y="${Y(v.price) - 4}" font-size="11" fill="${COLS[v.kind] || "var(--label2)"}">${esc(v.title)} ${cpx(v.price)}</text>`; });
+  tags.forEach(({v, y}) => { const col = COLS[v.kind] || "var(--label2)", py = Y(v.price), txt = `${v.title} ${cpx(v.price)}`;
+    g += `<line x1="${L}" x2="${W - R}" y1="${py}" y2="${py}" stroke="${col}" stroke-dasharray="5 4"/>`;
+    g += `<rect x="${W - R + 2}" y="${y - TH / 2}" width="${R - 4}" height="${TH}" rx="4" fill="${col}"/><text x="${W - R + 2 + (R - 4) / 2}" y="${y + 4}" text-anchor="middle" font-size="${FS}" font-weight="600" fill="${TAGTXT[v.kind] || "#000"}">${esc(txt)}</text>`; });
   const t0 = bars[0].time, idx = t => { let j = 0; bars.forEach((b, i) => { if (b.time <= t) j = i; }); return j; };
   d.trades.filter(x => x.time >= t0).forEach(x => { const i = idx(x.time), b = bars[i], buy = x.side === "buy";
-    g += `<text x="${X(i)}" y="${buy ? Y(b.low) + 14 : Y(b.high) - 6}" text-anchor="middle" font-size="12" fill="${buy ? "var(--tint)" : "#FFB340"}">${buy ? "▲" : "▼"}</text>`; });
+    g += `<text x="${X(i)}" y="${buy ? Y(b.low) + 14 : Y(b.high) - 6}" text-anchor="middle" font-size="13" fill="${buy ? "var(--tint)" : "#FFB340"}">${buy ? "▲" : "▼"}</text>`; });
   const fmt = t => new Date(t * 1000).toISOString().slice(11, 16);
-  g += `<text x="${L}" y="${H - 2}" font-size="11" fill="var(--label2)">${fmt(t0)} UTC</text><text x="${W - R}" y="${H - 2}" text-anchor="end" font-size="11" fill="var(--label2)">${fmt(bars.at(-1).time)} UTC</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" aria-hidden="true">${g}</svg>`;
+  g += `<text x="${L}" y="${H - 4}" font-size="${FS}" fill="var(--label2)">${fmt(t0)} UTC</text><text x="${W - R}" y="${H - 4}" text-anchor="end" font-size="${FS}" fill="var(--label2)">${fmt(bars.at(-1).time)} UTC</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;max-width:100%" aria-hidden="true">${g}</svg>`;
 }
+let MCHD = null, MCHW = 0;
+function drawMemeChart() { if (!MCHD) return; const w = $("#m-chart").clientWidth; if (!w) return; MCHW = w; $("#m-chart").innerHTML = candleSvg(MCHD, w); }
+let MRT = 0; addEventListener("resize", () => { clearTimeout(MRT); MRT = setTimeout(() => { if (MCHD && $("#v-meme").classList.contains("on") && Math.abs($("#m-chart").clientWidth - MCHW) > 4) drawMemeChart(); }, 150); });
 async function loadMemeChart(force) {
   if (!MM || !MSEL) return;
   const key = MSEL + MIVL, c = MM.candidates.find(x => x.key === MSEL) || {};
@@ -1262,7 +1274,7 @@ async function loadMemeChart(force) {
   try { d = await api(`/api/meme/chart?key=${encodeURIComponent(MSEL)}&ivl=${MIVL}`); }
   catch (e) { $("#m-chart").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; MCHKEY = ""; return; }
   if (key !== MSEL + MIVL) return;
-  $("#m-chart").innerHTML = candleSvg(d);
+  MCHD = d; drawMemeChart();
   $("#m-chart").setAttribute("aria-label", `${d.symbol || "coin"} ${MIVL} candles` + (d.bars.length ? `, last ${cpx(d.bars.at(-1).close)}` : ""));
   $("#mch-last").textContent = d.bars.length ? cpx(d.bars.at(-1).close) : "";
   const dx = $("#mch-dex"); dx.href = d.url; dx.hidden = false;
