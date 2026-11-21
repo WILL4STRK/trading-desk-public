@@ -288,6 +288,19 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
 tr.grp td{border-top:2px solid var(--sep)}
 tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
 .btn.tap{min-height:44px}
+/* Memecoins coin list: compact columns so Safety is never cut off, keyboard focus ring, selected row */
+#m-list th,#m-list td{padding:10px 8px}
+#m-list table{table-layout:fixed}
+#m-list th:first-child,#m-list td:first-child{padding-left:6px;overflow:hidden}
+#m-list th:nth-child(2),#m-list td:nth-child(2){width:68px}
+#m-list th:nth-child(3),#m-list td:nth-child(3){width:84px}
+#m-list tr[data-mkey],.pos-card{cursor:pointer}
+#m-list tr[data-mkey]:hover{background:var(--card2)}
+#m-list tr[aria-current=true]{background:var(--fill)}
+#m-list tr:focus-visible,.pos-card:focus-visible{outline:2px solid var(--tint);outline-offset:-2px;border-radius:var(--r-inner)}
+.mm-sub{display:block;color:var(--label2);font-size:13px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip.held{padding:1px 7px;font-size:12px}
+
 /* Memecoins: on phones the sections reorder to account, chart and facts, coin list, then holdings */
 .mm-note{margin:0 0 12px}
 @media(max-width:899px){
@@ -1090,7 +1103,9 @@ async function copyForTos() {
 document.addEventListener("click", async e => {
   if (e.target.closest && e.target.closest("#copy-tos")) return copyForTos();
   const mrow = e.target.closest && e.target.closest("[data-mkey]");
-  if (mrow && mrow.tagName !== "BUTTON") { MSEL = mrow.dataset.mkey; renderMemeList(); return loadMemeChart(true); }
+  if (mrow && mrow.tagName !== "BUTTON") { MSEL = mrow.dataset.mkey; const inList = !!mrow.closest("#m-list"); renderMemeList();
+    if (inList) { const n = [...document.querySelectorAll("#m-list [data-mkey]")].find(r => r.dataset.mkey === MSEL); if (n) n.focus({preventScroll: true}); }
+    return loadMemeChart(true); }
   const t = e.target.closest("button"); if (!t) return;
   if (t.dataset.v) {
     document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b === t));
@@ -1235,12 +1250,12 @@ function renderMemeList() {
   const rows = MM.candidates.filter(c => !q || (c.symbol || "").toLowerCase().includes(q) || c.chain.includes(q)).slice(0, 150);
   $("#m-list").innerHTML = rows.length ? `<table><tr><th style="text-align:left">Coin</th><th>1 hour</th><th>Safety</th></tr>${rows.map(c => {
     const r1 = c.f && c.f.r1h, [cls, word] = SAFE[c.screen] || SAFE.unknown, rules = c.rules.filter(r => r !== "all");
-    return `<tr data-mkey="${esc(c.key)}" style="cursor:pointer${c.key === MSEL ? ";background:var(--fill)" : ""}" tabindex="0" aria-current="${c.key === MSEL}"><td style="text-align:left"><b>${esc(c.symbol || "?")}</b>${c.held ? ' <span class="chip live" style="padding:1px 7px;font-size:11px">HELD</span>' : ""}<small style="display:block;color:var(--label2)">${esc(c.chain + (rules.length ? " · " + rules.map(r => (RULE_INFO[r] || r).split(" (")[0]).join(", ") : ""))}</small></td><td class="num ${tone(r1)}">${pctS(r1, 1)}</td><td class="${cls}">${word}</td></tr>`;
+    return `<tr data-mkey="${esc(c.key)}" role="button" tabindex="0" aria-current="${c.key === MSEL}" aria-label="${esc((c.symbol || "?") + ", " + c.chain + ", " + word + " safety. Show its chart")}"><td><b>${esc(c.symbol || "?")}</b>${c.held ? ' <span class="chip live held">HELD</span>' : ""}<small class="mm-sub">${esc(c.chain + (rules.length ? " \u00b7 " + rules.map(r => (RULE_SHORT[r] || RULE_INFO[r] || r)).join(", ") : ""))}</small></td><td class="num ${tone(r1)}">${pctS(r1, 1)}</td><td class="${cls}">${word}</td></tr>`;
   }).join("")}</table>` : `<div class="empty"><b>No coins yet</b>The first look reads DexScreener's boosted, profiled, takeover, ad and trending lists.</div>`;
 }
 function renderMemePos() {
   const m = MM; if (!m) return;
-  if (MF === "open") $("#m-pos").innerHTML = m.positions.length ? m.positions.map(p => `<article class="card" data-mkey="${esc(p.key)}" style="cursor:pointer"><div class="chead"><div class="logo" aria-hidden="true">${initials(p.symbol || "?")}</div><div><b>${esc(p.symbol)}</b> <small style="color:var(--label2)">${esc(p.chain)} · ${esc(polName(p.policy))}</small></div><span class="${tone(p.pnl)} num" style="margin-left:auto;font-weight:600">${pctS(p.move_pct, 1)}</span></div>
+  if (MF === "open") $("#m-pos").innerHTML = m.positions.length ? m.positions.map(p => `<article class="card pos-card" data-mkey="${esc(p.key)}" role="button" tabindex="0" aria-label="${esc((p.symbol || "coin") + ": show its chart")}"><div class="chead"><div class="logo" aria-hidden="true">${initials(p.symbol || "?")}</div><div><b>${esc(p.symbol)}</b> <small style="color:var(--label2)">${esc(p.chain)} · ${esc(polName(p.policy))}</small></div><span class="${tone(p.pnl)} num" style="margin-left:auto;font-weight:600">${pctS(p.move_pct, 1)}</span></div>
       <div class="list" style="margin-top:8px">
       <div class="li num"><span>Bought ${esc(p.at.slice(11, 16))} UTC at</span><b>${cpx(p.px)}</b></div>
       <div class="li num"><span>Now</span><b>${cpx(p.now_px)}</b></div>
@@ -1330,7 +1345,7 @@ function renderMemeFacts(c) {
     ${kv("Rules that would buy now", esc(c.rules.filter(r => r !== "all").map(r => RULE_INFO[r]).join(", ") || "none"))}</div>
     <p class="foot-note">${esc(cap1(friendly(c.why.join("; "))))}. Found ${esc(c.first_seen.slice(5, 16))} UTC via ${esc([...new Set(c.sources.map(feedName))].join(", "))}.</p>`;
 }
-document.addEventListener("keydown", e => { const r = e.target.closest && e.target.closest("tr[data-mkey]"); if (r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); r.click(); } });
+document.addEventListener("keydown", e => { const r = e.target.closest && e.target.closest("[data-mkey]"); if (r && e.target === r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); r.click(); } });
 
 // ---- Memebot tab: read-only view of the separate memecoin paper-research loop
 const ago = ts => { if (!ts) return "never"; const s = Math.max(0, Date.now() / 1000 - ts); return s < 90 ? Math.round(s) + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 172800 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
