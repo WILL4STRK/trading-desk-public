@@ -233,6 +233,8 @@ written to `migrations.jsonl` with the outcome and the reason, so attrition can 
 
 ## 10. Rule P8: moonshot, ride young coins that are taking off (pre-registered 2026-11-21, before any of its data)
 
+P8 and P8b decision lines and shadows record LP and pool-flow diagnostics for a future v2; these fields change nothing in v1.
+
 The user asked for a bot whose goal is the coins that go up very far, very fast. Every rule above sells at +30 %, so
 none of them can catch a 5x. P8 is the opposite bet: small positions on young coins that are accelerating, no
 target, and a trailing stop that lets a winner run, so a few large winners have to pay for many losers. Section 0

@@ -26,6 +26,7 @@ import urllib.request
 from . import memerules as R
 from . import memigrate as M
 from . import memoon as MN
+from . import memoonpilot as MP
 from . import settings as S
 from .paths import ROOT, data_dir
 from .skills import read_json, write_json
@@ -62,7 +63,7 @@ class MemeError(Exception):
     pass
 
 
-def get(url, timeout=15):
+def get(url, timeout=15, wait_for_slot=True):
     """One read-only GET, spaced per host, retried with backoff on HTTP 429. None for 404."""
     host = urllib.parse.urlsplit(url).netloc
     if time.time() < _cool.get(host, 0):
@@ -70,6 +71,8 @@ def get(url, timeout=15):
     for attempt in range(4):
         with _lock:
             wait = _last.get(host, 0) + SPACING.get(host, 0.5) - time.time()
+            if not wait_for_slot and wait > 0:
+                raise MemeError("%s is busy; skipped for now" % host)
             _last[host] = time.time() + max(0.0, wait)
         if wait > 0:
             time.sleep(wait)
@@ -83,7 +86,7 @@ def get(url, timeout=15):
             if e.code == 429 and host == "api.geckoterminal.com":    # 30 a minute per address: skip, never stall a run
                 _cool[host] = time.time() + 20
                 raise MemeError("GeckoTerminal is busy (too many requests); tried again later")
-            if e.code == 429 and attempt < 3:
+            if e.code == 429 and attempt < 3 and wait_for_slot:
                 time.sleep(5 * 2 ** attempt)
                 continue
             raise MemeError("%s said HTTP %s" % (host, e.code))
@@ -279,6 +282,11 @@ def screen(chain, addr, fetch=get, pool=None):
         return "unknown", [str(e)], None, "unknown", [str(e)]
     v, why = R.screen_verdict(chain, rep)
     sv, swhy = R.strict_verdict(chain, rep, pool)
+    if slim:
+        try:
+            slim["pilot"] = MP.screen_inputs(chain, rep, pool, R.DEAD)
+        except (TypeError, ValueError, OverflowError):
+            pass  # optional diagnostics never change the screen result
     return v, why, slim, sv, swhy
 
 
@@ -305,6 +313,40 @@ def news_match(t, words):
         return True
     mine = {str(t.get("symbol") or "").upper()} | set(re.findall(r"[A-Za-z][A-Za-z0-9]{2,}", str(t.get("name") or "").upper()))
     return bool(mine & words - STOP_WORDS)
+
+
+_pilot_busy = threading.Lock()
+_pilot_pages = {}
+
+
+def _pilot_key(root, token, pair):
+    return root, token["chain"], pair["pairAddress"], token["addr"]
+
+
+def _prefetch_pilot(candidates, budget, now, fetch):
+    """One spare GeckoTerminal request after core work, with no waiting in the desk run."""
+    if not candidates or budget[0] <= MIG_RESERVE or not _pilot_busy.acquire(blocking=False):
+        return
+    key = min(candidates)[1]
+    _, chain, pool, mint = key
+    url = "%s/networks/%s/pools/%s/trades" % (GT, GT_NET[chain], urllib.parse.quote(pool, safe=""))
+
+    def collect():
+        try:
+            data = _real_get(url, timeout=2, wait_for_slot=False) if fetch is _real_get else fetch(url)
+            page = MP.trade_page(chain, mint, data, now)
+            if page is not None:
+                _pilot_pages[key] = page
+        except (MemeError, OSError, ValueError):
+            pass
+        finally:
+            _pilot_busy.release()
+
+    budget[0] -= 1
+    try:
+        threading.Thread(target=collect, name="meme-pilot", daemon=True).start()
+    except RuntimeError:
+        _pilot_busy.release()
 
 
 def gt_bars(chain, pool, end_ts, limit=60, fetch=get):
@@ -481,6 +523,12 @@ def _run(now, fetch):
                                           "liq": t["liq"], "fdv": p.get("fdv"), "px": t["px"]})
             out["new"] += 1
     gt_budget = [GT_PER_RUN]
+    pilot_pairs = []
+    pilot_root = folder()
+    pilot_now = {}
+    for key, page in tuple(_pilot_pages.items()):
+        if key[0] == pilot_root and now - page[0] > MP.CACHE_SECONDS:
+            _pilot_pages.pop(key, None)
 
     def close_shadow(sh, px, ts, why):
         sh.update(exit_at=_iso(ts), exit_ts=ts, exit_px=px, why=why,
@@ -558,7 +606,8 @@ def _run(now, fetch):
         shadows.append({"key": pe["key"], "symbol": t.get("symbol"), "chain": t["chain"], "policy": pe["policy"],
                         "ts": now, "at": _iso(now), "px": t["px"], "peak": t["px"], "screen": pe["screen"],
                         "strict": pe["strict"], "checked": now, "news": False, "veto": pe["veto"], "f": pe["f"],
-                        "decided": pe["decided"]})
+                        "decided": pe["decided"],
+                        **({"pilot": pe["pilot"]} if "pilot" in pe else {})})
         out["shadows_opened"] += 1
         if not bname:
             continue
@@ -601,6 +650,8 @@ def _run(now, fetch):
             try:
                 d = fetch("%s/networks/solana/pools/%s/trades" % (GT, urllib.parse.quote(p.get("pairAddress") or ""))) or {}
                 trades = [x.get("attributes") or {} for x in d.get("data") or []]
+                if p.get("pairAddress"):
+                    pilot_now[_pilot_key(pilot_root, t, p)] = MP.trade_page(t["chain"], t["addr"], d, now)
                 buyers, first, _ = M.flow(trades, anc, ((sc.get("report") or {}).get("creator")))
                 if first is None and gt_budget[0] > 0:
                     gt_budget[0] -= 1
@@ -627,7 +678,14 @@ def _run(now, fetch):
     open_now = {(sh["key"], sh["policy"]) for sh in shadows}
     for k, p in snap.items():
         t = tracked[k]
-        if now - t.get("last_moon", 0) < MN.DECIDE_EVERY_MIN * 60:
+        remain = t.get("last_moon", 0) + MN.DECIDE_EVERY_MIN * 60 - now
+        if remain > 0:
+            if remain <= MP.CACHE_SECONDS and p.get("pairAddress") and not _dead(t.get("liq")):
+                key = _pilot_key(pilot_root, t, p)
+                page = _pilot_pages.get(key)
+                if (not page or now + remain - page[0] > 90) and MN.decide(
+                        R.features_from_pair(p, now * 1000), t.get("liq"))["moonshot_base"]:
+                    pilot_pairs.append((remain, key))
             continue
         t["last_moon"] = now
         f = R.features_from_pair(p, now * 1000)
@@ -638,17 +696,21 @@ def _run(now, fetch):
         veto = R.vetoes(f, now - (t.get("last_promo") or -1e12) < 86400)
         block = ([] if sc.get("verdict") == "pass" else ["safety check %s" % sc.get("verdict", "unknown")]) + \
             [v for v in veto if v.startswith("R3")]
-        if dec["moonshot"]:
-            _append("moonshots.jsonl", {"at": _iso(now), "ts": now, "key": k, "symbol": t.get("symbol"), "event": "decide",
-                                        "chain": t["chain"], "yes": [n for n, y in dec.items() if y and not block],
-                                        "why": block, "veto": veto, "liq": t.get("liq"), "px": t.get("px"),
-                                        "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()}})
+        pool = p.get("pairAddress")
+        key = _pilot_key(pilot_root, t, p) if pool else None
+        page = pilot_now.get(key) or _pilot_pages.get(key)
+        pilot = MP.diagnostics(t["chain"], pool, t.get("liq"), sc, page, now)
+        _append("moonshots.jsonl", {"at": _iso(now), "ts": now, "key": k, "symbol": t.get("symbol"), "event": "decide",
+                                    "chain": t["chain"], "momentum": dec["moonshot"],
+                                    "yes": [n for n, y in dec.items() if y and not block],
+                                    "why": block, "veto": veto, "liq": t.get("liq"), "px": t.get("px"), "pilot": pilot,
+                                    "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()}})
         if block:
             continue
         for name, yes in dec.items():
             if yes and (k, name) not in waiting and (k, name) not in open_now and now >= t["cool"].get(name, 0):
                 pending.append({"key": k, "policy": name, "decided": now, "screen": sc.get("verdict", "unknown"),
-                                "strict": sc.get("strict", "unknown"), "veto": veto,
+                                "strict": sc.get("strict", "unknown"), "veto": veto, "pilot": pilot,
                                 "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()}})
     s["mig_pending"] = pending
 
@@ -723,6 +785,7 @@ def _run(now, fetch):
              policy=pol, policy_why=why_pol)
     _save(s)
     out.update(tracked=len(tracked), open_shadows=len(shadows), equity=round(eq, 2))
+    _prefetch_pilot(pilot_pairs, gt_budget, now, fetch)
     return out
 
 
@@ -986,7 +1049,7 @@ def moonshot_funnel():
     """Rule P8's decisions (docs/MEME.md section 10): coins whose momentum test fired, how many were blocked by the
     safety check or the R3 veto, fills, cancels, and the skew numbers of its closed shadows."""
     rows = _jsonl("moonshots.jsonl")
-    dec = [r for r in rows if r.get("event") == "decide"]
+    dec = [r for r in rows if r.get("event") == "decide" and r.get("momentum", True)]
     blocked = {}
     for r in dec:
         for w in r.get("why") or []:
