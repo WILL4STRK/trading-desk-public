@@ -502,7 +502,7 @@ tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
         <div>
           <div class="card mm-coins">
             <div class="hrow" style="margin:0 0 8px"><b style="font-size:17px">Coins</b><small class="foot-note" id="m-meta" style="margin:0"></small><span style="flex:1"></span><label class="vh" for="m-find">Find a coin</label><input class="inp" id="m-find" placeholder="Find by name or chain" autocomplete="off" spellcheck="false"></div>
-            <div class="scroll" id="m-list" style="max-height:440px;overflow-y:auto"></div>
+            <div class="scroll" id="m-list" style="max-height:440px;overflow-y:auto" aria-busy="true"><div class="empty"><b>Loading coins…</b></div></div>
           </div>
         </div>
       </div>
@@ -520,8 +520,8 @@ tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
           </div>
       <h2 class="section-title">Practice accounts</h2>
       <div class="card scroll" id="m-books"></div>
-      <h2 class="section-title">Made or lost, main memecoin account</h2>
-      <div class="card" id="m-curve"></div>
+      <h2 class="section-title" id="m-curve-h" hidden>Made or lost, main memecoin account</h2>
+      <div class="card" id="m-curve" hidden></div>
       <h2 class="section-title">Forward test: every rule, after costs</h2>
       <div class="card scroll" id="m-fw"></div>
       <h2 class="section-title">Memecoin settings</h2>
@@ -1201,7 +1201,7 @@ const money = n => n == null ? "–" : n >= 1e9 ? "$" + (n / 1e9).toFixed(2) + "
 const SAFE = {pass: ["pos", "Pass"], fail: ["neg", "Fail"], unknown: ["", "Unknown"]};
 let MM = null, MFW = false, MSEL = null, MIVL = "5m", MF = "open", MCHKEY = "", MCHAT = 0, MMDIRTY = false;
 async function loadMeme() {
-  try { MM = await api("/api/meme"); } catch (e) { $("#m-status").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; return; }
+  try { MM = await api("/api/meme"); } catch (e) { $("#m-status").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; if (!MM) $("#m-list").innerHTML = `<div class="empty"><b>Couldn't load coins</b>The desk did not answer. It will try again in a few seconds.</div>`; return; }
   const m = MM, a = m.account, st = S && S.settings;
   if (!MSEL || !m.candidates.some(c => c.key === MSEL)) MSEL = (m.candidates[0] || {}).key || null;
   $("#m-eq").textContent = usd(a.equity); $("#m-cash").textContent = usd(a.cash);
@@ -1219,7 +1219,8 @@ async function loadMeme() {
       : "Not proven: " + m.verdict.filter(c => !c.ok).map(c => esc(c.check)).join("; ") + "."}</div>
     <p class="foot-note">${esc(cap1(friendly(m.policy_why)))}. ${st ? st.meme_position_pct : 20}% a coin, at most ${st ? st.meme_max_open : 4}. Stop ${m.rules.stop}%, target +${m.rules.target}%, out after ${m.rules.hold_min / 60} h. Costs ${m.cost_pct}% round trip plus price impact.</p>`;
   renderMemePos();
-  $("#m-curve").innerHTML = curveSvg(m.curve, a.start) + `<p class="foot-note">Since ${esc(a.started || "the first run")}, ${usd(a.start)} start. Realized ${usd(a.realized, true)}. A pulled pool counts as a total loss.</p>`;
+  const hasCurve = (m.curve || []).length >= 2; $("#m-curve").hidden = $("#m-curve-h").hidden = !hasCurve;
+  $("#m-curve").innerHTML = !hasCurve ? "" : curveSvg(m.curve, a.start) + `<p class="foot-note">Since ${esc(a.started || "the first run")}, ${usd(a.start)} start. Realized ${usd(a.realized, true)}. A pulled pool counts as a total loss.</p>`;
   const bname = n => n === "main" ? "Main (" + polName(m.policy) + ")" : n === "careful" ? RULE_NAME.careful : (RULE_INFO[n] || n);
   const allUp = m.books.length && m.books.every(b => b.return_pct > 0);
   $("#m-books").innerHTML = `<table><tr><th style="text-align:left">Account</th><th>Balance</th><th>Since start</th><th>Closed</th><th>Won</th><th>Holding</th></tr>
@@ -1246,6 +1247,7 @@ async function loadMeme() {
 }
 function renderMemeList() {
   if (!MM) return;
+  $("#m-list").removeAttribute("aria-busy");
   const q = ($("#m-find").value || "").trim().toLowerCase();
   const rows = MM.candidates.filter(c => !q || (c.symbol || "").toLowerCase().includes(q) || c.chain.includes(q)).slice(0, 150);
   $("#m-list").innerHTML = rows.length ? `<table><tr><th style="text-align:left">Coin</th><th>1 hour</th><th>Safety</th></tr>${rows.map(c => {
