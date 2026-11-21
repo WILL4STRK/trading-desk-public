@@ -183,3 +183,48 @@ are unchanged (`desk/memerules.py` is the kit's file as is). What differs, and w
   meambot research loop's status at the bottom (the old Memebot tab). There is no Graph tab or money table here, so the
   account is not mirrored into a journal.
 - Files are read and written as UTF-8 so coin names in any script work on Windows.
+
+## 9. Rule P7: buy after a launchpad migration (pre-registered 2026-11-21, before any of its data)
+
+Source: test C in [WILL4STRK/meambot `research/meme/OTHER-METHODS.md`](https://github.com/WILL4STRK/meambot/blob/main/research/meme/OTHER-METHODS.md)
+(commit 2914c2f). Nothing in sections 2 to 8 changes. P7 is forward only: the backtest cannot see buyers or
+migrations in the past. The code lives in `desk/memigrate.py` (pure rules) and `desk/meme.py` (the plumbing).
+
+**The event.** A Solana coin launched on pump.fun (mint ends in `pump`) or LetsBonk (mint ends in `bonk`) whose
+tracked DexScreener pool is no longer the launchpad's own curve (`dexId` not `pumpfun` or `launchlab`). The
+**anchor** is that pool's `pairCreatedAt`: the migration. One decision per mint, taken by the first run between
+**15 and 17 minutes** after the anchor. A coin first seen later, or a run that misses the window, is logged as
+attrition and never caught up.
+
+**Two lines, decided at the same moment:**
+
+| # | name | buys when | why |
+|---|---|---|---|
+| P7 | `migration` | pool liquidity >= $50k; pool volume in the last hour >= $20k; >= 25 distinct buying wallets since the anchor (the creator left out when RugCheck names one); price now between 90 % and 120 % of the first traded price after the anchor | test C: stabilized flow after graduation |
+| P7b | `migration_base` | the same coin, liquidity and volume floors only (no buyer or price test) | test C's control: every graduate that passes the same safety and volume bar at minute 15 |
+
+Both require the **strict** safety check to pass (unknown fails) and no R2 (paid promotion) or R3 (flat volume
+burst) veto. R1 (under 24 h old) is waived: every graduate is young by definition.
+
+**Data.** Liquidity, volume and price from the DexScreener snapshot. Buyers and the first traded price from
+GeckoTerminal's last-300-trades list for the pool (`kind` = buy, `tx_from_address`). If that list does not reach
+back to within 60 s of the anchor, the first price comes from GeckoTerminal's first 1-minute candle at or after the
+anchor, and the buyer count is what the list shows (a lower bound). A missing field is a no, with the reason logged.
+
+**Fill (the report's shared contract, stricter than sections 2 and 3).** The buy is taken at the first snapshot
+price at least **60 s** after the decision and no later than **150 s** after it (the desk samples about once a
+minute); otherwise it is cancelled and logged. Exits are the shared stop -15 %, target +30 % and 4 hours from the
+fill price. Cost is the larger of 4 % and the Settings cost, round trip.
+
+**Accounts.** Each line is recorded as shadow trades. P7 also trades its own practice account (desk sizing, $100
+start). Neither changes the main or careful accounts.
+
+**Pass bar.** Section 5's bar (with section 8's time slices), plus the report's extras: at least **10 trades in
+each of the 4 time slices**, and P7 must beat **P7b** (its own control) as well as buy-everything. The report asks
+for 120 days; the desk reads the bar continuously but a pass before 120 days is labelled early.
+
+**Known differences from the report, decided now:** the hour's volume counts the new pool only (curve trades before
+the migration are not in DexScreener's pool figure, so this is stricter); exits are not delayed a further 60 s (the
+desk's once-a-minute sample already lags); sizing follows the desk, not $100 on $1,000 (the bar is per trade, so
+size does not change it); the creator is excluded only when RugCheck names one. Every graduate the desk sees is
+written to `migrations.jsonl` with the outcome and the reason, so attrition can be audited.
