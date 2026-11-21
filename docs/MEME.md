@@ -194,7 +194,11 @@ migrations in the past. The code lives in `desk/memigrate.py` (pure rules) and `
 tracked DexScreener pool is no longer the launchpad's own curve (`dexId` not `pumpfun` or `launchlab`). The
 **anchor** is that pool's `pairCreatedAt`: the migration. One decision per mint, taken by the first run between
 **15 and 17 minutes** after the anchor. A coin first seen later, or a run that misses the window, is logged as
-attrition and never caught up. Only a coin the desk first saw within an hour of its migration counts as a missed
+attrition and never caught up. *Data-fetch note, 2026-11-21 (no rule change):* when
+GeckoTerminal's trade list cannot be fetched (a 429 cool-down shared with other programs on the same internet
+address, or no request budget left in the run), the decision is retried on the next run while the window is still
+open, instead of being taken on missing data; a graduate still without data at minute 17 is logged as missed with the
+reason. Every 429 is logged in `api_errors.jsonl`. Only a coin the desk first saw within an hour of its migration counts as a missed
 graduate; coins that graduated earlier than that are outside the study and are not logged (added 2026-11-21, after a
 dry run in a scratch folder and before any recorded data).
 
@@ -232,6 +236,8 @@ size does not change it); the creator is excluded only when RugCheck names one. 
 written to `migrations.jsonl` with the outcome and the reason, so attrition can be audited.
 
 ## 10. Rule P8: moonshot, ride young coins that are taking off (pre-registered 2026-11-21, before any of its data)
+
+P8 and P8b decision lines and shadows record LP and pool-flow diagnostics for a future v2; these fields change nothing in v1.
 
 The user asked for a bot whose goal is the coins that go up very far, very fast. Every rule above sells at +30 %, so
 none of them can catch a 5x. P8 is the opposite bet: small positions on young coins that are accelerating, no

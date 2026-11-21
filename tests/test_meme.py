@@ -11,6 +11,7 @@ from desk import meme
 from desk import memerules as R
 from desk import memigrate as M
 from desk import memoon as MN
+from desk import memoonpilot as MP
 from desk import settings as S
 from desk.scheduler import Scheduler
 from desk.server import serve
@@ -58,7 +59,7 @@ class FakeAPI:
         if "gopluslabs" in url:
             return {"code": 1, "result": self.goplus}
         if "geckoterminal" in url and "/trades" in url:
-            return {"data": [{"attributes": a} for a in self.trades]}
+            return {"data": [{"id": str(i), "attributes": a} for i, a in enumerate(self.trades)]}
         if "geckoterminal" in url:
             return {"data": {"attributes": {"ohlcv_list": list(reversed(self.bars))}}}
         raise AssertionError(url)
@@ -560,6 +561,53 @@ class MigrationRun(DeskCase):
         self.assertEqual(d[0]["yes"], [])
         self.assertIn("strict check unknown", d[0]["why"])
 
+    def test_a_busy_geckoterminal_is_retried_inside_the_window_not_decided_on_missing_data(self):
+        real = self.api.__call__
+        calls = {"n": 0}
+
+        def flaky(url):
+            if "geckoterminal" in url and "/trades" in url and calls["n"] == 0:
+                calls["n"] += 1
+                raise meme.MemeError("api.geckoterminal.com is busy; skipped for now")
+            return real(url)
+        anc = T0 - 15 * 60 - 10                                              # minute 15.2 at T0
+        self.api.pairs[PUMP]["pairCreatedAt"] = anc * 1000
+        self.api.trades = _trades(anc, 30, first_px=0.95, creator_buys=2)
+        with mock.patch.object(R, "vetoes", return_value=[]):
+            meme.run(now=T0, fetch=flaky)                                    # minute 15.2: busy, retry
+            self.assertEqual([r["event"] for r in self.log()], ["retry"])
+            self.assertFalse(meme.load()["tracked"]["solana:" + PUMP].get("mig_done"))
+            meme.run(now=T0 + 30, fetch=flaky)                               # minute 15.7: decided with data
+        d = [r for r in self.log() if r["event"] == "decide"]
+        self.assertEqual((len(d), d[0]["buyers"], d[0]["tries"]), (1, 30, 2))
+        self.assertEqual(meme.migration_funnel()["retries"], 1)
+
+    def test_still_no_data_at_minute_17_is_missed_with_the_reason(self):
+        def busy(url):
+            if "geckoterminal" in url:
+                raise meme.MemeError("api.geckoterminal.com is busy; skipped for now")
+            return self.api(url)
+        self.api.pairs[PUMP]["pairCreatedAt"] = (T0 - 15 * 60 - 10) * 1000   # minute 15.2 at T0
+        meme.run(now=T0, fetch=busy)                                         # minute 15.2: retry
+        meme.run(now=T0 + 60, fetch=busy)                                    # minute 16.2: no time left, missed
+        ev = [(r["event"], r.get("why", "")) for r in self.log()]
+        self.assertEqual(ev[0][0], "retry")
+        self.assertEqual(ev[-1][0], "missed")
+        self.assertIn("unavailable in the window after 2 tries", ev[-1][1])
+        self.assertEqual([e for e, _ in ev].count("decide"), 0)              # never decided on missing data
+
+    def test_a_429_is_logged(self):
+        import io
+        err = urllib.error.HTTPError("u", 429, "slow down", {}, io.BytesIO(b""))
+        with mock.patch.object(meme, "get", meme.__dict__["_real_get"]), \
+                mock.patch("urllib.request.urlopen", side_effect=err):
+            meme._cool.clear()
+            with self.assertRaises(meme.MemeError):
+                meme.get("https://api.geckoterminal.com/api/v2/networks/solana/pools/X/trades")
+            meme._cool.clear()
+        rows = meme._jsonl("api_errors.jsonl")
+        self.assertEqual((rows[0]["code"], rows[0]["path"]), (429, "/api/v2/networks/solana/pools/X/trades"))
+
     def test_the_paid_promotion_veto_still_applies(self):
         meme.run(now=T0, fetch=self.api)                                   # found on the boost feed: R2
         d = [r for r in self.log() if r["event"] == "decide"][0]
@@ -643,6 +691,77 @@ class MoonRun(DeskCase):
         self.assertAlmostEqual(sh["net_pct"], R.net_pct(1.0, 3.4, 4.0), places=2)   # 4% floor
         mo = meme.view()["moonshots"]
         self.assertEqual((mo["fired"], mo["coins"]), (2, 1))                  # T0 and T0+300: two 5-minute decisions
+
+    def test_p8b_only_decision_logs_its_pilot_without_changing_p8_funnel(self):
+        self.api.pairs = {MOON: _moon_pair(1.0, h1=10.0)}
+        self.go(T0, T0 + 70)
+        line = next(r for r in meme._jsonl("moonshots.jsonl") if r["event"] == "decide")
+        self.assertEqual(line["yes"], ["moonshot_base"])
+        self.assertFalse(line["momentum"])
+        self.assertEqual(line["pilot"]["distinct_buyers_15m"], "unknown")
+        shadows = [s for s in meme.load()["shadows"] if s["policy"] in MN.POLICIES]
+        self.assertEqual([(s["policy"], s["pilot"]) for s in shadows], [("moonshot_base", line["pilot"])])
+        self.assertEqual(meme.moonshot_funnel()["fired"], 0)
+
+    def test_spare_prefetch_uses_provider_inputs_and_copies_them_to_both_shadows(self):
+        self.api.rug.update(creator="creator", markets=[{"pubkey": "MPOOL",
+                            "lp": {"lpMint": "lpA", "lpTotalSupply": 1000, "lpLockedPct": 90}}],
+                            lockers={"locker": {"uri": "https://raydium.io/?pool_id=MPOOL", "unlockDate": T0 + 1000}},
+                            topHolders=[{"owner": "large" if i == 0 else "owner%d" % i, "pct": 2}
+                                        for i in range(10)])
+        self.api.pairs = {MOON: _moon_pair(1.0)}
+        self.go(T0)
+        self.go(T0 + 151)  # cancel the first delayed entries after the existing fill window
+        as_of = T0 + 240
+
+        def trade(ts, maker, buy, dollars):
+            return {"block_timestamp": meme._iso(ts).replace(" ", "T") + "Z", "tx_from_address": maker,
+                    "from_token_address": "QUOTE" if buy else MOON, "to_token_address": MOON if buy else "QUOTE",
+                    "volume_in_usd": str(dollars)}
+
+        self.api.trades = [trade(as_of - 3650, "other", True, 5), trade(as_of - 1100, "creator", False, 500),
+                           trade(as_of - 100, "large", False, 200), trade(as_of - 95, "creator", True, 100),
+                           trade(as_of - 20, "buyer", True, 300)]
+        with mock.patch.object(meme.threading, "Thread") as thread:
+            thread.side_effect = lambda target, **_: mock.Mock(start=target)
+            self.go(as_of)
+        self.assertEqual(len([u for u in self.api.calls if "/trades" in u]), 1)
+        self.go(T0 + 300, T0 + 370)
+        line = [r for r in meme._jsonl("moonshots.jsonl") if r["event"] == "decide"][-1]
+        pilot = line["pilot"]
+        self.assertEqual(pilot["withdrawable_liquidity_usd"], 6000)
+        self.assertEqual(pilot["lp_unlock_ts"], T0 + 1000)
+        self.assertEqual(pilot["creator_net_sell_usd_1h"], 400)
+        self.assertEqual(pilot["top10_net_sell_usd_1h"], 200)
+        self.assertEqual((pilot["distinct_buyers_15m"], pilot["largest_buyer_volume_share_15m"]), (2, .75))
+        self.assertEqual(pilot["trade_as_of"], as_of)
+        self.assertEqual(line["yes"], ["moonshot", "moonshot_base"])
+        self.assertEqual([s["pilot"] for s in meme.load()["shadows"] if s["policy"] in MN.POLICIES], [pilot, pilot])
+        self.assertAlmostEqual(meme.load()["books"]["moonshot"]["positions"][0]["cost"], 5)
+
+    def test_pilot_skips_reserve_and_reports_incomplete_windows_unknown(self):
+        with mock.patch.object(meme.threading, "Thread") as thread:
+            meme._prefetch_pilot([(1, ("root", "solana", "MPOOL", MOON))], [meme.MIG_RESERVE], T0, self.api)
+            thread.assert_not_called()
+        self.api.trades = [{"block_timestamp": T0 - 20, "tx_from_address": "buyer",
+                            "from_token_address": "QUOTE", "to_token_address": MOON, "volume_in_usd": "100"}]
+        page = MP.trade_page("solana", MOON, self.api("https://api.geckoterminal.com/pools/MPOOL/trades"), T0)
+        self.assertIsNotNone(page)
+        self.assertEqual(MP.diagnostics("solana", "MPOOL", 100000, {}, page, T0)["distinct_buyers_15m"], "unknown")
+        self.assertEqual(MP.diagnostics("solana", "MPOOL", 100000, {}, page, T0 + 121)["trade_as_of"], "unknown")
+
+    def test_goplus_matched_v2_lp_and_unlock(self):
+        pool, owner = "0xpool", "0xowner"
+        holders = [{"address": owner, "percent": "0.2", "is_locked": "0"},
+                   {"address": "0xlock", "percent": "0.8", "is_locked": "1",
+                    "locked_detail": [{"end_time": str(int(T0 + 3600))}]}]
+        self.api.goplus = {BSC: {"is_honeypot": "0", "buy_tax": "0", "sell_tax": "0", "cannot_sell_all": "0",
+                                "is_open_source": "1", "dex": [{"pair": pool, "liquidity_type": "UniV2"}],
+                                "lp_holders": holders}}
+        report = meme.screen("bsc", BSC, self.api, pool)[2]
+        pilot = MP.diagnostics("bsc", pool, 50000, {"report": report, "ts": T0}, None, T0)
+        self.assertEqual((pilot["withdrawable_liquidity_usd"], pilot["lp_unlock_ts"]), (10000, T0 + 3600))
+        self.assertEqual(MP.diagnostics("bsc", "0xother", 50000, {"report": report}, None, T0)["lp_unlock_ts"], "unknown")
 
     def test_unknown_safety_blocks_and_is_logged(self):
         self.api.rug = None
