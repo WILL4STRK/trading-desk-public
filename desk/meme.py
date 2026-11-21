@@ -24,6 +24,7 @@ import urllib.parse
 import urllib.request
 
 from . import memerules as R
+from . import memigrate as M
 from . import settings as S
 from .paths import ROOT, data_dir
 from .skills import read_json, write_json
@@ -45,6 +46,7 @@ TRACK_DAYS = 7
 SCREEN_TTL = 6 * 3600      # a safety report is read again after this
 SCREENS_PER_RUN = 12
 GT_PER_RUN = 8             # GeckoTerminal calls a run may spend (30 a minute allowed; the run is about once a minute)
+MIG_RESERVE = 2            # GeckoTerminal calls a run keeps back for rule P7's one-time decisions (docs/MEME.md s.9)
 GAP = 180                  # seconds without a look before an open item is replayed from candles
 LIQ_PULL = 0.5             # paper: sell if the pool's liquidity falls under half of what it was at the buy
 UA = "trading-desk/1 (paper research; read-only)"
@@ -142,7 +144,8 @@ def research_pick():
 LEARN = ("hype", "breakout", "calm_aged", "dip_aged", "aged_liquid", "news")
 # Extra practice accounts: one per rule on coins
 # that passed the safety check, and "careful": any rule, strict check passed and no research filter (docs/MEME.md s.7).
-BOOKS = tuple((r, (r,), "screen") for r in R.POLICIES) + (("careful", LEARN, "evidence"),)
+BOOKS = tuple((r, (r,), "screen") for r in R.POLICIES) + (("careful", LEARN, "evidence"),
+                                                           ("migration", ("migration",), "strict"))
 
 
 def _book_ok(how, sc, veto):
@@ -259,7 +262,7 @@ def screen(chain, addr, fetch=get, pool=None):
     try:
         if chain == "solana":
             rep = fetch("https://api.rugcheck.xyz/v1/tokens/%s/report" % urllib.parse.quote(addr))
-            slim = rep and {k: rep.get(k) for k in ("score_normalised", "lpLockedPct")} | {
+            slim = rep and {k: rep.get(k) for k in ("score_normalised", "lpLockedPct", "creator")} | {
                 "risks": [{"name": r.get("name"), "level": r.get("level")} for r in rep.get("risks") or []]}
         else:
             d = fetch("https://api.gopluslabs.io/api/v1/token_security/%d?contract_addresses=%s"
@@ -349,14 +352,16 @@ def chart(key, ivl="5m", fetch=None):
 
 # ---- the paper account -------------------------------------------------------------------------------------------
 
-def cost_pct(st, chain):
-    """Round-trip cost for a chain: Settings' cost, or more where gas makes it dearer (memerules.CHAIN_COST)."""
-    return max(st["meme_cost_pct"], R.CHAIN_COST.get(chain, 0.0))
+def cost_pct(st, chain, policy=None):
+    """Round-trip cost for a chain: Settings' cost, or more where gas makes it dearer (memerules.CHAIN_COST). Rule P7
+    and its control pay at least 4 % (docs/MEME.md section 9)."""
+    c = max(st["meme_cost_pct"], R.CHAIN_COST.get(chain, 0.0))
+    return max(c, M.MIN_COST_PCT) if policy in M.POLICIES else c
 
 
-def _side_cost(st, value, liq, chain=None):
+def _side_cost(st, value, liq, chain=None, policy=None):
     """Fraction lost on one side: half the round-trip cost plus price impact (size / half the pool)."""
-    return cost_pct(st, chain) / 200 + (value / (liq / 2) if liq and liq > 0 else 1.0)
+    return cost_pct(st, chain, policy) / 200 + (value / (liq / 2) if liq and liq > 0 else 1.0)
 
 
 def _dead(liq):
@@ -367,7 +372,7 @@ def _dead(liq):
 def _sell(st, acct, pos, px, liq, ts, why):
     liq = pos["liq"] if liq is None else liq
     if px and why != "rug" and not _dead(liq):
-        fill = max(0.0, px * (1 - _side_cost(st, pos["qty"] * px, liq, pos["chain"])))
+        fill = max(0.0, px * (1 - _side_cost(st, pos["qty"] * px, liq, pos["chain"], pos.get("policy"))))
     else:
         fill, why = 0.0, "rug"
     proceeds = pos["qty"] * fill
@@ -384,7 +389,7 @@ def equity(st, acct, tracked):
         t = tracked.get(p["key"]) or {}
         px, liq = t.get("px") or 0, t.get("liq")
         liq = p["liq"] if liq is None else liq
-        v += p["qty"] * px * (1 - _side_cost(st, p["qty"] * px, liq, p["chain"])) if px and not _dead(liq) else 0.0
+        v += p["qty"] * px * (1 - _side_cost(st, p["qty"] * px, liq, p["chain"], p.get("policy"))) if px and not _dead(liq) else 0.0
     return v
 
 
@@ -475,7 +480,7 @@ def _run(now, fetch):
 
     def close_shadow(sh, px, ts, why):
         sh.update(exit_at=_iso(ts), exit_ts=ts, exit_px=px, why=why,
-                  net_pct=round(R.net_pct(sh["px"], px, cost_pct(st, sh["chain"])), 3))
+                  net_pct=round(R.net_pct(sh["px"], px, cost_pct(st, sh["chain"], sh["policy"])), 3))
         shadows.remove(sh)
         _append("shadows.jsonl", sh)
         tracked.get(sh["key"], {}).get("cool", {})[sh["policy"]] = ts + R.COOLDOWN_MIN * 60
@@ -488,7 +493,7 @@ def _run(now, fetch):
         t = tracked.get(it["key"]) or {}
         entry_px, entry_ts = it["px"], it["ts"]
         hit = None
-        if now - it.get("checked", entry_ts) > GAP and t.get("pool") and gt_budget[0] > 0:
+        if now - it.get("checked", entry_ts) > GAP and t.get("pool") and gt_budget[0] > MIG_RESERVE:
             gt_budget[0] -= 1
             try:
                 bars = gt_bars(t["chain"], t["pool"], min(now, entry_ts + R.HOLD_MIN * 60 + 300), fetch=fetch)
@@ -520,6 +525,83 @@ def _run(now, fetch):
         v, why, rep, sv, swhy = screen(tracked[k]["chain"], tracked[k]["addr"], fetch, tracked[k].get("pool"))
         screens[k] = {"ts": now, "at": _iso(now), "verdict": v, "why": why, "report": rep, "strict": sv, "strict_why": swhy}
     write_json(folder() / "screens.json", screens)
+
+    # 4b. rule P7 and its control (docs/MEME.md section 9): fills due from earlier decisions, then today's decisions
+    pending = s.get("mig_pending") or []
+    for pe in list(pending):
+        if now - pe["decided"] < M.FILL_AFTER_S:
+            continue
+        pending.remove(pe)
+        t = tracked.get(pe["key"]) or {}
+        ok = now - pe["decided"] <= M.FILL_BY_S and pe["key"] in snap and t.get("px") and not _dead(t.get("liq"))
+        _append("migrations.jsonl", {"at": _iso(now), "ts": now, "key": pe["key"], "event": "fill" if ok else "cancel",
+                                     "policy": pe["policy"], "px": t.get("px"),
+                                     "why": None if ok else "no price in the 60-150 s fill window"})
+        if not ok:
+            continue
+        shadows.append({"key": pe["key"], "symbol": t.get("symbol"), "chain": t["chain"], "policy": pe["policy"],
+                        "ts": now, "at": _iso(now), "px": t["px"], "screen": pe["screen"], "strict": pe["strict"],
+                        "checked": now, "news": False, "veto": pe["veto"], "f": pe["f"], "decided": pe["decided"]})
+        out["shadows_opened"] += 1
+        ba = books["migration"]
+        if (pe["policy"] == "migration" and not st["meme_paused"] and len(ba["positions"]) < st["meme_max_open"]
+                and pe["key"] not in {p["key"] for p in ba["positions"]} and t.get("liq")):
+            size = min(equity(st, ba, tracked) * st["meme_position_pct"] / 100, ba["cash"])
+            if size >= 1:
+                fill = t["px"] * (1 + _side_cost(st, size, t["liq"], t["chain"], "migration"))
+                ba["cash"] = round(ba["cash"] - size, 6)
+                ba["positions"].append({"key": pe["key"], "symbol": t.get("symbol"), "chain": t["chain"],
+                                        "policy": "migration", "ts": now, "at": _iso(now), "px": t["px"], "fill": fill,
+                                        "qty": size / fill, "cost": size, "liq": t["liq"], "checked": now})
+    for k, p in snap.items():
+        t = tracked[k]
+        if t.get("mig_done"):
+            continue
+        anc = M.anchor(t["chain"], t["addr"], p)
+        if anc is None:
+            continue
+        when = M.in_window(now, anc)
+        if when == "early":
+            continue
+        t["mig_done"] = True
+        row = {"at": _iso(now), "ts": now, "key": k, "symbol": t.get("symbol"), "event": "decide", "anchor": anc,
+               "anchor_at": _iso(anc), "minutes": round((now - anc) / 60, 1), "pool": p.get("pairAddress"),
+               "dex": p.get("dexId"), "first_seen_min": round((t["first_seen"] - anc) / 60, 1)}
+        if when == "late":
+            if t["first_seen"] - anc <= M.RECENT_S:        # a fresh graduate the desk saw too late: attrition
+                _append("migrations.jsonl", dict(row, event="missed", why="first decision run came after minute 17"))
+            continue                                       # graduated long before the desk saw it: not in the study
+        f = R.features_from_pair(p, now * 1000)
+        sc = screens.get(k) or {}
+        veto = [v for v in R.vetoes(f, now - (t.get("last_promo") or -1e12) < 86400) if not v.startswith("R1")]
+        buyers = first = None
+        if gt_budget[0] > 0:
+            gt_budget[0] -= 1
+            try:
+                d = fetch("%s/networks/solana/pools/%s/trades" % (GT, urllib.parse.quote(p.get("pairAddress") or ""))) or {}
+                trades = [x.get("attributes") or {} for x in d.get("data") or []]
+                buyers, first, _ = M.flow(trades, anc, ((sc.get("report") or {}).get("creator")))
+                if first is None and gt_budget[0] > 0:
+                    gt_budget[0] -= 1
+                    m = fetch("%s/networks/solana/pools/%s/ohlcv/minute?aggregate=1&limit=30&currency=usd"
+                              "&before_timestamp=%d" % (GT, urllib.parse.quote(p.get("pairAddress") or ""),
+                                                        int(anc + 20 * 60))) or {}
+                    first = M.first_from_bars(((m.get("data") or {}).get("attributes") or {}).get("ohlcv_list"), anc)
+            except MemeError as e:
+                row["data_error"] = str(e)
+        dec, why = M.decide(t.get("liq"), f.get("v1h"), buyers, first, t.get("px"))
+        safe = sc.get("strict") == "pass" and not veto
+        if not safe:
+            why = why + ["strict check %s" % sc.get("strict", "unknown")] * (sc.get("strict") != "pass") + veto
+        row.update(liq=t.get("liq"), v1h=f.get("v1h"), buyers=buyers, first_px=first, px=t.get("px"),
+                   strict=sc.get("strict", "unknown"), veto=veto, why=why,
+                   yes=[n for n, y in dec.items() if y and safe])
+        _append("migrations.jsonl", row)
+        for name in row["yes"]:
+            pending.append({"key": k, "policy": name, "decided": now, "screen": sc.get("verdict", "unknown"),
+                            "strict": sc.get("strict", "unknown"), "veto": veto,
+                            "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()}})
+    s["mig_pending"] = pending
 
     # 5 and 6. decisions every 15 minutes per token; today's news words for P6 (docs/MEME.md section 6)
     words = news_words(st)
@@ -572,7 +654,7 @@ def _run(now, fetch):
                     out["bought"] += bn == "main"
 
     # prune: old or dead tokens with nothing open
-    busy = set().union(*held.values()) | {sh["key"] for sh in shadows}
+    busy = set().union(*held.values()) | {sh["key"] for sh in shadows} | {pe["key"] for pe in pending}
     for k in [k for k, t in tracked.items() if k not in busy and (now - t["first_seen"] > TRACK_DAYS * 86400
               or (t.get("seen") and _dead(t.get("liq")))
               or (not t.get("pool") and now - t["first_seen"] > 3600))]:
@@ -664,6 +746,18 @@ def folds(rows, k=4):
     return [round(statistics.fmean(p), 2) if p else None for p in parts]
 
 
+def fold_counts(rows, k=4):
+    """Trades in each of the k equal time slices used by folds()."""
+    timed = [x for x in rows if x.get("ts") is not None]
+    if not timed:
+        return []
+    t0, t1 = min(x["ts"] for x in timed), max(x["ts"] for x in timed)
+    span, n = (t1 - t0) or 1.0, [0] * k
+    for x in timed:
+        n[min(k - 1, int((x["ts"] - t0) / span * k))] += 1
+    return n
+
+
 def stats(rows):
     """The pass-bar numbers (docs/MEME.md section 5) for closed shadows or trades with net_pct."""
     r = sorted(x["net_pct"] for x in rows)
@@ -678,7 +772,7 @@ def stats(rows):
     lo, hi = coin_bootstrap(by_tok)
     w_lo, w_hi = wilson(sum(v > 0 for v in r), len(r))
     fl = folds(rows)
-    return {"folds": fl, "folds_pos": sum(1 for m in fl if m is not None and m > 0),"n": len(r), "tokens": len(keys), "mean": round(statistics.fmean(r), 2), "median": round(statistics.median(r), 2),
+    return {"folds": fl, "folds_pos": sum(1 for m in fl if m is not None and m > 0), "folds_n": fold_counts(rows),"n": len(r), "tokens": len(keys), "mean": round(statistics.fmean(r), 2), "median": round(statistics.median(r), 2),
             "win_pct": round(100 * sum(v > 0 for v in r) / len(r), 1), "mean_lo": lo, "mean_hi": hi,
             "win_lo": w_lo, "win_hi": w_hi,
             "mean_no_top3": round(statistics.fmean(top3), 2) if top3 else None,
@@ -703,7 +797,7 @@ def forward(rows=None):
         _fw_cache.update(sig=sig, out=out)
         return out
     out = {}
-    for p in R.POLICIES:
+    for p in R.POLICIES + M.POLICIES:
         mine = [x for x in rows if x["policy"] == p]
         out[p] = stats(mine)
         out[p + "+screen"] = stats([x for x in mine if x.get("screen") == "pass"])
@@ -712,12 +806,23 @@ def forward(rows=None):
     return out
 
 
-def bar(x, base=None):
-    """docs/MEME.md section 5's pass bar on one forward line, time folds included."""
+def bar(x, base=None, control=None, min_slice=0):
+    """docs/MEME.md section 5's pass bar on one forward line, time folds included. Rule P7 (section 9) also needs
+    min_slice trades in every slice and must beat its own control."""
     return bool(x.get("n", 0) >= 100 and x.get("tokens", 0) >= 50 and (x.get("mean") or -1) > 0
                 and (x.get("median") or -1) > 0 and (x.get("mean_no_top3") or -1) > 0
                 and x.get("folds_pos", 0) >= 3
-                and (not base or not base.get("n") or x["mean"] > base["mean"]))
+                and (not min_slice or min(x.get("folds_n") or [0]) >= min_slice)
+                and (not base or not base.get("n") or x["mean"] > base["mean"])
+                and (not control or (control.get("n") and x["mean"] > control["mean"])))
+
+
+def _bar_for(k, v, fw):
+    if k.startswith("migration_base"):
+        return False                      # the control is a comparator, never a candidate
+    if k.startswith("migration"):
+        return bar(v, fw.get("all"), fw.get("migration_base"), M.MIN_PER_SLICE)
+    return bar(v, fw.get("all"))
 
 
 def conclusion(fw=None):
@@ -726,7 +831,7 @@ def conclusion(fw=None):
     ('collecting', [lines with a full sample])."""
     fw = forward() if fw is None else fw
     full = {k: v for k, v in fw.items() if v.get("n", 0) >= 100 and v.get("tokens", 0) >= 50}
-    passed = sorted(k for k, v in full.items() if not k.startswith("all") and bar(v, fw.get("all")))
+    passed = sorted(k for k, v in full.items() if not k.startswith("all") and _bar_for(k, v, fw))
     if passed:
         return "pass", passed
     rules = {k.split("+")[0] for k in full}
@@ -796,9 +901,28 @@ def view():
             "screens": {v: sv.count(v) for v in ("pass", "fail", "unknown")},
             "discoveries": _count("discoveries.jsonl"),
             "books": books_view(st, s, tracked),
+            "migrations": migration_funnel(),
             "forward": fw, "verdict": verdict(fw, pol, [{"key": t["key"], "net_pct": t["ret_pct"], "ts": t["ts"]} for t in closed]), "cost_pct": st["meme_cost_pct"],
             "rules": {"stop": R.STOP_PCT, "target": R.TARGET_PCT, "hold_min": R.HOLD_MIN},
             "checked": s.get("checked"), "error": s.get("error"), "paper_only": True}
+
+
+def migration_funnel():
+    """Rule P7's attrition (docs/MEME.md section 9): graduates seen, decided in the window, missed, how many each
+    line said yes to, fills and cancels, and the commonest reasons the full rule said no."""
+    rows = _jsonl("migrations.jsonl")
+    ev = lambda e: [r for r in rows if r.get("event") == e]
+    dec = ev("decide")
+    why = {}
+    for r in dec:
+        for w in r.get("why") or []:
+            w = w.split(" (")[0] if "buyers" not in w else "too few buyers since migration"
+            why[w] = why.get(w, 0) + 1
+    return {"seen": len(dec) + len(ev("missed")), "decided": len(dec), "missed": len(ev("missed")),
+            "yes": len([r for r in dec if "migration" in (r.get("yes") or [])]),
+            "yes_base": len([r for r in dec if "migration_base" in (r.get("yes") or [])]),
+            "filled": len(ev("fill")), "cancelled": len(ev("cancel")),
+            "top_no": sorted(why.items(), key=lambda kv: -kv[1])[:5]}
 
 
 BOOK_NAMES = {"careful": "Careful: any rule, strict check, no research filter"}
@@ -836,7 +960,7 @@ def lines(v=None):
          % (v["tracked"], v["discoveries"], v["screens"]["pass"], v["screens"]["fail"], v["screens"]["unknown"], v["cost_pct"]),
          "  Forward record (closed shadows, net of cost, stop %d%% / target +%d%% / %d min):"
          % (v["rules"]["stop"], v["rules"]["target"], v["rules"]["hold_min"])]
-    for p in R.POLICIES:
+    for p in R.POLICIES + M.POLICIES:
         for name in (p, p + "+screen", p + "+strict", p + "+evidence"):
             x = v["forward"][name]
             if not x["n"] and name != p:
@@ -853,6 +977,11 @@ def lines(v=None):
                                                                         b["trades"], b["wins"], b["open"]))
     L.append("  Pass bar for %s+screen: %s" % (v["policy"], "; ".join("%s %s" % (c["check"], "yes" if c["ok"] else "NO")
                                                                      for c in v["verdict"])))
+    g = v.get("migrations") or {}
+    if g:
+        L.append("  Rule P7 (after migration, docs/MEME.md s.9): %d graduates seen, %d decided, %d too late; P7 said buy %d, "
+                 "control %d; %d filled, %d cancelled." % (g["seen"], g["decided"], g["missed"], g["yes"], g["yes_base"],
+                                                         g["filled"], g["cancelled"]))
     if v.get("error"):
         L.append("  Last error: %s" % v["error"])
     return L

@@ -533,6 +533,8 @@ tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
       <div class="card" id="m-curve" hidden></div>
       <h2 class="section-title">Forward test: every rule, after costs</h2>
       <div class="card scroll" id="m-fw"></div>
+      <h2 class="section-title">Rule P7: buying after a launchpad migration</h2>
+      <div class="card" id="m-mig"></div>
       <h2 class="section-title">Memecoin settings</h2>
       <div class="group" id="meme-form"></div>
       <div class="hrow"><button class="btn" id="meme-save">Save memecoin settings</button><button class="btn gray" id="meme-reset">Start the account over</button></div>
@@ -1190,7 +1192,7 @@ const MEME_FIELDS = [
   ["meme_news_words","News you are watching","One phrase per line, like GTA 6 launch. A coin named after one counts for the news rule.","area"],
 ];
 const RULE_NAME = {careful:"Careful: strict check, no research filter", learn:"Learning: any of the six rules", auto:"The backtest's pick"};
-const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative"};
+const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative", migration:"After migration, steady flow (P7)", migration_base:"After migration, any (P7 control)"};
 const VARIANTS = [["", "any coin"], ["+screen", "passed the check"], ["+strict", "passed the strict check"], ["+evidence", "check + research filters"]];
 // Display-only plain names for internal tags. Values sent to the API and saved in settings never change.
 const RULE_SHORT = {all:"Buy everything", hype:"Hype", breakout:"Breakout", calm_aged:"Calm, 1–7 days", dip_aged:"Dip, 1–7 days", aged_liquid:"Aged and liquid, 3–14 days", news:"News or trend", careful:"Careful", learn:"Learning", auto:"Backtest's pick", main:"Main account"};
@@ -1248,6 +1250,15 @@ async function loadMeme() {
     ${!MFW && fwHidden ? `<p class="foot-note">${fwHidden} more lines have no closed trades yet and are hidden.</p>` : ""}
     <div class="hrow" style="margin:10px 0 0"><button class="btn gray small tap" id="m-fw-toggle" aria-expanded="${MFW}">${MFW ? "Show fewer lines" : "Show all " + fwRows.length + " lines"}</button></div>
     <p class="foot-note">Every rule is recorded on every coin it would buy, traded or not, with the same exits and costs. A line passes only with 100+ trades on 50+ coins, average and middle above 0, still above 0 without its best 3, positive in 3 of 4 time slices, and better than buying everything. With 28 lines about 1 in 20 looks good by luck, so a line that passes earns its own fresh test, not real money.</p>`;
+  const g = m.migrations || {};
+  $("#m-mig").innerHTML = `<div class="list">
+    <div class="li num"><span>Graduates seen</span><b>${g.seen ?? 0}</b></div>
+    <div class="li num"><span>Decided at minute 15–17</span><b>${g.decided ?? 0}${g.missed ? ` · ${g.missed} seen too late` : ""}</b></div>
+    <div class="li num"><span>Steady flow (P7) said buy</span><b>${g.yes ?? 0}</b></div>
+    <div class="li num"><span>Control (any graduate) said buy</span><b>${g.yes_base ?? 0}</b></div>
+    <div class="li num"><span>Filled · cancelled</span><b>${g.filled ?? 0} · ${g.cancelled ?? 0}</b></div></div>
+    ${(g.top_no || []).length ? `<p class="foot-note">Most common reasons P7 said no: ${g.top_no.map(([w, n]) => esc(w) + " (" + n + ")").join("; ")}.</p>` : ""}
+    <p class="foot-note">Pre-registered in docs/MEME.md section 9 before any of its data. One decision per pump.fun or LetsBonk coin, 15 minutes after it moves to its own pool: at least $50k in the pool, $20k traded in the hour, 25 different buyers, and a price within 90–120% of its first trade there. Bought 60 seconds later, at least 4% round-trip cost. It has to beat the control as well as buying everything.</p>`;
   if (st && !MMDIRTY && !$("#meme-form").contains(document.activeElement)) $("#meme-form").innerHTML = MEME_FIELDS.map(([k, l, h, type, opts]) => {
     const v = Array.isArray(st[k]) ? st[k].join(k === "meme_news_words" ? "\n" : " ") : String(st[k]), id = "mset-" + k;
     const ctl = type === "select" ? `<select id="${id}" data-mk="${k}">${opts.map(o => `<option value="${o}" ${o === v ? "selected" : ""}>${k === "meme_policy" ? esc(polName(o)) : o}</option>`).join("")}</select>`

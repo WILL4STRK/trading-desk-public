@@ -9,6 +9,7 @@ from unittest import mock
 
 from desk import meme
 from desk import memerules as R
+from desk import memigrate as M
 from desk import settings as S
 from desk.scheduler import Scheduler
 from desk.server import serve
@@ -30,6 +31,7 @@ class FakeAPI:
         self.rug = {"score_normalised": 5, "risks": [], "lpLockedPct": 90}
         self.goplus = {}
         self.bars = []
+        self.trades = []
         self.calls = []
 
     @staticmethod
@@ -54,6 +56,8 @@ class FakeAPI:
             return self.rug
         if "gopluslabs" in url:
             return {"code": 1, "result": self.goplus}
+        if "geckoterminal" in url and "/trades" in url:
+            return {"data": [{"attributes": a} for a in self.trades]}
         if "geckoterminal" in url:
             return {"data": {"attributes": {"ohlcv_list": list(reversed(self.bars))}}}
         raise AssertionError(url)
@@ -425,3 +429,138 @@ class Schedule(DemoCase):
                 sch.tick(wall=3000.0)
                 time.sleep(0.05)
                 self.assertEqual(ran, [1])
+
+
+PUMP = "Gr4duAteMeme11111111111111111111111111pump"
+
+
+def _iso_utc(ts):
+    import datetime
+    return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _trades(anc, n_buyers, first_px=1.0, creator_buys=0):
+    rows = [{"block_timestamp": _iso_utc(anc + 10), "kind": "buy", "tx_from_address": "w0", "price_to_in_usd": str(first_px)}]
+    rows += [{"block_timestamp": _iso_utc(anc + 30 + i), "kind": "buy", "tx_from_address": "w%d" % (i + 1),
+              "price_to_in_usd": "1.0"} for i in range(n_buyers - 1)]
+    rows += [{"block_timestamp": _iso_utc(anc + 40), "kind": "buy", "tx_from_address": "CREATOR",
+              "price_to_in_usd": "1.0"}] * creator_buys
+    return rows
+
+
+class MigrationRules(DeskCase):
+    def test_anchor_needs_a_graduated_launchpad_mint_on_solana(self):
+        pool = {"dexId": "pumpswap", "pairCreatedAt": 1000 * 1000}
+        self.assertEqual(M.anchor("solana", PUMP, pool), 1000.0)
+        self.assertIsNone(M.anchor("solana", PUMP, dict(pool, dexId="pumpfun")))       # still on the curve
+        self.assertIsNone(M.anchor("solana", "So1aNaMeme", pool))                       # not a launchpad mint
+        self.assertIsNone(M.anchor("bsc", "0xabcpump", pool))
+        self.assertEqual(M.anchor("solana", "XyzBonkMintbonk", dict(pool, dexId="raydium")), 1000.0)
+
+    def test_the_one_decision_window(self):
+        self.assertEqual([M.in_window(a, 0) for a in (14 * 60, 15 * 60, 16.9 * 60, 17 * 60)], ["early", "now", "now", "late"])
+
+    def test_flow_counts_distinct_buyers_since_the_anchor_without_the_creator(self):
+        rows = _trades(1000, 30, first_px=0.5, creator_buys=3) + [
+            {"block_timestamp": _iso_utc(900), "kind": "buy", "tx_from_address": "before", "price_to_in_usd": "9"}]
+        n, first, _ = M.flow(rows, 1000, creator="CREATOR")
+        self.assertEqual((n, first), (30, 0.5))
+        late = [r for r in rows if r["tx_from_address"] != "w0"]           # the list starts 30 s after the anchor
+        self.assertEqual(M.flow(late, 1000)[1], 1.0)
+        self.assertIsNone(M.flow([dict(r, block_timestamp=_iso_utc(1200)) for r in rows], 1000)[1])  # too far back
+
+    def test_decide(self):
+        ok, why = M.decide(60000, 25000, 30, 1.0, 1.1)
+        self.assertEqual((ok, why), ({"migration": True, "migration_base": True}, []))
+        ok, why = M.decide(60000, 25000, 10, 1.0, 1.5)
+        self.assertEqual(ok, {"migration": False, "migration_base": True})
+        self.assertEqual(len(why), 2)
+        self.assertEqual(M.decide(None, 25000, 30, 1.0, 1.0)[0], {"migration": False, "migration_base": False})
+        self.assertFalse(M.decide(60000, 25000, 30, None, 1.0)[0]["migration"])          # missing data is a no
+
+    def test_the_bar_needs_ten_a_slice_and_must_beat_its_control(self):
+        rows = [{"key": "c%d" % (i % 60), "policy": "migration", "net_pct": v, "ts": T0 + i * 600}
+                for i, v in enumerate([6.0, 2.0, -1.0] * 40)]
+        x = meme.stats(rows)
+        self.assertEqual(sum(x["folds_n"]), 120)
+        self.assertTrue(meme.bar(x, None, {"n": 50, "mean": 0.5}, M.MIN_PER_SLICE))
+        self.assertFalse(meme.bar(x, None, {"n": 50, "mean": 9.0}, M.MIN_PER_SLICE))    # the control did better
+        self.assertFalse(meme.bar(x, None, None, 40))                                     # 30 a slice, not 40
+        fw = {"all": {}, "migration_base": {"n": 50, "mean": 9.0}}
+        self.assertFalse(meme._bar_for("migration", x, fw))
+        self.assertFalse(meme._bar_for("migration_base", x, {"all": {}}))                # never a candidate
+
+
+class MigrationRun(DeskCase):
+    def setUp(self):
+        super().setUp()
+        self.api = FakeAPI()
+        self.anc = T0 - 16 * 60
+        self.api.feed = [{"chainId": "solana", "tokenAddress": PUMP}]
+        p = FakeAPI.pair(PUMP, "PSWAP", 1.0, 80000.0, age_h=16 / 60, dex="pumpswap")
+        p["pairCreatedAt"] = self.anc * 1000
+        self.api.pairs = {PUMP: p}
+        self.api.trades = _trades(self.anc, 30, first_px=0.95, creator_buys=2)
+        self.api.rug = {"score_normalised": 5, "risks": [], "creator": "CREATOR", "topHolders": [{"owner": "w", "pct": 5}],
+                        "markets": [{"pubkey": "PSWAP", "lp": {"lpLockedPct": 100}}], "knownAccounts": {},
+                        "token": {"supply": 100}, "creatorBalance": 0}
+        self.api.feed = [{"chainId": "solana", "tokenAddress": PUMP}]
+
+    def log(self):
+        return meme._jsonl("migrations.jsonl")
+
+    def test_decide_then_fill_after_60s_into_shadows_and_its_own_account(self):
+        with mock.patch.object(R, "vetoes", return_value=[]):             # the fake feed is a boost: no R2 here
+            meme.run(now=T0, fetch=self.api)
+            d = [r for r in self.log() if r["event"] == "decide"][0]
+            self.assertEqual((d["buyers"], d["first_px"], sorted(d["yes"])), (30, 0.95, ["migration", "migration_base"]))
+            self.assertEqual(len(meme.load()["mig_pending"]), 2)
+            self.assertFalse([sh for sh in meme.load()["shadows"] if sh["policy"].startswith("migration")])
+            meme.run(now=T0 + 70, fetch=self.api)
+        s = meme.load()
+        self.assertEqual(sorted(sh["policy"] for sh in s["shadows"] if sh["policy"].startswith("migration")),
+                         ["migration", "migration_base"])
+        self.assertEqual(s["mig_pending"], [])
+        self.assertEqual(len(s["books"]["migration"]["positions"]), 1)
+        self.assertEqual(s["books"]["careful"]["positions"], [])
+        self.assertEqual([r["event"] for r in self.log()].count("fill"), 2)
+
+    def test_p7_pays_at_least_4_pct(self):
+        st = S.load()
+        self.assertEqual(meme.cost_pct(st, "solana", "migration"), 4.0)
+        self.assertEqual(meme.cost_pct(st, "solana", "calm_aged"), 3.5)
+        self.assertEqual(meme.cost_pct(st, "ethereum", "migration"), 6.0)
+
+    def test_a_late_fill_is_cancelled(self):
+        with mock.patch.object(R, "vetoes", return_value=[]):
+            meme.run(now=T0, fetch=self.api)
+            meme.run(now=T0 + 200, fetch=self.api)
+        self.assertEqual([r["event"] for r in self.log()].count("cancel"), 2)
+        self.assertFalse([sh for sh in meme.load()["shadows"] if sh["policy"].startswith("migration")])
+
+    def test_a_coin_first_seen_after_minute_17_is_logged_as_missed(self):
+        self.api.pairs[PUMP]["pairCreatedAt"] = (T0 - 30 * 60) * 1000
+        meme.run(now=T0, fetch=self.api)
+        self.assertEqual([r["event"] for r in self.log()], ["missed"])
+
+    def test_a_coin_that_graduated_days_ago_is_not_counted(self):
+        self.api.pairs[PUMP]["pairCreatedAt"] = (T0 - 3 * 86400) * 1000
+        meme.run(now=T0, fetch=self.api)
+        self.assertEqual(self.log(), [])
+        self.assertTrue(meme.load()["tracked"]["solana:" + PUMP]["mig_done"])
+
+    def test_one_decision_per_mint_and_unknown_safety_never_buys(self):
+        self.api.rug = None
+        with mock.patch.object(R, "vetoes", return_value=[]):
+            meme.run(now=T0, fetch=self.api)
+            meme.run(now=T0 + 60, fetch=self.api)
+        d = [r for r in self.log() if r["event"] == "decide"]
+        self.assertEqual(len(d), 1)
+        self.assertEqual(d[0]["yes"], [])
+        self.assertIn("strict check unknown", d[0]["why"])
+
+    def test_the_paid_promotion_veto_still_applies(self):
+        meme.run(now=T0, fetch=self.api)                                   # found on the boost feed: R2
+        d = [r for r in self.log() if r["event"] == "decide"][0]
+        self.assertEqual(d["yes"], [])
+        self.assertIn("R2 paid promotion", d["why"])

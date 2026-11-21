@@ -194,7 +194,9 @@ migrations in the past. The code lives in `desk/memigrate.py` (pure rules) and `
 tracked DexScreener pool is no longer the launchpad's own curve (`dexId` not `pumpfun` or `launchlab`). The
 **anchor** is that pool's `pairCreatedAt`: the migration. One decision per mint, taken by the first run between
 **15 and 17 minutes** after the anchor. A coin first seen later, or a run that misses the window, is logged as
-attrition and never caught up.
+attrition and never caught up. Only a coin the desk first saw within an hour of its migration counts as a missed
+graduate; coins that graduated earlier than that are outside the study and are not logged (added 2026-11-21, after a
+dry run in a scratch folder and before any recorded data).
 
 **Two lines, decided at the same moment:**
 
