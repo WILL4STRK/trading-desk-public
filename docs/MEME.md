@@ -230,3 +230,47 @@ the migration are not in DexScreener's pool figure, so this is stricter); exits 
 desk's once-a-minute sample already lags); sizing follows the desk, not $100 on $1,000 (the bar is per trade, so
 size does not change it); the creator is excluded only when RugCheck names one. Every graduate the desk sees is
 written to `migrations.jsonl` with the outcome and the reason, so attrition can be audited.
+
+## 10. Rule P8: moonshot, ride young coins that are taking off (pre-registered 2026-11-21, before any of its data)
+
+The user asked for a bot whose goal is the coins that go up very far, very fast. Every rule above sells at +30 %, so
+none of them can catch a 5x. P8 is the opposite bet: small positions on young coins that are accelerating, no
+target, and a trailing stop that lets a winner run, so a few large winners have to pay for many losers. Section 0
+already says hype was inversely predictive on average (coins under an hour old: -73 % in 15 minutes); P8 tests
+whether the right tail is fat enough to pay for that. It is written before the missed-winners research (any rule
+fitted to those winners would be hindsight) and before any of its own data. Code: `desk/memoon.py` (pure rules)
+and `desk/meme.py` (plumbing).
+
+**Decisions.** Every 5 minutes per tracked coin (the other rules use 15).
+
+| # | name | buys when |
+|---|---|---|
+| P8 | `moonshot` | age 1 h to 48 h; price up 20 % to 150 % in the last hour and up over the last 5 minutes; 5-minute volume x 12 at least 1.5 x the last hour's volume; at least 50 trades in the last 5 minutes with buys >= 55 % of them; hour volume >= $50k; pool liquidity >= $25k |
+| P8b | `moonshot_base` | the control: same age band, hour volume and liquidity floors, no momentum test |
+
+Both need the **plain** safety check to pass (honeypot, taxes, RugCheck score; unknown fails). The strict check is
+recorded but not required: young coins nearly always fail its holder-concentration part. R3 (flat volume burst,
+a wash-trading sign) vetoes; R1 (age) is waived; R2 (paid promotion) is recorded on the shadow but does not veto,
+so its effect can be read afterwards.
+
+**Fill.** As section 9: the first price sample at least 60 s after the decision and no later than 150 s, else
+cancelled. Cost: the larger of 4 % and the Settings cost, round trip (Ethereum 6 %), plus price impact.
+
+**Exits (no target).** From the fill price:
+- stop at -25 %;
+- once the peak is +40 % or more, sell if the price falls 25 % below the peak;
+- once the peak is +150 % or more, sell if the price falls 30 % below the peak;
+- time stop 24 hours; liquidity falling under half of its level at the buy sells at once; a dead pool (under $1,000)
+  is a total loss.
+Forward samples are about a minute apart and a stop fills at the sampled price (a gap is real). When the desk was off,
+5-minute candles are replayed: in each bar the stop level from the peak *before* the bar is checked against the low
+first (filling at the bar's open if it opened below it), then the peak is updated from the high.
+
+**Account.** P8 trades its own practice account ($100): **5 %** of the account a position, at most **10** open, one
+per coin, 60 minutes before the same coin can be bought again. P8b is shadow-only.
+
+**Pass bar.** Section 5's bar with section 8's time slices and section 9's 10 trades per slice, and P8 must beat P8b
+and buy-everything. Because P8 is built for a skewed payoff, its **median is expected to be negative**; that check
+stays (a rule that only works through its top three trades fails "still above 0 without the 3 best" anyway), so the
+bar is not loosened for it. Report also its largest win, the share of trades above +100 %, and its result without
+its best 3 and best 10 trades.
