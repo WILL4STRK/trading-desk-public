@@ -977,7 +977,7 @@ function renderForm() {
   $("#form").innerHTML = FIELDS.map(([k, l, h, type, opts]) => {
     const v = Array.isArray(st[k]) ? st[k].join(" ") : String(st[k]);
     const id = "set-" + k;
-    const ctl = type === "select" ? `<select id="${id}" data-k="${k}">${opts.map(o => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>`
+    const ctl = type === "select" ? `<select id="${id}" data-k="${k}">${opts.map(o => `<option value="${o}" ${o === v ? "selected" : ""}>${k === "meme_policy" ? esc(polName(o)) : o}</option>`).join("")}</select>`
       : type === "area" ? `<textarea id="${id}" data-k="${k}" rows="3">${esc(v)}</textarea>` : `<input id="${id}" data-k="${k}" value="${esc(v)}">`;
     const box = k === "ntfy_topic" ? `<div style="display:grid;gap:6px">${ctl}<button class="btn small gray" id="ntfy-test" type="button">Send test alert</button></div>` : ctl;
     return `<div class="frow ${type === "area" ? "full" : ""}"><label for="${id}">${l}<small>${h}</small></label>${box}</div>`;
@@ -1148,6 +1148,19 @@ const MEME_FIELDS = [
 const RULE_NAME = {careful:"Careful: strict check, no research filter", learn:"Learning: any of the six rules", auto:"The backtest's pick"};
 const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative"};
 const VARIANTS = [["", "any coin"], ["+screen", "passed the check"], ["+strict", "passed the strict check"], ["+evidence", "check + research filters"]];
+// Display-only plain names for internal tags. Values sent to the API and saved in settings never change.
+const RULE_SHORT = {all:"Buy everything", hype:"Hype", breakout:"Breakout", calm_aged:"Calm, 1–7 days", dip_aged:"Dip, 1–7 days", aged_liquid:"Aged and liquid, 3–14 days", news:"News or trend", careful:"Careful", learn:"Learning", auto:"Backtest's pick", main:"Main account"};
+const EXIT_NAME = {sl:"Stop", stop:"Stop", tp:"Target", target:"Target", trail:"Trailing stop", time:"Time limit", eod:"End of run", rug:"Pool pulled", "liquidity pulled":"Liquidity pulled"};
+const cap1 = s => { s = String(s ?? ""); return s.charAt(0).toUpperCase() + s.slice(1); };
+const pretty = s => cap1(String(s ?? "").replace(/[-_]+/g, " ").trim());
+const exitName = w => EXIT_NAME[String(w).toLowerCase()] || pretty(w);
+const feedName = s => { s = String(s ?? ""); const m = /^meta:(.+)$/.exec(s); if (m) return "Trend: " + m[1];
+  if (/^boosts?\b/.test(s)) return "Boosted"; if (/^profiles?\b/.test(s)) return "Profile"; if (/^community-takeovers?/.test(s)) return "Community takeover";
+  if (/^ads?\b/.test(s)) return "Ad"; if (s === "search-new") return "New-pool search"; return pretty(s); };
+const polName = x => RULE_INFO[x] || RULE_NAME[x] || pretty(x);
+const holdTxt = n => { if (n == null || n === "" || isNaN(n)) return ""; const t = Math.max(0, Math.round(Number(n))), h = Math.floor(t / 60), m = t % 60; return h ? h + " h" + (m ? " " + m + " min" : "") : t + " min"; };
+const friendly = s => String(s ?? "").replace(/\b(calm_aged|dip_aged|aged_liquid)\b/g, k => RULE_SHORT[k])
+  .replace(/\bmeta:([\w-]+)/g, "Trend: $1").replace(/\b(boosts-(?:latest|top)|profiles-[\w-]+|community-takeovers-latest|ads-latest|search-new)\b/g, m => feedName(m));
 const cpx = n => n == null ? "–" : n >= 1 ? Number(n).toFixed(4) : Number(n).toPrecision(4);
 const pctS = (x, d = 2) => x == null ? "–" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d) + "%";
 const tone = x => x == null ? "" : x > 0 ? "pos" : x < 0 ? "neg" : "";
@@ -1164,17 +1177,17 @@ async function loadMeme() {
   renderMemeList();
   const pass = m.verdict.every(c => c.ok);
   const kv = (k, v) => `<div class="li"><span>${k}</span><b>${v}</b></div>`;
-  $("#m-status").innerHTML = `<div class="list">${kv("Trades", esc(RULE_INFO[m.policy] || RULE_NAME[m.policy] || m.policy))}
+  $("#m-status").innerHTML = `<div class="list">${kv("Trades", esc(polName(m.policy)))}
     ${kv("Safety checks", `${m.screens.pass} pass · ${m.screens.fail} fail · ${m.screens.unknown} unknown`)}
     ${kv("Rules watching", m.open_shadows + " open")}
     ${kv("Last look", esc(m.checked ? m.checked.slice(11, 16) + " UTC" : "not yet") + (m.enabled ? (m.paused ? " · buys paused" : "") : " · model off"))}</div>
     ${m.error ? `<div class="callout bad">Last try failed: ${esc(m.error)}</div>` : ""}
     <div class="callout ${pass ? "" : "bad"}">${pass ? "The account has met the pass bar on its own record. That earns a fresh test, not real money."
       : "Not proven: " + m.verdict.filter(c => !c.ok).map(c => esc(c.check)).join("; ") + "."}</div>
-    <p class="foot-note">${esc(m.policy_why)}. ${st ? st.meme_position_pct : 20}% a coin, at most ${st ? st.meme_max_open : 4}. Stop ${m.rules.stop}%, target +${m.rules.target}%, out after ${m.rules.hold_min / 60} h. Costs ${m.cost_pct}% round trip plus price impact.</p>`;
+    <p class="foot-note">${esc(cap1(friendly(m.policy_why)))}. ${st ? st.meme_position_pct : 20}% a coin, at most ${st ? st.meme_max_open : 4}. Stop ${m.rules.stop}%, target +${m.rules.target}%, out after ${m.rules.hold_min / 60} h. Costs ${m.cost_pct}% round trip plus price impact.</p>`;
   renderMemePos();
   $("#m-curve").innerHTML = curveSvg(m.curve, a.start) + `<p class="foot-note">Since ${esc(a.started || "the first run")}, ${usd(a.start)} start. Realized ${usd(a.realized, true)}. A pulled pool counts as a total loss.</p>`;
-  const bname = n => n === "main" ? "Main (" + (RULE_NAME[m.policy] || RULE_INFO[m.policy] || m.policy) + ")" : n === "careful" ? RULE_NAME.careful : (RULE_INFO[n] || n);
+  const bname = n => n === "main" ? "Main (" + polName(m.policy) + ")" : n === "careful" ? RULE_NAME.careful : (RULE_INFO[n] || n);
   const allUp = m.books.length && m.books.every(b => b.return_pct > 0);
   $("#m-books").innerHTML = `<table><tr><th style="text-align:left">Account</th><th>Balance</th><th>Since start</th><th>Closed</th><th>Won</th><th>Holding</th></tr>
     ${m.books.map(b => `<tr><td style="text-align:left">${esc(bname(b.name))}</td><td class="num">${usd(b.equity)}</td><td class="num ${tone(b.return_pct)}">${pctS(b.return_pct)}</td><td class="num">${b.trades}</td><td class="num">${b.wins}</td><td class="num">${b.open}</td></tr>`).join("")}</table>
@@ -1192,7 +1205,7 @@ async function loadMeme() {
     <p class="foot-note">Every rule is recorded on every coin it would buy, traded or not, with the same exits and costs. A line passes only with 100+ trades on 50+ coins, average and middle above 0, still above 0 without its best 3, positive in 3 of 4 time slices, and better than buying everything. With 28 lines about 1 in 20 looks good by luck, so a line that passes earns its own fresh test, not real money.</p>`;
   if (st && !MMDIRTY && !$("#meme-form").contains(document.activeElement)) $("#meme-form").innerHTML = MEME_FIELDS.map(([k, l, h, type, opts]) => {
     const v = Array.isArray(st[k]) ? st[k].join(k === "meme_news_words" ? "\n" : " ") : String(st[k]), id = "mset-" + k;
-    const ctl = type === "select" ? `<select id="${id}" data-mk="${k}">${opts.map(o => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>`
+    const ctl = type === "select" ? `<select id="${id}" data-mk="${k}">${opts.map(o => `<option value="${o}" ${o === v ? "selected" : ""}>${k === "meme_policy" ? esc(polName(o)) : o}</option>`).join("")}</select>`
       : type === "area" ? `<textarea id="${id}" data-mk="${k}" rows="2">${esc(v)}</textarea>` : `<input id="${id}" data-mk="${k}" value="${esc(v)}" inputmode="decimal">`;
     return `<div class="frow ${type === "area" ? "full" : ""}"><label for="${id}">${l}<small>${h}</small></label>${ctl}</div>`;
   }).join("");
@@ -1209,7 +1222,7 @@ function renderMemeList() {
 }
 function renderMemePos() {
   const m = MM; if (!m) return;
-  if (MF === "open") $("#m-pos").innerHTML = m.positions.length ? m.positions.map(p => `<article class="card" data-mkey="${esc(p.key)}" style="cursor:pointer"><div class="chead"><div class="logo" aria-hidden="true">${initials(p.symbol || "?")}</div><div><b>${esc(p.symbol)}</b> <small style="color:var(--label2)">${esc(p.chain)} · ${esc(RULE_INFO[p.policy] || p.policy)}</small></div><span class="${tone(p.pnl)} num" style="margin-left:auto;font-weight:600">${pctS(p.move_pct, 1)}</span></div>
+  if (MF === "open") $("#m-pos").innerHTML = m.positions.length ? m.positions.map(p => `<article class="card" data-mkey="${esc(p.key)}" style="cursor:pointer"><div class="chead"><div class="logo" aria-hidden="true">${initials(p.symbol || "?")}</div><div><b>${esc(p.symbol)}</b> <small style="color:var(--label2)">${esc(p.chain)} · ${esc(polName(p.policy))}</small></div><span class="${tone(p.pnl)} num" style="margin-left:auto;font-weight:600">${pctS(p.move_pct, 1)}</span></div>
       <div class="list" style="margin-top:8px">
       <div class="li num"><span>Bought ${esc(p.at.slice(11, 16))} UTC at</span><b>${cpx(p.px)}</b></div>
       <div class="li num"><span>Now</span><b>${cpx(p.now_px)}</b></div>
@@ -1217,7 +1230,7 @@ function renderMemePos() {
       <div class="li num"><span>Worth after costs</span><b class="${tone(p.pnl)}">${usd(p.value)} (${usd(p.pnl, true)})</b></div>
       <div class="li num"><span>Sells by</span><b>${esc(p.ends.slice(11, 16))} UTC</b></div></div></article>`).join("")
     : `<div class="card empty"><b>Nothing held</b>A buy happens when a rule fires on a coin that passed the safety check. Careful mode trades rarely.</div>`;
-  else $("#m-pos").innerHTML = m.closed.length ? `<div class="card scroll"><table><tr><th style="text-align:left">Coin</th><th>Why</th><th>Return</th><th>Result</th></tr>${m.closed.map(t => `<tr><td style="text-align:left"><b>${esc(t.symbol)}</b> <small style="color:var(--label2)">${esc(t.exit_at.slice(5, 16))}</small></td><td>${esc(t.why)}</td><td class="num ${tone(t.ret_pct)}">${pctS(t.ret_pct, 1)}</td><td class="num ${tone(t.pnl)}">${usd(t.pnl, true)}</td></tr>`).join("")}</table></div>`
+  else $("#m-pos").innerHTML = m.closed.length ? `<div class="card scroll"><table><tr><th style="text-align:left">Coin</th><th>Why</th><th>Return</th><th>Result</th></tr>${m.closed.map(t => `<tr><td style="text-align:left"><b>${esc(t.symbol)}</b> <small style="color:var(--label2)">${esc(t.exit_at.slice(5, 16))}</small></td><td>${esc(exitName(t.why))}</td><td class="num ${tone(t.ret_pct)}">${pctS(t.ret_pct, 1)}</td><td class="num ${tone(t.pnl)}">${usd(t.pnl, true)}</td></tr>`).join("")}</table></div>`
     : `<div class="card empty"><b>No closed trades yet</b></div>`;
 }
 function curveSvg(curve, start) {
@@ -1297,7 +1310,7 @@ function renderMemeFacts(c) {
     ${kv("Buys, last 5 min", f.buy_ratio_m5 == null ? "–" : Math.round(f.buy_ratio_m5 * 100) + "% of " + f.tx_m5)}
     ${kv("Safety", `<span class="${cls}">${word}</span>`)}
     ${kv("Rules that would buy now", esc(c.rules.filter(r => r !== "all").map(r => RULE_INFO[r]).join(", ") || "none"))}</div>
-    <p class="foot-note">${esc(c.why.join("; "))}. Found ${esc(c.first_seen.slice(5, 16))} UTC on ${esc(c.sources.join(", "))}.</p>`;
+    <p class="foot-note">${esc(cap1(friendly(c.why.join("; "))))}. Found ${esc(c.first_seen.slice(5, 16))} UTC via ${esc([...new Set(c.sources.map(feedName))].join(", "))}.</p>`;
 }
 document.addEventListener("keydown", e => { const r = e.target.closest && e.target.closest("tr[data-mkey]"); if (r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); r.click(); } });
 
@@ -1308,8 +1321,8 @@ async function loadMemebot() {
   if (!d.found) { $("#mb-body").innerHTML = `<div class="empty"><b>Memebot folder not found</b>${esc(d.hint)}${d.dir ? `<br><span class="num">Looked in: ${esc(d.dir)}</span>` : ""}</div>`; return; }
   const L = d.log || {}, T = d.trade_summary || {}, cyc = (L.cycles || {});
   const chip = `<span class="chip ${d.running ? "live" : ""}"><i></i>${d.running ? "Running" : "Not running"}</span>`;
-  const table = cyc.head && cyc.head.length ? `<div class="scroll"><table><tr>${cyc.head.map(h => `<th>${esc(h)}</th>`).join("")}</tr>${cyc.rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>` : `<div class="empty"><b>No cycles yet</b>The loop log has no cycle table.</div>`;
-  const trades = d.trades && d.trades.length ? `<div class="scroll"><table><tr><th>Token</th><th>Result</th><th>Return</th><th>Exit</th><th>Held</th><th>When</th></tr>${d.trades.slice(0, 50).map(t => `<tr><td style="text-align:left"><b>${esc(t.symbol)}</b></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${typeof t.pnl === "number" ? usd(t.pnl, true) : esc(t.pnl)}</td><td class="num">${typeof t.ret === "number" ? (t.ret * 100).toFixed(1) + "%" : ""}</td><td>${esc(t.why)}</td><td class="num">${t.hold_min != null ? esc(t.hold_min) + " min" : ""}</td><td class="num">${esc(ago(t.t_out))}</td></tr>`).join("")}</table></div>` : `<div class="empty"><b>No closed paper trades yet</b></div>`;
+  const table = cyc.head && cyc.head.length ? `<div class="scroll"><table><tr>${cyc.head.map(h => `<th>${esc(friendly(h))}</th>`).join("")}</tr>${cyc.rows.map(r => `<tr>${r.map(c => `<td>${esc(friendly(c))}</td>`).join("")}</tr>`).join("")}</table></div>` : `<div class="empty"><b>No cycles yet</b>The loop log has no cycle table.</div>`;
+  const trades = d.trades && d.trades.length ? `<div class="scroll"><table><tr><th>Token</th><th>Result</th><th>Return</th><th>Exit</th><th>Held</th><th>When</th></tr>${d.trades.slice(0, 50).map(t => `<tr><td style="text-align:left"><b>${esc(t.symbol)}</b></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${typeof t.pnl === "number" ? usd(t.pnl, true) : esc(t.pnl)}</td><td class="num">${typeof t.ret === "number" ? (t.ret * 100).toFixed(1) + "%" : ""}</td><td>${esc(exitName(t.why))}</td><td class="num">${esc(holdTxt(t.hold_min))}</td><td class="num">${esc(ago(t.t_out))}</td></tr>`).join("")}</table></div>` : `<div class="empty"><b>No closed paper trades yet</b></div>`;
   $("#mb-body").innerHTML = `
     <div class="card hero">
       <div class="cap"><span>Loop</span>${chip}</div>
