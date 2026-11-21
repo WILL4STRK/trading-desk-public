@@ -10,6 +10,7 @@ from unittest import mock
 from desk import meme
 from desk import memerules as R
 from desk import memigrate as M
+from desk import memoon as MN
 from desk import settings as S
 from desk.scheduler import Scheduler
 from desk.server import serve
@@ -564,3 +565,88 @@ class MigrationRun(DeskCase):
         d = [r for r in self.log() if r["event"] == "decide"][0]
         self.assertEqual(d["yes"], [])
         self.assertIn("R2 paid promotion", d["why"])
+
+
+MOON = "So1aNaMoon4444444444444444444444444444pump"
+
+
+def _moon_pair(price, liq=60000.0, now=T0, **pc):
+    p = FakeAPI.pair(MOON, "MPOOL", price, liq, age_h=6.0, now=now, dex="raydium", **pc)
+    p["priceChange"].update({"m5": 4.0, "h1": 60.0})
+    p["priceChange"].update(pc)
+    p["volume"].update({"m5": 15000.0, "h1": 80000.0})
+    p["txns"]["m5"] = {"buys": 70, "sells": 30}
+    return p
+
+
+class MoonRules(DeskCase):
+    def test_decide(self):
+        f = R.features_from_pair(_moon_pair(1.0), T0 * 1000)
+        self.assertEqual(MN.decide(f, 60000.0), {"moonshot": True, "moonshot_base": True})
+        self.assertEqual(MN.decide(dict(f, r1h=5.0), 60000.0), {"moonshot": False, "moonshot_base": True})
+        self.assertFalse(MN.decide(dict(f, r1h=400.0), 60000.0)["moonshot"])        # already flown
+        self.assertFalse(MN.decide(dict(f, age_h=0.5), 60000.0)["moonshot_base"])   # under an hour
+        self.assertFalse(MN.decide(f, None)["moonshot_base"])                        # no pool figure: no
+
+    def test_trailing_ladder(self):
+        self.assertAlmostEqual(MN.stop_level(1.0, 1.2), 0.75)                 # under +40%: the -25% stop
+        self.assertAlmostEqual(MN.stop_level(1.0, 1.6), 1.2)                  # +60% peak: 25% below it
+        self.assertAlmostEqual(MN.stop_level(1.0, 4.0), 2.8)                  # +300% peak: 30% below it
+        self.assertEqual(MN.exit_sample(1.0, 0, 4.0, 2.7, 1e5, 60)[1], "trail")
+        self.assertEqual(MN.exit_sample(1.0, 0, 1.1, 0.74, 1e5, 60)[1], "stop")
+        self.assertIsNone(MN.exit_sample(1.0, 0, 4.0, 3.0, 1e5, 60))
+        self.assertEqual(MN.exit_sample(1.0, 0, 1.0, 1.1, 1e5, MN.HOLD_MIN * 60)[1], "time")
+        self.assertEqual(MN.exit_sample(1.0, 0, 1.0, 1.1, 500, 60), (0.0, "rug"))
+
+    def test_replay_lets_a_winner_run_and_checks_the_stop_before_the_new_high(self):
+        bars = [[300, 1.0, 2.0, 0.95, 1.9, 1], [600, 1.9, 5.0, 1.8, 4.8, 1], [900, 4.8, 4.9, 3.0, 3.2, 1]]
+        r, peak = MN.replay(0, 1.0, 1.0, bars)
+        self.assertEqual((r["why"], r["price"], peak), ("trail", 3.5, 5.0))   # 30% under the 5.0 peak, a +250% exit
+        both = [[300, 1.0, 3.0, 0.70, 2.0, 1]]                                # the low breaks -25% in the same bar
+        self.assertEqual(MN.replay(0, 1.0, 1.0, both)[0]["why"], "stop")
+
+
+class MoonRun(DeskCase):
+    def setUp(self):
+        super().setUp()
+        self.api = FakeAPI()
+        self.api.feed = [{"chainId": "solana", "tokenAddress": MOON}]
+        self.api.pairs = {MOON: _moon_pair(1.0)}
+
+    def go(self, *times):
+        with mock.patch.object(R, "vetoes", return_value=[]):
+            for t in times:
+                meme.run(now=t, fetch=self.api)
+
+    def test_fires_fills_60s_later_and_rides_past_30_pct(self):
+        self.go(T0)
+        self.assertEqual(sorted(pe["policy"] for pe in meme.load()["mig_pending"]), ["moonshot", "moonshot_base"])
+        self.go(T0 + 70)
+        s = meme.load()
+        pos = s["books"]["moonshot"]["positions"]
+        self.assertEqual(len(pos), 1)
+        self.assertAlmostEqual(pos[0]["cost"], 5.0)                            # 5% of $100
+        for i, px in enumerate([1.5, 3.0, 5.0], start=2):                       # +400%: no target sells it
+            self.api.pairs = {MOON: _moon_pair(px, now=T0 + i * 60)}
+            self.go(T0 + i * 60)
+        self.assertEqual(len(meme.load()["books"]["moonshot"]["positions"]), 1)
+        self.api.pairs = {MOON: _moon_pair(3.4, now=T0 + 300)}                 # 32% under the 5.0 peak
+        self.go(T0 + 300)
+        c = meme.load()["books"]["moonshot"]["closed"][0]
+        self.assertEqual(c["why"], "trail")
+        self.assertGreater(c["ret_pct"], 200)
+        sh = [x for x in meme._jsonl("shadows.jsonl") if x["policy"] == "moonshot"][0]
+        self.assertAlmostEqual(sh["net_pct"], R.net_pct(1.0, 3.4, 4.0), places=2)   # 4% floor
+        mo = meme.view()["moonshots"]
+        self.assertEqual((mo["fired"], mo["coins"]), (2, 1))                  # T0 and T0+300: two 5-minute decisions
+
+    def test_unknown_safety_blocks_and_is_logged(self):
+        self.api.rug = None
+        self.go(T0, T0 + 70)
+        self.assertEqual(meme.load()["books"]["moonshot"]["positions"], [])
+        d = meme._jsonl("moonshots.jsonl")[0]
+        self.assertEqual((d["yes"], d["why"]), ([], ["safety check unknown"]))
+
+    def test_decides_every_5_minutes_not_every_run(self):
+        self.go(T0, T0 + 60, T0 + 120)
+        self.assertEqual(len([r for r in meme._jsonl("moonshots.jsonl") if r["event"] == "decide"]), 1)

@@ -25,6 +25,7 @@ import urllib.request
 
 from . import memerules as R
 from . import memigrate as M
+from . import memoon as MN
 from . import settings as S
 from .paths import ROOT, data_dir
 from .skills import read_json, write_json
@@ -145,7 +146,10 @@ LEARN = ("hype", "breakout", "calm_aged", "dip_aged", "aged_liquid", "news")
 # Extra practice accounts: one per rule on coins
 # that passed the safety check, and "careful": any rule, strict check passed and no research filter (docs/MEME.md s.7).
 BOOKS = tuple((r, (r,), "screen") for r in R.POLICIES) + (("careful", LEARN, "evidence"),
-                                                           ("migration", ("migration",), "strict"))
+                                                           ("migration", ("migration",), "strict"),
+                                                           ("moonshot", ("moonshot",), "screen"))
+DELAYED = {"migration": ("migration", "migrations.jsonl"), "migration_base": (None, "migrations.jsonl"),
+           "moonshot": ("moonshot", "moonshots.jsonl"), "moonshot_base": (None, "moonshots.jsonl")}  # policy: (book, log)
 
 
 def _book_ok(how, sc, veto):
@@ -356,7 +360,7 @@ def cost_pct(st, chain, policy=None):
     """Round-trip cost for a chain: Settings' cost, or more where gas makes it dearer (memerules.CHAIN_COST). Rule P7
     and its control pay at least 4 % (docs/MEME.md section 9)."""
     c = max(st["meme_cost_pct"], R.CHAIN_COST.get(chain, 0.0))
-    return max(c, M.MIN_COST_PCT) if policy in M.POLICIES else c
+    return max(c, M.MIN_COST_PCT) if policy in M.POLICIES + MN.POLICIES else c
 
 
 def _side_cost(st, value, liq, chain=None, policy=None):
@@ -493,19 +497,31 @@ def _run(now, fetch):
         t = tracked.get(it["key"]) or {}
         entry_px, entry_ts = it["px"], it["ts"]
         hit = None
+        moon = it.get("policy") in MN.POLICIES
         if now - it.get("checked", entry_ts) > GAP and t.get("pool") and gt_budget[0] > MIG_RESERVE:
             gt_budget[0] -= 1
             try:
-                bars = gt_bars(t["chain"], t["pool"], min(now, entry_ts + R.HOLD_MIN * 60 + 300), fetch=fetch)
+                hold = MN.HOLD_MIN if moon else R.HOLD_MIN
+                bars = gt_bars(t["chain"], t["pool"], min(now, entry_ts + hold * 60 + 300), limit=300 if moon else 60,
+                               fetch=fetch)
                 dead = it["key"] in snap and _dead(t.get("liq"))
-                r = R.replay(entry_ts, entry_px, bars, dead=dead, now=now)
+                if moon:
+                    r, it["peak"] = MN.replay(entry_ts, entry_px, it.get("peak") or entry_px, bars, dead=dead, now=now)
+                else:
+                    r = R.replay(entry_ts, entry_px, bars, dead=dead, now=now)
                 hit = r and (r["price"], r["why"], r["ts"])
             except MemeError:
                 continue                     # tried again next run
         elif now - it.get("checked", entry_ts) > GAP:
             continue                         # no candle budget left this run: wait, never guess
         if not hit and it["key"] in snap:
-            e = _exit_rule(entry_px, entry_ts, t.get("px"), t.get("liq"), now, it.get("liq") if kind == "pos" else None)
+            if moon:
+                e = MN.exit_sample(entry_px, entry_ts, it.get("peak") or entry_px, t.get("px"), t.get("liq"), now,
+                                   it.get("liq") if kind == "pos" else None, R.DEAD_LIQ)
+                if not e and t.get("px"):
+                    it["peak"] = max(it.get("peak") or entry_px, t["px"])
+            else:
+                e = _exit_rule(entry_px, entry_ts, t.get("px"), t.get("liq"), now, it.get("liq") if kind == "pos" else None)
             hit = e and (e[0], e[1], now)
         if hit:
             if kind == "pos":
@@ -526,33 +542,38 @@ def _run(now, fetch):
         screens[k] = {"ts": now, "at": _iso(now), "verdict": v, "why": why, "report": rep, "strict": sv, "strict_why": swhy}
     write_json(folder() / "screens.json", screens)
 
-    # 4b. rule P7 and its control (docs/MEME.md section 9): fills due from earlier decisions, then today's decisions
+    # 4b. delayed-fill rules (P7 docs/MEME.md section 9, P8 section 10): fills due from earlier decisions first
     pending = s.get("mig_pending") or []
     for pe in list(pending):
         if now - pe["decided"] < M.FILL_AFTER_S:
             continue
         pending.remove(pe)
+        bname, logf = DELAYED[pe["policy"]]
         t = tracked.get(pe["key"]) or {}
         ok = now - pe["decided"] <= M.FILL_BY_S and pe["key"] in snap and t.get("px") and not _dead(t.get("liq"))
-        _append("migrations.jsonl", {"at": _iso(now), "ts": now, "key": pe["key"], "event": "fill" if ok else "cancel",
-                                     "policy": pe["policy"], "px": t.get("px"),
-                                     "why": None if ok else "no price in the 60-150 s fill window"})
+        _append(logf, {"at": _iso(now), "ts": now, "key": pe["key"], "event": "fill" if ok else "cancel",
+                       "policy": pe["policy"], "px": t.get("px"), "why": None if ok else "no price in the 60-150 s fill window"})
         if not ok:
             continue
         shadows.append({"key": pe["key"], "symbol": t.get("symbol"), "chain": t["chain"], "policy": pe["policy"],
-                        "ts": now, "at": _iso(now), "px": t["px"], "screen": pe["screen"], "strict": pe["strict"],
-                        "checked": now, "news": False, "veto": pe["veto"], "f": pe["f"], "decided": pe["decided"]})
+                        "ts": now, "at": _iso(now), "px": t["px"], "peak": t["px"], "screen": pe["screen"],
+                        "strict": pe["strict"], "checked": now, "news": False, "veto": pe["veto"], "f": pe["f"],
+                        "decided": pe["decided"]})
         out["shadows_opened"] += 1
-        ba = books["migration"]
-        if (pe["policy"] == "migration" and not st["meme_paused"] and len(ba["positions"]) < st["meme_max_open"]
-                and pe["key"] not in {p["key"] for p in ba["positions"]} and t.get("liq")):
-            size = min(equity(st, ba, tracked) * st["meme_position_pct"] / 100, ba["cash"])
+        if not bname:
+            continue
+        ba = books[bname]
+        moon = bname == "moonshot"
+        cap = MN.MAX_OPEN if moon else st["meme_max_open"]
+        if (not st["meme_paused"] and len(ba["positions"]) < cap and t.get("liq")
+                and pe["key"] not in {p["key"] for p in ba["positions"]} and now >= t["cool"].get("paper:" + bname, 0)):
+            size = min(equity(st, ba, tracked) * (MN.SIZE_PCT if moon else st["meme_position_pct"]) / 100, ba["cash"])
             if size >= 1:
-                fill = t["px"] * (1 + _side_cost(st, size, t["liq"], t["chain"], "migration"))
+                fill = t["px"] * (1 + _side_cost(st, size, t["liq"], t["chain"], pe["policy"]))
                 ba["cash"] = round(ba["cash"] - size, 6)
                 ba["positions"].append({"key": pe["key"], "symbol": t.get("symbol"), "chain": t["chain"],
-                                        "policy": "migration", "ts": now, "at": _iso(now), "px": t["px"], "fill": fill,
-                                        "qty": size / fill, "cost": size, "liq": t["liq"], "checked": now})
+                                        "policy": pe["policy"], "ts": now, "at": _iso(now), "px": t["px"], "peak": t["px"],
+                                        "fill": fill, "qty": size / fill, "cost": size, "liq": t["liq"], "checked": now})
     for k, p in snap.items():
         t = tracked[k]
         if t.get("mig_done"):
@@ -601,6 +622,34 @@ def _run(now, fetch):
             pending.append({"key": k, "policy": name, "decided": now, "screen": sc.get("verdict", "unknown"),
                             "strict": sc.get("strict", "unknown"), "veto": veto,
                             "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()}})
+    # 4c. rule P8 and its control (docs/MEME.md section 10): every 5 minutes per coin, filled 60 s later
+    waiting = {(pe["key"], pe["policy"]) for pe in pending}
+    open_now = {(sh["key"], sh["policy"]) for sh in shadows}
+    for k, p in snap.items():
+        t = tracked[k]
+        if now - t.get("last_moon", 0) < MN.DECIDE_EVERY_MIN * 60:
+            continue
+        t["last_moon"] = now
+        f = R.features_from_pair(p, now * 1000)
+        dec = MN.decide(f, t.get("liq"))
+        if not any(dec.values()) or _dead(t.get("liq")):
+            continue
+        sc = screens.get(k) or {}
+        veto = R.vetoes(f, now - (t.get("last_promo") or -1e12) < 86400)
+        block = ([] if sc.get("verdict") == "pass" else ["safety check %s" % sc.get("verdict", "unknown")]) + \
+            [v for v in veto if v.startswith("R3")]
+        if dec["moonshot"]:
+            _append("moonshots.jsonl", {"at": _iso(now), "ts": now, "key": k, "symbol": t.get("symbol"), "event": "decide",
+                                        "chain": t["chain"], "yes": [n for n, y in dec.items() if y and not block],
+                                        "why": block, "veto": veto, "liq": t.get("liq"), "px": t.get("px"),
+                                        "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()}})
+        if block:
+            continue
+        for name, yes in dec.items():
+            if yes and (k, name) not in waiting and (k, name) not in open_now and now >= t["cool"].get(name, 0):
+                pending.append({"key": k, "policy": name, "decided": now, "screen": sc.get("verdict", "unknown"),
+                                "strict": sc.get("strict", "unknown"), "veto": veto,
+                                "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()}})
     s["mig_pending"] = pending
 
     # 5 and 6. decisions every 15 minutes per token; today's news words for P6 (docs/MEME.md section 6)
@@ -776,7 +825,9 @@ def stats(rows):
             "win_pct": round(100 * sum(v > 0 for v in r) / len(r), 1), "mean_lo": lo, "mean_hi": hi,
             "win_lo": w_lo, "win_hi": w_hi,
             "mean_no_top3": round(statistics.fmean(top3), 2) if top3 else None,
-            "tail5": round(statistics.fmean(tail), 2),
+            "tail5": round(statistics.fmean(tail), 2), "best": round(r[-1], 2),
+            "share_100": round(100 * sum(v >= 100 for v in r) / len(r), 1),
+            "mean_no_top10": round(statistics.fmean(r[:-10]), 2) if len(r) > 10 else None,
             "per_token_mean": round(statistics.fmean(statistics.fmean(v) for v in by_tok.values()), 2)}
 
 
@@ -797,7 +848,7 @@ def forward(rows=None):
         _fw_cache.update(sig=sig, out=out)
         return out
     out = {}
-    for p in R.POLICIES + M.POLICIES:
+    for p in R.POLICIES + M.POLICIES + MN.POLICIES:
         mine = [x for x in rows if x["policy"] == p]
         out[p] = stats(mine)
         out[p + "+screen"] = stats([x for x in mine if x.get("screen") == "pass"])
@@ -818,8 +869,10 @@ def bar(x, base=None, control=None, min_slice=0):
 
 
 def _bar_for(k, v, fw):
-    if k.startswith("migration_base"):
-        return False                      # the control is a comparator, never a candidate
+    if k.startswith(("migration_base", "moonshot_base")):
+        return False                      # a control is a comparator, never a candidate
+    if k.startswith("moonshot"):
+        return bar(v, fw.get("all"), fw.get("moonshot_base"), M.MIN_PER_SLICE)
     if k.startswith("migration"):
         return bar(v, fw.get("all"), fw.get("migration_base"), M.MIN_PER_SLICE)
     return bar(v, fw.get("all"))
@@ -873,8 +926,11 @@ def view():
         pos.append(dict({k: p[k] for k in ("key", "symbol", "chain", "policy", "at", "px", "cost")},
                         now_px=px, value=round(val, 2), pnl=round(val - p["cost"], 2),
                         move_pct=round((px / p["px"] - 1) * 100, 2) if px else None,
-                        stop=p["px"] * (1 + R.STOP_PCT / 100), target=p["px"] * (1 + R.TARGET_PCT / 100),
-                        ends=_iso(p["ts"] + R.HOLD_MIN * 60)))
+                        **({"stop": MN.stop_level(p["px"], p.get("peak") or p["px"]), "target": None,
+                            "ends": _iso(p["ts"] + MN.HOLD_MIN * 60), "peak": p.get("peak")}
+                           if p.get("policy") in MN.POLICIES else
+                           {"stop": p["px"] * (1 + R.STOP_PCT / 100), "target": p["px"] * (1 + R.TARGET_PCT / 100),
+                            "ends": _iso(p["ts"] + R.HOLD_MIN * 60)})))
     held = {p["key"] for p in acct["positions"]}
     cand = []
     for k, t in sorted(tracked.items(), key=lambda kv: (kv[0] not in held, -kv[1]["first_seen"])):
@@ -902,6 +958,7 @@ def view():
             "discoveries": _count("discoveries.jsonl"),
             "books": books_view(st, s, tracked),
             "migrations": migration_funnel(),
+            "moonshots": moonshot_funnel(),
             "forward": fw, "verdict": verdict(fw, pol, [{"key": t["key"], "net_pct": t["ret_pct"], "ts": t["ts"]} for t in closed]), "cost_pct": st["meme_cost_pct"],
             "rules": {"stop": R.STOP_PCT, "target": R.TARGET_PCT, "hold_min": R.HOLD_MIN},
             "checked": s.get("checked"), "error": s.get("error"), "paper_only": True}
@@ -923,6 +980,24 @@ def migration_funnel():
             "yes_base": len([r for r in dec if "migration_base" in (r.get("yes") or [])]),
             "filled": len(ev("fill")), "cancelled": len(ev("cancel")),
             "top_no": sorted(why.items(), key=lambda kv: -kv[1])[:5]}
+
+
+def moonshot_funnel():
+    """Rule P8's decisions (docs/MEME.md section 10): coins whose momentum test fired, how many were blocked by the
+    safety check or the R3 veto, fills, cancels, and the skew numbers of its closed shadows."""
+    rows = _jsonl("moonshots.jsonl")
+    dec = [r for r in rows if r.get("event") == "decide"]
+    blocked = {}
+    for r in dec:
+        for w in r.get("why") or []:
+            blocked[w] = blocked.get(w, 0) + 1
+    fw = forward().get("moonshot") or {}
+    return {"fired": len(dec), "coins": len({r["key"] for r in dec}),
+            "passed": len([r for r in dec if "moonshot" in (r.get("yes") or [])]),
+            "filled": len([r for r in rows if r.get("event") == "fill" and r.get("policy") == "moonshot"]),
+            "cancelled": len([r for r in rows if r.get("event") == "cancel" and r.get("policy") == "moonshot"]),
+            "blocked": sorted(blocked.items(), key=lambda kv: -kv[1])[:5],
+            "best": fw.get("best"), "share_100": fw.get("share_100"), "mean_no_top10": fw.get("mean_no_top10")}
 
 
 BOOK_NAMES = {"careful": "Careful: any rule, strict check, no research filter"}
@@ -960,7 +1035,7 @@ def lines(v=None):
          % (v["tracked"], v["discoveries"], v["screens"]["pass"], v["screens"]["fail"], v["screens"]["unknown"], v["cost_pct"]),
          "  Forward record (closed shadows, net of cost, stop %d%% / target +%d%% / %d min):"
          % (v["rules"]["stop"], v["rules"]["target"], v["rules"]["hold_min"])]
-    for p in R.POLICIES + M.POLICIES:
+    for p in R.POLICIES + M.POLICIES + MN.POLICIES:
         for name in (p, p + "+screen", p + "+strict", p + "+evidence"):
             x = v["forward"][name]
             if not x["n"] and name != p:
@@ -977,6 +1052,12 @@ def lines(v=None):
                                                                         b["trades"], b["wins"], b["open"]))
     L.append("  Pass bar for %s+screen: %s" % (v["policy"], "; ".join("%s %s" % (c["check"], "yes" if c["ok"] else "NO")
                                                                      for c in v["verdict"])))
+    mo = v.get("moonshots") or {}
+    if mo:
+        L.append("  Rule P8 (moonshot, docs/MEME.md s.10): momentum fired %d times on %d coins, %d passed the checks, "
+                 "%d filled, %d cancelled; best closed %s%%, %s%% of closed above +100%%." % (
+                     mo["fired"], mo["coins"], mo["passed"], mo["filled"], mo["cancelled"],
+                     mo["best"] if mo["best"] is not None else "n/a", mo["share_100"] if mo["share_100"] is not None else "n/a"))
     g = v.get("migrations") or {}
     if g:
         L.append("  Rule P7 (after migration, docs/MEME.md s.9): %d graduates seen, %d decided, %d too late; P7 said buy %d, "
