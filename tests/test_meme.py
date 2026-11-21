@@ -561,6 +561,53 @@ class MigrationRun(DeskCase):
         self.assertEqual(d[0]["yes"], [])
         self.assertIn("strict check unknown", d[0]["why"])
 
+    def test_a_busy_geckoterminal_is_retried_inside_the_window_not_decided_on_missing_data(self):
+        real = self.api.__call__
+        calls = {"n": 0}
+
+        def flaky(url):
+            if "geckoterminal" in url and "/trades" in url and calls["n"] == 0:
+                calls["n"] += 1
+                raise meme.MemeError("api.geckoterminal.com is busy; skipped for now")
+            return real(url)
+        anc = T0 - 15 * 60 - 10                                              # minute 15.2 at T0
+        self.api.pairs[PUMP]["pairCreatedAt"] = anc * 1000
+        self.api.trades = _trades(anc, 30, first_px=0.95, creator_buys=2)
+        with mock.patch.object(R, "vetoes", return_value=[]):
+            meme.run(now=T0, fetch=flaky)                                    # minute 15.2: busy, retry
+            self.assertEqual([r["event"] for r in self.log()], ["retry"])
+            self.assertFalse(meme.load()["tracked"]["solana:" + PUMP].get("mig_done"))
+            meme.run(now=T0 + 30, fetch=flaky)                               # minute 15.7: decided with data
+        d = [r for r in self.log() if r["event"] == "decide"]
+        self.assertEqual((len(d), d[0]["buyers"], d[0]["tries"]), (1, 30, 2))
+        self.assertEqual(meme.migration_funnel()["retries"], 1)
+
+    def test_still_no_data_at_minute_17_is_missed_with_the_reason(self):
+        def busy(url):
+            if "geckoterminal" in url:
+                raise meme.MemeError("api.geckoterminal.com is busy; skipped for now")
+            return self.api(url)
+        self.api.pairs[PUMP]["pairCreatedAt"] = (T0 - 15 * 60 - 10) * 1000   # minute 15.2 at T0
+        meme.run(now=T0, fetch=busy)                                         # minute 15.2: retry
+        meme.run(now=T0 + 60, fetch=busy)                                    # minute 16.2: no time left, missed
+        ev = [(r["event"], r.get("why", "")) for r in self.log()]
+        self.assertEqual(ev[0][0], "retry")
+        self.assertEqual(ev[-1][0], "missed")
+        self.assertIn("unavailable in the window after 2 tries", ev[-1][1])
+        self.assertEqual([e for e, _ in ev].count("decide"), 0)              # never decided on missing data
+
+    def test_a_429_is_logged(self):
+        import io
+        err = urllib.error.HTTPError("u", 429, "slow down", {}, io.BytesIO(b""))
+        with mock.patch.object(meme, "get", meme.__dict__["_real_get"]), \
+                mock.patch("urllib.request.urlopen", side_effect=err):
+            meme._cool.clear()
+            with self.assertRaises(meme.MemeError):
+                meme.get("https://api.geckoterminal.com/api/v2/networks/solana/pools/X/trades")
+            meme._cool.clear()
+        rows = meme._jsonl("api_errors.jsonl")
+        self.assertEqual((rows[0]["code"], rows[0]["path"]), (429, "/api/v2/networks/solana/pools/X/trades"))
+
     def test_the_paid_promotion_veto_still_applies(self):
         meme.run(now=T0, fetch=self.api)                                   # found on the boost feed: R2
         d = [r for r in self.log() if r["event"] == "decide"][0]

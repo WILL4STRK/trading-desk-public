@@ -85,6 +85,7 @@ def get(url, timeout=15, wait_for_slot=True):
                 return None
             if e.code == 429 and host == "api.geckoterminal.com":    # 30 a minute per address: skip, never stall a run
                 _cool[host] = time.time() + 20
+                _log_429(host, url)
                 raise MemeError("GeckoTerminal is busy (too many requests); tried again later")
             if e.code == 429 and attempt < 3 and wait_for_slot:
                 time.sleep(5 * 2 ** attempt)
@@ -93,6 +94,15 @@ def get(url, timeout=15, wait_for_slot=True):
         except (OSError, ValueError) as e:
             raise MemeError("%s did not answer (%s)" % (host, e))
     raise MemeError("%s kept saying slow down" % host)
+
+
+def _log_429(host, url):
+    """One line per HTTP 429 in api_errors.jsonl, so a shared-address rate limit shows up in the record."""
+    try:
+        _append("api_errors.jsonl", {"at": _iso(time.time()), "ts": time.time(), "host": host, "code": 429,
+                                     "path": urllib.parse.urlsplit(url).path[:120]})
+    except OSError:
+        pass
 
 
 _real_get = get           # the tests patch get; this keeps the real one reachable for its own test
@@ -633,13 +643,16 @@ def _run(now, fetch):
         when = M.in_window(now, anc)
         if when == "early":
             continue
-        t["mig_done"] = True
         row = {"at": _iso(now), "ts": now, "key": k, "symbol": t.get("symbol"), "event": "decide", "anchor": anc,
                "anchor_at": _iso(anc), "minutes": round((now - anc) / 60, 1), "pool": p.get("pairAddress"),
                "dex": p.get("dexId"), "first_seen_min": round((t["first_seen"] - anc) / 60, 1)}
         if when == "late":
+            t["mig_done"] = True
             if t["first_seen"] - anc <= M.RECENT_S:        # a fresh graduate the desk saw too late: attrition
-                _append("migrations.jsonl", dict(row, event="missed", why="first decision run came after minute 17"))
+                why = ("GeckoTerminal data unavailable in the window after %d tries (%s)"
+                       % (t["mig_tries"], t.get("mig_last_error") or "no budget") if t.get("mig_tries")
+                       else "first decision run came after minute 17")
+                _append("migrations.jsonl", dict(row, event="missed", why=why))
             continue                                       # graduated long before the desk saw it: not in the study
         f = R.features_from_pair(p, now * 1000)
         sc = screens.get(k) or {}
@@ -661,6 +674,23 @@ def _run(now, fetch):
                     first = M.first_from_bars(((m.get("data") or {}).get("attributes") or {}).get("ohlcv_list"), anc)
             except MemeError as e:
                 row["data_error"] = str(e)
+        else:
+            row["data_error"] = "no GeckoTerminal budget left this run"
+        if row.get("data_error"):
+            # the trades fetch failed (a shared-address 429 cool-down, or no budget): try again next run while the
+            # minute-15-to-17 window is still open; never decide on missing data (docs/MEME.md section 9 note)
+            t["mig_tries"] = t.get("mig_tries", 0) + 1
+            t["mig_last_error"] = row["data_error"]
+            if now + 60 < anc + M.DECIDE_TO_MIN * 60:
+                _append("migrations.jsonl", dict(row, event="retry", why=row["data_error"]))
+                continue
+            t["mig_done"] = True
+            _append("migrations.jsonl", dict(row, event="missed", why="GeckoTerminal data unavailable in the window "
+                                             "after %d tries (%s)" % (t["mig_tries"], row["data_error"])))
+            continue
+        t["mig_done"] = True
+        if t.get("mig_tries"):
+            row["tries"] = t["mig_tries"] + 1
         dec, why = M.decide(t.get("liq"), f.get("v1h"), buyers, first, t.get("px"))
         safe = sc.get("strict") == "pass" and not veto
         if not safe:
@@ -1039,6 +1069,7 @@ def migration_funnel():
             w = w.split(" (")[0] if "buyers" not in w else "too few buyers since migration"
             why[w] = why.get(w, 0) + 1
     return {"seen": len(dec) + len(ev("missed")), "decided": len(dec), "missed": len(ev("missed")),
+            "retries": len(ev("retry")),
             "yes": len([r for r in dec if "migration" in (r.get("yes") or [])]),
             "yes_base": len([r for r in dec if "migration_base" in (r.get("yes") or [])]),
             "filled": len(ev("fill")), "cancelled": len(ev("cancel")),

@@ -194,7 +194,11 @@ migrations in the past. The code lives in `desk/memigrate.py` (pure rules) and `
 tracked DexScreener pool is no longer the launchpad's own curve (`dexId` not `pumpfun` or `launchlab`). The
 **anchor** is that pool's `pairCreatedAt`: the migration. One decision per mint, taken by the first run between
 **15 and 17 minutes** after the anchor. A coin first seen later, or a run that misses the window, is logged as
-attrition and never caught up. Only a coin the desk first saw within an hour of its migration counts as a missed
+attrition and never caught up. *Data-fetch note, 2026-11-21 (no rule change):* when
+GeckoTerminal's trade list cannot be fetched (a 429 cool-down shared with other programs on the same internet
+address, or no request budget left in the run), the decision is retried on the next run while the window is still
+open, instead of being taken on missing data; a graduate still without data at minute 17 is logged as missed with the
+reason. Every 429 is logged in `api_errors.jsonl`. Only a coin the desk first saw within an hour of its migration counts as a missed
 graduate; coins that graduated earlier than that are outside the study and are not logged (added 2026-11-21, after a
 dry run in a scratch folder and before any recorded data).
 
