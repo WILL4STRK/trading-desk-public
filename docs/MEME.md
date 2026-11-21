@@ -157,7 +157,7 @@ that resamples whole coins, so one coin's many trades move together) and a Wilso
 pass bar in section 5 is unchanged. With 7 rules x 4 variants, about 1 in 20 will look good by luck at 95 %, so a
 variant that clears the bar is only a candidate for its own fresh forward test.
 
-From 2026-11-21 P6's news words come from the daily topic checker (C:\Trading	opics, history.jsonl); P6 results before and after this date are reported separately.
+From 2026-11-21 P6's news words come from the daily topic checker (C:\Trading\topics, history.jsonl); P6 results before and after this date are reported separately.
 
 ## 7. More practice accounts (Q, 2026-11-20: "run as many models as you need, more than one account")
 
