@@ -285,6 +285,9 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
 .buybar .grow{flex:1 1 240px;font-size:13px;color:var(--label2)} .buybar .grow small{display:block;margin-top:4px}
 .buybar .field{width:88px;padding:4px 8px} .buybar .field input{font-size:15px}
 .tv-side .section-title:first-of-type{margin-top:16px}
+tr.grp td{border-top:2px solid var(--sep)}
+tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
+.btn.tap{min-height:44px}
 </style>
 </head>
 <body>
@@ -1083,6 +1086,7 @@ document.addEventListener("click", async e => {
     if (t.dataset.v === "meme") { loadMeme(); loadMemebot(); }
   }
   else if (t.dataset.mivl) { MIVL = t.dataset.mivl; document.querySelectorAll("[data-mivl]").forEach(b => b.setAttribute("aria-pressed", b === t)); loadMemeChart(true); }
+  else if (t.id === "m-fw-toggle") { MFW = !MFW; loadMeme(); }
   else if (t.dataset.mf) { MF = t.dataset.mf; document.querySelectorAll("[data-mf]").forEach(b => b.setAttribute("aria-pressed", b === t)); renderMemePos(); }
   else if (t.id === "meme-save") {
     const ch = {}; document.querySelectorAll("#meme-form [data-mk]").forEach(el => { const k = el.dataset.mk, cur = S.settings[k]; const v = el.value.trim();
@@ -1149,7 +1153,7 @@ const pctS = (x, d = 2) => x == null ? "–" : (x > 0 ? "+" : x < 0 ? "−" : ""
 const tone = x => x == null ? "" : x > 0 ? "pos" : x < 0 ? "neg" : "";
 const money = n => n == null ? "–" : n >= 1e9 ? "$" + (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? "$" + (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? "$" + (n / 1e3).toFixed(1) + "K" : "$" + Math.round(n);
 const SAFE = {pass: ["pos", "Pass"], fail: ["neg", "Fail"], unknown: ["", "Unknown"]};
-let MM = null, MSEL = null, MIVL = "5m", MF = "open", MCHKEY = "", MCHAT = 0, MMDIRTY = false;
+let MM = null, MFW = false, MSEL = null, MIVL = "5m", MF = "open", MCHKEY = "", MCHAT = 0, MMDIRTY = false;
 async function loadMeme() {
   try { MM = await api("/api/meme"); } catch (e) { $("#m-status").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; return; }
   const m = MM, a = m.account, st = S && S.settings;
@@ -1178,8 +1182,13 @@ async function loadMeme() {
   const rng = (lo, hi) => lo == null ? "" : `<small style="display:block;color:var(--label2)">${lo}% to ${hi}%</small>`;
   const fr = x => !x || !x.n ? `<td colspan="7" style="text-align:left;color:var(--label2)">none closed yet</td>` :
     `<td class="num">${x.n} / ${x.tokens}</td><td class="num ${tone(x.mean)}">${pctS(x.mean)}${rng(x.mean_lo, x.mean_hi)}</td><td class="num ${tone(x.median)}">${pctS(x.median)}</td><td class="num">${x.win_pct}%${rng(x.win_lo, x.win_hi)}</td><td class="num ${tone(x.mean_no_top3)}">${pctS(x.mean_no_top3)}</td><td class="num">${(x.folds || []).length ? x.folds_pos + " of 4" : "–"}</td><td class="num neg">${pctS(x.tail5)}</td>`;
-  $("#m-fw").innerHTML = `<table><tr><th style="text-align:left">Rule</th><th style="text-align:left">Coins it counts</th><th>Trades / coins</th><th>Average (95% range)</th><th>Middle</th><th>Won (95% range)</th><th>Without best 3</th><th>Slices up</th><th>Worst 5%</th></tr>
-    ${Object.keys(RULE_INFO).flatMap(k => VARIANTS.map(([v, label], i) => `<tr${i === 0 ? ' style="border-top:2px solid var(--sep)"' : ""}><td style="text-align:left">${i === 0 ? `<b>${esc(RULE_INFO[k])}</b>` : ""}</td><td style="text-align:left">${label}</td>${fr(m.forward[k + v])}</tr>`)).join("")}</table>
+  const fwRows = Object.keys(RULE_INFO).flatMap(k => VARIANTS.map(([v, label]) => ({k, label, x: m.forward[k + v]})));
+  const fwShown = fwRows.filter(r => MFW || r.k === "all" || (r.x && r.x.n)), fwHidden = fwRows.length - fwShown.length, fwAny = fwRows.some(r => r.x && r.x.n);
+  const fwSeen = {};
+  $("#m-fw").innerHTML = `${fwAny ? "" : `<p class="foot-note" style="margin:0 0 8px">Nothing has closed yet on any rule, so there are no results to compare.</p>`}<table><tr><th style="text-align:left">Rule</th><th style="text-align:left">Coins it counts</th><th>Trades / coins</th><th>Average (95% range)</th><th>Middle</th><th>Won (95% range)</th><th>Without best 3</th><th>Slices up</th><th>Worst 5%</th></tr>
+    ${fwShown.map(r => { const first = !fwSeen[r.k]; fwSeen[r.k] = 1; return `<tr${first ? ' class="grp"' : ""}><td style="text-align:left">${first ? `<b>${esc(RULE_INFO[r.k])}</b>` : ""}</td><td style="text-align:left">${r.label}</td>${fr(r.x)}</tr>`; }).join("")}</table>
+    ${!MFW && fwHidden ? `<p class="foot-note">${fwHidden} more lines have no closed trades yet and are hidden.</p>` : ""}
+    <div class="hrow" style="margin:10px 0 0"><button class="btn gray small tap" id="m-fw-toggle" aria-expanded="${MFW}">${MFW ? "Show fewer lines" : "Show all " + fwRows.length + " lines"}</button></div>
     <p class="foot-note">Every rule is recorded on every coin it would buy, traded or not, with the same exits and costs. A line passes only with 100+ trades on 50+ coins, average and middle above 0, still above 0 without its best 3, positive in 3 of 4 time slices, and better than buying everything. With 28 lines about 1 in 20 looks good by luck, so a line that passes earns its own fresh test, not real money.</p>`;
   if (st && !MMDIRTY && !$("#meme-form").contains(document.activeElement)) $("#meme-form").innerHTML = MEME_FIELDS.map(([k, l, h, type, opts]) => {
     const v = Array.isArray(st[k]) ? st[k].join(k === "meme_news_words" ? "\n" : " ") : String(st[k]), id = "mset-" + k;
