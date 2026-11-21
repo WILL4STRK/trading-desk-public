@@ -288,6 +288,20 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
 tr.grp td{border-top:2px solid var(--sep)}
 tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
 .btn.tap{min-height:44px}
+/* Memecoins: on phones the sections reorder to account, chart and facts, coin list, then holdings */
+.mm-note{margin:0 0 12px}
+@media(max-width:899px){
+  #v-meme.on{display:flex;flex-direction:column}
+  #v-meme.on > *{order:6;min-width:0}
+  #v-meme .grid,#v-meme .grid > div{display:contents}
+  #v-meme .mm-note{order:0} #v-meme .mm-acct{order:1} #v-meme .mm-chart{order:2} #v-meme .mm-coins{order:3} #v-meme .mm-hold{order:4}
+  #v-meme .mm-hold,#v-meme .mm-acct{min-width:0}
+}
+.seg button{min-height:44px}
+.btn.small,.btn.text{min-height:44px}
+.found button,a.chart-link{min-height:44px}
+.frow input,.frow select,.frow textarea,.inp{min-height:44px}
+
 </style>
 </head>
 <body>
@@ -449,9 +463,10 @@ tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
       <p class="foot-note">Each grouping is its index fund (SPY, QQQ, DIA, IWM), price only, measured from the close before the bot's first closed trade. The bot's line is its closed auto paper trades over your starting balance. Past results say nothing sure about the future.</p>
     </section>
     <section class="view" id="v-meme" aria-label="Memecoins">
-      <div class="callout" style="margin:0 0 12px">Practice money only. The memecoin model reads DexScreener, RugCheck, GoPlus and GeckoTerminal (public, read-only) and has no wallet and no keys: it cannot buy a real coin. Memecoins swing far harder than stocks and most lose. No rule has made money after costs yet (<span class="num">docs/MEME.md</span>).</div>
+      <div class="callout mm-note">Practice money only. The memecoin model reads DexScreener, RugCheck, GoPlus and GeckoTerminal (public, read-only) and has no wallet and no keys: it cannot buy a real coin. Memecoins swing far harder than stocks and most lose. No rule has made money after costs yet (<span class="num">docs/MEME.md</span>).</div>
       <div class="grid">
         <div>
+          <div class="mm-acct">
           <div class="card hero">
             <div class="cap"><span>Memecoin account</span><span class="chip"><i></i>Practice · no wallet</span></div>
             <div class="big num" id="m-eq">–</div>
@@ -462,20 +477,23 @@ tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
             </div>
           </div>
           <div class="card" id="m-status"><div class="empty"><b>Loading…</b></div></div>
+          </div>
+          <div class="mm-hold">
           <div class="seg" role="group" aria-label="Show">
             <button data-mf="open" aria-pressed="true">Holding</button>
             <button data-mf="closed" aria-pressed="false">Closed</button>
           </div>
           <div id="m-pos"></div>
+          </div>
         </div>
         <div>
-          <div class="card">
+          <div class="card mm-coins">
             <div class="hrow" style="margin:0 0 8px"><b style="font-size:17px">Coins</b><small class="foot-note" id="m-meta" style="margin:0"></small><span style="flex:1"></span><label class="vh" for="m-find">Find a coin</label><input class="inp" id="m-find" placeholder="Find by name or chain" autocomplete="off" spellcheck="false"></div>
             <div class="scroll" id="m-list" style="max-height:440px;overflow-y:auto"></div>
           </div>
         </div>
       </div>
-      <div class="card">
+      <div class="card mm-chart">
             <div class="hrow" style="margin:0 0 10px">
               <b id="mch-sym" style="font-size:17px">–</b><span class="num" id="mch-last"></span>
               <span style="flex:1"></span>
