@@ -262,6 +262,10 @@ cancelled. Cost: the larger of 4 % and the Settings cost, round trip (Ethereum 6
 - once the peak is +150 % or more, sell if the price falls 30 % below the peak;
 - time stop 24 hours; liquidity falling under half of its level at the buy sells at once; a dead pool (under $1,000)
   is a total loss.
+- *Correction, 2026-11-21, before any P8 trade had closed:* as first written, crossing +150 % loosened the stop (from
+  25 % under a 2.5x peak, 1.875x, to 30 % under it, 1.75x). A trailing stop must never fall as the peak rises, so the
+  level is now the higher of the current step and the level the step below reached at its top (from +150 %: the
+  higher of 30 % under the peak and 1.875x). Flagged by research/meme/MOONSHOT-V2.md in WILL4STRK/meambot (6fec63d).
 Forward samples are about a minute apart and a stop fills at the sampled price (a gap is real). When the desk was off,
 5-minute candles are replayed: in each bar the stop level from the peak *before* the bar is checked against the low
 first (filling at the bar's open if it opened below it), then the peak is updated from the high.

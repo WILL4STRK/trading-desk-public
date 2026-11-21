@@ -592,6 +592,10 @@ class MoonRules(DeskCase):
         self.assertAlmostEqual(MN.stop_level(1.0, 1.2), 0.75)                 # under +40%: the -25% stop
         self.assertAlmostEqual(MN.stop_level(1.0, 1.6), 1.2)                  # +60% peak: 25% below it
         self.assertAlmostEqual(MN.stop_level(1.0, 4.0), 2.8)                  # +300% peak: 30% below it
+        self.assertAlmostEqual(MN.stop_level(1.0, 2.5), 1.875)               # at +150% it keeps the 25% step's level
+        self.assertAlmostEqual(MN.stop_level(1.0, 2.6), 1.875)               # 30% under 2.6 is 1.82: never lower
+        levels = [MN.stop_level(1.0, 1.0 + i / 100) for i in range(0, 600)]
+        self.assertTrue(all(b >= a - 1e-12 for a, b in zip(levels, levels[1:])))   # never falls as the peak rises
         self.assertEqual(MN.exit_sample(1.0, 0, 4.0, 2.7, 1e5, 60)[1], "trail")
         self.assertEqual(MN.exit_sample(1.0, 0, 1.1, 0.74, 1e5, 60)[1], "stop")
         self.assertIsNone(MN.exit_sample(1.0, 0, 4.0, 3.0, 1e5, 60))

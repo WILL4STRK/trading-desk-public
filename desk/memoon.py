@@ -35,12 +35,19 @@ def decide(f, liq):
 
 
 def stop_level(entry_px, peak_px):
-    """The sell level for a position bought at entry_px whose highest price so far is peak_px."""
+    """The sell level for a position bought at entry_px whose highest price so far is peak_px. It never falls as the
+    peak rises: each step of the ladder keeps at least the level the step below reached at its top (docs/MEME.md
+    section 10, correction of 2026-11-21)."""
     gain = (peak_px / entry_px - 1) * 100
-    for at, fall in TRAIL:
-        if gain >= at:
-            return max(peak_px * (1 - fall / 100), entry_px * (1 + STOP_PCT / 100))
-    return entry_px * (1 + STOP_PCT / 100)
+    level = entry_px * (1 + STOP_PCT / 100)
+    steps = sorted(TRAIL)                                   # lowest step first
+    for i, (at, fall) in enumerate(steps):
+        if gain < at:
+            break
+        top = steps[i + 1][0] if i + 1 < len(steps) else None
+        reach = peak_px if top is None or gain < top else entry_px * (1 + top / 100)
+        level = max(level, reach * (1 - fall / 100))
+    return level
 
 
 def exit_sample(entry_px, entry_ts, peak_px, px, liq, now, entry_liq=None, dead_liq=1000.0):
