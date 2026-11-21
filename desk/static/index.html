@@ -288,6 +288,10 @@ footer{max-width:1180px;margin:0 auto;padding:4px 18px 110px;color:var(--label2)
 tr.grp td{border-top:2px solid var(--sep)}
 tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
 .btn.tap{min-height:44px}
+.card-h{font:600 17px/1.2 var(--display)}
+.hrow.tight{margin:0 0 10px}
+.foot-note.meta0{margin:0}
+.seg.inline{margin:0;min-width:150px}
 /* Memecoins coin list: compact columns so Safety is never cut off, keyboard focus ring, selected row */
 #m-list th,#m-list td{padding:10px 8px}
 #m-list table{table-layout:fixed}
@@ -501,16 +505,16 @@ tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
         </div>
         <div>
           <div class="card mm-coins">
-            <div class="hrow" style="margin:0 0 8px"><b style="font-size:17px">Coins</b><small class="foot-note" id="m-meta" style="margin:0"></small><span style="flex:1"></span><label class="vh" for="m-find">Find a coin</label><input class="inp" id="m-find" placeholder="Find by name or chain" autocomplete="off" spellcheck="false"></div>
+            <div class="hrow tight"><b class="card-h">Coins</b><small class="foot-note meta0" id="m-meta"></small><span style="flex:1"></span><label class="vh" for="m-find">Find a coin</label><input class="inp" id="m-find" placeholder="Find by name or chain" autocomplete="off" spellcheck="false"></div>
             <div class="scroll" id="m-list" style="max-height:440px;overflow-y:auto" aria-busy="true"><div class="empty"><b>Loading coins…</b></div></div>
           </div>
         </div>
       </div>
       <div class="card mm-chart">
-            <div class="hrow" style="margin:0 0 10px">
-              <b id="mch-sym" style="font-size:17px">–</b><span class="num" id="mch-last"></span>
+            <div class="hrow tight">
+              <b id="mch-sym" class="card-h">–</b><span class="num" id="mch-last"></span>
               <span style="flex:1"></span>
-              <div class="seg" role="group" aria-label="Candle size" style="margin:0;min-width:150px">
+              <div class="seg inline" role="group" aria-label="Candle size">
                 <button data-mivl="5m" aria-pressed="true">5m</button><button data-mivl="15m" aria-pressed="false">15m</button><button data-mivl="1h" aria-pressed="false">1h</button>
               </div>
               <a class="btn small gray" id="mch-dex" target="_blank" rel="noopener noreferrer" hidden>DexScreener<span class="vh">, opens in a new window</span>&nbsp;↗</a>
