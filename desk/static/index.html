@@ -48,17 +48,20 @@ a{color:var(--tint)}
 .clock{font-size:14px;color:var(--label2);margin:-10px 2px 14px}
 
 /* tabs: a bottom bar on phones, a floating pill on wide screens */
-.tabs{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;justify-content:space-around;
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;justify-content:flex-start;
+  overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;-webkit-overflow-scrolling:touch;
   padding:6px 8px max(8px,env(safe-area-inset-bottom));background:var(--bar);
   border-top:.5px solid var(--sep)}
+.tabs::-webkit-scrollbar{display:none}
 .tabs button{background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;
-  min-width:0;flex:1;max-width:96px;min-height:48px;padding:4px 2px;font-size:12px;font-weight:500;color:var(--label2);cursor:pointer}
-.tabs button svg{width:26px;height:26px}
+  flex:1 0 auto;min-width:76px;min-height:48px;padding:4px 10px;font-size:12px;font-weight:500;color:var(--label2);cursor:pointer;white-space:nowrap}
+.tabs button svg{width:26px;height:26px;flex:none}
 .tabs button[aria-selected=true]{color:var(--tint)}
 @media(min-width:900px){
   .tabs{position:sticky;top:12px;bottom:auto;left:auto;right:auto;margin:0 auto 18px;width:max-content;border:.5px solid var(--sep);
     border-radius:var(--r-inner);padding:5px;gap:2px}
-  .tabs button{flex-direction:row;gap:7px;min-height:38px;padding:0 16px;border-radius:var(--r-inner);font-size:14.5px;font-weight:600}
+  .tabs{overflow:visible;max-width:calc(100% - 8px);flex-wrap:wrap;justify-content:center}
+  .tabs button{flex:none;min-width:0;flex-direction:row;gap:7px;min-height:44px;padding:0 14px;border-radius:var(--r-inner);font-size:14.5px;font-weight:600}
   .tabs button svg{width:19px;height:19px}
   .tabs button[aria-selected=true]{background:var(--fill);color:var(--label)}
   .tabs button[aria-selected=true] svg{color:var(--tint)}
@@ -1104,6 +1107,7 @@ async function copyForTos() {
     toast("Couldn't copy by itself. The tickers are selected below: press Cmd+C.", true);
   }
 }
+function centerTab(t) { const nav = t.parentElement; if (nav && nav.scrollWidth > nav.clientWidth) nav.scrollTo({left: t.offsetLeft - (nav.clientWidth - t.offsetWidth) / 2, behavior: "smooth"}); }
 document.addEventListener("click", async e => {
   if (e.target.closest && e.target.closest("#copy-tos")) return copyForTos();
   const mrow = e.target.closest && e.target.closest("[data-mkey]");
@@ -1116,6 +1120,7 @@ document.addEventListener("click", async e => {
     document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + t.dataset.v));
     $("#title").textContent = TITLES[t.dataset.v];
     window.scrollTo(0, 0);
+    centerTab(t);
     if (t.dataset.v === "research") congress(false);
     if (t.dataset.v === "journal") loadReview();
     if (t.dataset.v === "graph") loadGraph();
