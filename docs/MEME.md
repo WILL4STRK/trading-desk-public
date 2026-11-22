@@ -399,3 +399,53 @@ The same rule applies to a pass as to every rule here: it earns a fresh forward 
 
 **Changes.** Changing any number in this section after a result is seen restarts the count and is logged in
 docs/CHANGES.md.
+
+## 16. Rule F1: Chronos zero-shot forecast gate (pre-registered 2026-11-22, before any code, forecast or data)
+
+**Question.** Does a pretrained time-series model (Amazon Chronos, zero-shot, no training on our data) pick a better set of
+P0's own entries than P0 itself and than a naive "it kept rising" rule? Paper only. No wallet, key or order path. "No edge" is
+an allowed and the likely answer (section 0).
+
+**Model.** `chronos-forecasting` 2.3.2 in `C:\Tradingorecast-venv` (Python 3.13, torch 2.15.0 CPU, transformers 5.24.0, pandas
+3.1.1, numpy 2.5.5; pins in `research/forecast/requirements.txt`). Checkpoint: `amazon/chronos-2`. Its Hugging Face commit hash
+is written to `research/forecast/MODEL_REVISION` at the first download and never changed; a different checkpoint or revision is
+a new rule. Zero-shot only: no fine-tuning, no fitting to dev or holdout, so dev is a smoke test of the code and cannot tune a number.
+
+**Data.** The same 5-minute GeckoTerminal candles and discovery list as the section 5 backtest (`research/meme/`). Desk data
+(`discoveries.jsonl`, `model.json`) is read only through a copy placed under `C:\Tradingesearchorecast\input\`; the live
+desk folder and `C:\Trading\memebot` are never opened by the code. GeckoTerminal: 5 calls a minute or fewer, one process.
+Chronos sees only closes dated on or before the decision time.
+
+**Decision points and floor (same as P0 plus a history floor).** One every 15 minutes per token. Eligible when `age` >= 24 h
+and `v1h` >= $20k. The 24 h floor guarantees a full context. Same 60-minute re-buy cooldown after an exit as section 3.
+
+**Entry F1.** Context = the last 288 five-minute closes (24 h). Forecast the next 48 steps (4 h). Buy when **both** hold:
+the median forecast close at +4 h is at least **+8 %** above the last close, and the 20th-percentile forecast close at +4 h is at
+least **-10 %** versus the last close. (+8 % is the 3.56 % break-even plus a 4.4-point margin; -10 % caps the forecast downside
+inside the -15 % stop.) Both numbers are fixed here and not tuned.
+
+**Exit and cost.** The section 3 primary exits (stop -15 %, target +30 %, time stop 4 h, all from the buy price before costs,
+stop first when a bar touches both) and the section 2 costs (3.5 % round trip, half each side, plus price impact size / half the
+pool liquidity per side; a pool under $1,000 or without a price is -100 %). Secondary fixed exits at +15, +60, +240 minutes
+are reported only.
+
+**Controls, on the same holdout and the same decision points.**
+1. **P0** `all`: every eligible decision point buys (the section 5 control).
+2. **C-persist**: buy when the token's own last-4-hour return is at least +8 % and its 1-hour return is >= 0. This is the naive
+   forecast "what rose keeps rising" at the same threshold, so a Chronos win must beat plain momentum too.
+Report also the share of eligible points F1 selects, and F1's result on the points it rejected.
+
+**Test and pass bar (section 5, unchanged).** Chronological split of the window: first 60 % dev, last 40 % holdout, holdout
+looked at once and locked with a lock file as in `research/meme/backtest.py`. F1 **passes** only if, on the holdout:
+mean and median net return per trade are above 0; the mean is above 0 with its 3 best trades removed; at least 100 trades on
+at least 50 distinct tokens (if the window cannot supply that, the result is reported as inconclusive, never as a pass);
+the mean is positive in at least 3 of 4 equal time folds of the whole window; and F1 beats **both** P0 and C-persist on the
+same holdout. Results by distinct token as well as by trade.
+
+**Limits stated now.** The sample has the survivorship bias of section 1: a backtest can rule F1 out but cannot confirm it, and a
+pass earns only a forward test (a shadow recorder logging F1 beside P0, no new account) that must meet the same bar on at least
+100 distinct-token trades. The window is short (about 7 days of 5-minute candles), so one market regime. CPU inference is slow;
+if the number of forecasts needed exceeds what finishes in a day, forecast every second decision point (every 30 minutes), a
+choice made by calendar and not by results.
+
+**Changes.** Changing any number in this section after a result is seen restarts the count and is logged in docs/CHANGES.md.
