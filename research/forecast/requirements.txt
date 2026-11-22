@@ -1,0 +1,8 @@
+# Rule F1 (docs/MEME.md section 16). Venv: C:\Trading\forecast-venv, Python 3.13.17, CPU torch.
+chronos-forecasting==2.3.2
+torch==2.15.0
+transformers==5.24.0
+pandas==3.1.1
+numpy==2.5.5
+accelerate==1.16.0
+huggingface_hub==2.4.0
