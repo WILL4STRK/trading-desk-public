@@ -27,6 +27,7 @@ from . import memerules as R
 from . import memigrate as M
 from . import memoon as MN
 from . import memoonpilot as MP
+from . import memereentry as MR
 from . import settings as S
 from .paths import ROOT, data_dir
 from .skills import read_json, write_json
@@ -530,6 +531,8 @@ def _run(now, fetch):
             books[name] = _new_account(st["meme_starting_balance"])
         books[name]["started"] = books[name].get("started") or _iso(now)
     accts = [("main", acct)] + [(n, books[n]) for n, _, _ in BOOKS]
+    careful = books["careful"]
+    first_careful_close = len(careful["closed"])
     tracked, shadows = s.get("tracked") or {}, s.get("shadows") or []
     screens = read_json(folder() / "screens.json", {}) or {}
     out = {"new": 0, "shadows_opened": 0, "shadows_closed": 0, "bought": 0, "sold": 0}
@@ -632,6 +635,7 @@ def _run(now, fetch):
             it["checked"] = now
 
     first_main_entry = len(acct["positions"])
+    first_careful_entry = len(careful["positions"])
     # 4. safety screens: newest unscreened (or stale) first
     todo = sorted((k for k, t in tracked.items() if t.get("pool") and now - (screens.get(k) or {}).get("ts", 0) > SCREEN_TTL),
                   key=lambda k: -tracked[k]["first_seen"])[:SCREENS_PER_RUN]
@@ -835,6 +839,12 @@ def _run(now, fetch):
                     out["bought"] += bn == "main"
 
     _practice_drawdown(st, s, acct["positions"][first_main_entry:], acct["closed"][first_main_close:], tracked, now)
+    study = s.get(MR.STATE_KEY)
+    if study is None and st["meme_reentry_shadow"]:
+        study = s[MR.STATE_KEY] = MR.new(st, now)
+    if study is not None:
+        MR.observe(study, st, now, careful["positions"][first_careful_entry:], careful["closed"][first_careful_close:],
+                   snap)
 
     # prune: old or dead tokens with nothing open
     busy = set().union(*held.values()) | {sh["key"] for sh in shadows} | {pe["key"] for pe in pending}
