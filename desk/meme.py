@@ -27,6 +27,7 @@ from . import memerules as R
 from . import memigrate as M
 from . import memoon as MN
 from . import memoonpilot as MP
+from . import memereentry as MR
 from . import settings as S
 from .paths import ROOT, data_dir
 from .skills import read_json, write_json
@@ -451,6 +452,10 @@ def equity(st, acct, tracked):
     return v
 
 
+def _new_drawdown_book(start, now):
+    return dict(_new_account(start), started=_iso(now), realized_peak=start, halted=None)
+
+
 def _practice_drawdown(st, s, entries, exits, tracked, now):
     """Size a companion account from the main book's fills, without feeding back into the scan."""
     enabled = st["meme_practice_drawdown"]
@@ -462,8 +467,7 @@ def _practice_drawdown(st, s, entries, exits, tracked, now):
     if book is None:
         if not enabled:
             return
-        book = s["practice_drawdown"] = _new_account(start)
-        book.update(started=_iso(now), realized_peak=start, halted=None)
+        book = s["practice_drawdown"] = _new_drawdown_book(start, now)
 
     positions = {(p["key"], p["ts"]): p for p in book["positions"]}
     for closed in exits:
@@ -530,6 +534,8 @@ def _run(now, fetch):
             books[name] = _new_account(st["meme_starting_balance"])
         books[name]["started"] = books[name].get("started") or _iso(now)
     accts = [("main", acct)] + [(n, books[n]) for n, _, _ in BOOKS]
+    careful = books["careful"]
+    first_careful_close = len(careful["closed"])
     tracked, shadows = s.get("tracked") or {}, s.get("shadows") or []
     screens = read_json(folder() / "screens.json", {}) or {}
     out = {"new": 0, "shadows_opened": 0, "shadows_closed": 0, "bought": 0, "sold": 0}
@@ -632,6 +638,7 @@ def _run(now, fetch):
             it["checked"] = now
 
     first_main_entry = len(acct["positions"])
+    first_careful_entry = len(careful["positions"])
     # 4. safety screens: newest unscreened (or stale) first
     todo = sorted((k for k, t in tracked.items() if t.get("pool") and now - (screens.get(k) or {}).get("ts", 0) > SCREEN_TTL),
                   key=lambda k: -tracked[k]["first_seen"])[:SCREENS_PER_RUN]
@@ -834,7 +841,28 @@ def _run(now, fetch):
                     held[bn].add(k)
                     out["bought"] += bn == "main"
 
-    _practice_drawdown(st, s, acct["positions"][first_main_entry:], acct["closed"][first_main_close:], tracked, now)
+    # Optional observers share the model save with the core scan. Keep their failures on their own records.
+    try:
+        _practice_drawdown(st, s, acct["positions"][first_main_entry:], acct["closed"][first_main_close:], tracked, now)
+    except Exception as err:
+        book = s.get("practice_drawdown")
+        if not isinstance(book, dict):
+            book = s["practice_drawdown"] = _new_drawdown_book(st["meme_starting_balance"], now)
+        book["error"] = f"{_iso(now)}: {type(err).__name__}: {err}"
+
+    study = s.get(MR.STATE_KEY)
+    try:
+        if study is None and st["meme_reentry_shadow"]:
+            study = s[MR.STATE_KEY] = MR.new(st, now)
+        if study is not None and "start_ts" in study:
+            MR.observe(study, st, now, careful["positions"][first_careful_entry:],
+                       careful["closed"][first_careful_close:], snap)
+    except Exception as err:
+        if not isinstance(study, dict):
+            study = s[MR.STATE_KEY] = {}
+        study["error"] = f"{_iso(now)}: {type(err).__name__}: {err}"
+        if study.get("incomplete") is None:
+            study["incomplete"] = {"ts": now, "reason": "observer error"}
 
     # prune: old or dead tokens with nothing open
     busy = set().union(*held.values()) | {sh["key"] for sh in shadows} | {pe["key"] for pe in pending}
