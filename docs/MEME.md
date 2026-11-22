@@ -327,15 +327,17 @@ independent size-aware quotes would require a separately registered study.
 that the reference book closes with reason `stop`, including gap fills. If the latest two accepted stops are
 less than 24 hours apart by exit timestamp, block new fills until 24 hours after the second exit. An entry at
 the expiry is eligible. Only a booked close can affect a decision. Process closes before entries on a pass
-and record both exit time and the pass time, so candle catch-up cannot change an earlier decision. Blocked
-trades, targets, time exits, liquidity pulls and total losses classified as rugs add no stops.
+and record both exit time and the pass time, so candle catch-up cannot change an earlier decision. Exits
+labelled `rug` or `liquidity pulled` do not count toward the two-stop lock. Neither do targets, time exits
+or the control outcomes of blocked fills.
 
 **Window and record.** Opt in with `meme_reentry_shadow: true` in Settings JSON. The first enabled pass sets
 the start to the next midnight UTC. Enroll for 120 consecutive days in four fixed 30-day UTC slices, then
 allow four hours and 150 seconds for final closes. Start with empty lock history. Freeze the desk source,
 starting balance, size, slots, cost, chains and discovery setting. The ordinary daily topic feed is part of the
 source protocol. Disabling the observer or changing a frozen setting before enrollment ends marks the window
-incomplete and stops new enrollment. Retain unmatched fills as unresolved. Store inputs, lock decisions and
+incomplete and stops new enrollment. An observer error is recorded on the study and also marks it incomplete.
+Retain unmatched fills as unresolved. Store inputs, lock decisions and
 reference outcomes under `reentry_shadow_v1` in the same atomic `model.json` save. The observer makes zero
 provider requests. Existing practice books and P0–P8 use their registered paths.
 

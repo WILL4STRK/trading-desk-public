@@ -452,6 +452,10 @@ def equity(st, acct, tracked):
     return v
 
 
+def _new_drawdown_book(start, now):
+    return dict(_new_account(start), started=_iso(now), realized_peak=start, halted=None)
+
+
 def _practice_drawdown(st, s, entries, exits, tracked, now):
     """Size a companion account from the main book's fills, without feeding back into the scan."""
     enabled = st["meme_practice_drawdown"]
@@ -463,8 +467,7 @@ def _practice_drawdown(st, s, entries, exits, tracked, now):
     if book is None:
         if not enabled:
             return
-        book = s["practice_drawdown"] = _new_account(start)
-        book.update(started=_iso(now), realized_peak=start, halted=None)
+        book = s["practice_drawdown"] = _new_drawdown_book(start, now)
 
     positions = {(p["key"], p["ts"]): p for p in book["positions"]}
     for closed in exits:
@@ -838,13 +841,28 @@ def _run(now, fetch):
                     held[bn].add(k)
                     out["bought"] += bn == "main"
 
-    _practice_drawdown(st, s, acct["positions"][first_main_entry:], acct["closed"][first_main_close:], tracked, now)
+    # Optional observers share the model save with the core scan. Keep their failures on their own records.
+    try:
+        _practice_drawdown(st, s, acct["positions"][first_main_entry:], acct["closed"][first_main_close:], tracked, now)
+    except Exception as err:
+        book = s.get("practice_drawdown")
+        if not isinstance(book, dict):
+            book = s["practice_drawdown"] = _new_drawdown_book(st["meme_starting_balance"], now)
+        book["error"] = f"{_iso(now)}: {type(err).__name__}: {err}"
+
     study = s.get(MR.STATE_KEY)
-    if study is None and st["meme_reentry_shadow"]:
-        study = s[MR.STATE_KEY] = MR.new(st, now)
-    if study is not None:
-        MR.observe(study, st, now, careful["positions"][first_careful_entry:], careful["closed"][first_careful_close:],
-                   snap)
+    try:
+        if study is None and st["meme_reentry_shadow"]:
+            study = s[MR.STATE_KEY] = MR.new(st, now)
+        if study is not None and "start_ts" in study:
+            MR.observe(study, st, now, careful["positions"][first_careful_entry:],
+                       careful["closed"][first_careful_close:], snap)
+    except Exception as err:
+        if not isinstance(study, dict):
+            study = s[MR.STATE_KEY] = {}
+        study["error"] = f"{_iso(now)}: {type(err).__name__}: {err}"
+        if study.get("incomplete") is None:
+            study["incomplete"] = {"ts": now, "reason": "observer error"}
 
     # prune: old or dead tokens with nothing open
     busy = set().union(*held.values()) | {sh["key"] for sh in shadows} | {pe["key"] for pe in pending}

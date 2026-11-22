@@ -85,9 +85,10 @@ class Lockout(DeskCase):
         second = entry(START + MR.DAY)
         self.observe(second["ts"], [second])
         self.observe(second["ts"] + 60, exits=[close(second, second["ts"] + 60)])
-        third = entry(second["ts"] + 3660)
-        self.observe(third["ts"], [third])
-        self.observe(third["ts"] + 60, exits=[close(third, third["ts"] + 60, why="rug", pnl=-20)])
+        for i, why in enumerate(("rug", "liquidity pulled"), start=1):
+            fill = entry(second["ts"] + i * 3660)
+            self.observe(fill["ts"], [fill])
+            self.observe(fill["ts"] + 60, exits=[close(fill, fill["ts"] + 60, why=why)])
         self.assertEqual(self.study["locks"], {})
         self.assertEqual(self.study["last_stop"][KEY], second["ts"] + 60)
 
@@ -134,7 +135,7 @@ class Lockout(DeskCase):
 
 
 class CarefulTape(DeskCase):
-    def replay(self, enabled):
+    def start_tape(self, **settings):
         class Profiles(FakeAPI):
             def __call__(self, url):
                 if url.endswith("/token-profiles/latest/v1"):
@@ -145,7 +146,7 @@ class CarefulTape(DeskCase):
                     return []
                 return super().__call__(url)
 
-        S.save({"meme_reentry_shadow": enabled})
+        S.save(settings)
         api = Profiles()
         api.rug = {"score_normalised": 5, "risks": [], "topHolders": [{"owner": "w", "pct": 5}],
                    "markets": [{"pubkey": "POOL1", "lp": {"lpLockedPct": 100}}], "knownAccounts": {},
@@ -153,6 +154,10 @@ class CarefulTape(DeskCase):
         api.feed = []
         meme.run(now=START - 600, fetch=api)
         api.feed = [{"chainId": "solana", "tokenAddress": SOL}]
+        return api
+
+    def replay(self, enabled):
+        api = self.start_tape(meme_reentry_shadow=enabled)
         for offset, price in [(0, 1.0), (60, 0.8), (3660, 1.0), (3720, 0.8), (7320, 1.0), (7380, 1.4)]:
             api.pairs[SOL] = api.pair(SOL, "POOL1", price, 100000, age_h=72, now=START)
             meme.run(now=START + offset, fetch=api)
@@ -172,3 +177,35 @@ class CarefulTape(DeskCase):
         self.assertEqual(state, baseline)
         self.assertEqual(logs, baseline_logs)
         self.assertEqual(calls, baseline_calls)
+
+    def test_malformed_exit_records_both_observer_errors_and_saves_the_pass(self):
+        api = self.start_tape(meme_reentry_shadow=True, meme_practice_drawdown=True)
+        api.pairs[SOL] = api.pair(SOL, "POOL1", 1.0, 100000, age_h=72, now=START)
+        self.assertEqual(meme.run(now=START, fetch=api)["bought"], 1)
+        sell = meme._sell
+
+        def sell_with_incomplete_record(st, account, position, *args):
+            sell(st, account, position, *args)
+            del account["closed"][-1]["exit_px"]
+            del account["closed"][-1]["exit_fill"]
+
+        now = START + 60
+        api.pairs[SOL]["priceUsd"] = "0.8"
+        with mock.patch.object(meme, "_sell", side_effect=sell_with_incomplete_record):
+            result = meme.run(now=now, fetch=api)
+        state = meme.load()
+        stamp = meme._iso(now)
+        self.assertEqual(result["sold"], 1)
+        self.assertGreater(result["shadows_closed"], 0)
+        self.assertEqual(state["last_run"], now)
+        self.assertIsNone(state["error"])
+        self.assertEqual(state["account"]["closed"][0]["why"], "stop")
+        self.assertEqual(state["books"]["careful"]["closed"][0]["why"], "stop")
+        self.assertEqual(state["practice_drawdown"]["error"], f"{stamp}: KeyError: 'exit_px'")
+        study = state[MR.STATE_KEY]
+        self.assertEqual(study["error"], f"{stamp}: KeyError: 'exit_fill'")
+        self.assertEqual(study["incomplete"], {"ts": now, "reason": "observer error"})
+        self.assertIsNone(study["rows"][0]["outcome"])
+
+        meme.run(now=now + 60, fetch=api)
+        self.assertEqual(meme.load()["last_run"], now + 60)
