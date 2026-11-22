@@ -305,7 +305,7 @@ class Book(DeskCase):
         disc = meme._jsonl("discoveries.jsonl")
         self.assertEqual(disc[0]["sources"], ["boosts-latest"])
         s = meme.load()
-        self.assertEqual(sorted(sh["policy"] for sh in s["shadows"]), ["all", "calm_aged"])
+        self.assertEqual(sorted(sh["policy"] for sh in s["shadows"]), ["all", "calm_aged", "quick"])
         self.assertTrue(all(sh["screen"] == "pass" for sh in s["shadows"]))
         pos = s["account"]["positions"][0]
         self.assertAlmostEqual(pos["cost"], 20.0)                           # 20% of $100
@@ -316,7 +316,7 @@ class Book(DeskCase):
         self.run_at(T0)
         self.api.pairs[SOL] = FakeAPI.pair(SOL, "POOL1", 0.80, 100000.0)
         out = self.run_at(T0 + 60)
-        self.assertEqual((out["sold"], out["shadows_closed"]), (1, 2))
+        self.assertEqual((out["sold"], out["shadows_closed"]), (1, 3))
         t = meme.load()["account"]["closed"][0]
         self.assertEqual(t["why"], "stop")
         qty = 20.0 / (1.0175 + 20 / 50000)
@@ -336,8 +336,8 @@ class Book(DeskCase):
         self.api.pairs[SOL] = FakeAPI.pair(SOL, "CURVE", 1.0, None, dex="pumpfun")
         out = self.run_at(T0)
         self.assertEqual(out["bought"], 0)
-        self.assertEqual(len(meme.load()["shadows"]), 2)
-        self.api.pairs[SOL] = FakeAPI.pair(SOL, "CURVE", 1.1, None, dex="pumpfun")
+        self.assertEqual(len(meme.load()["shadows"]), 3)
+        self.api.pairs[SOL] = FakeAPI.pair(SOL, "CURVE", 1.04, None, dex="pumpfun")
         out = self.run_at(T0 + 60)
         self.assertEqual(out["shadows_closed"], 0)
 
@@ -364,7 +364,7 @@ class Book(DeskCase):
         self.run_at(T0 + 16 * 60)
         s = meme.load()
         self.assertEqual(len(s["account"]["positions"]), 1)
-        self.assertEqual(len(s["shadows"]), 2)
+        self.assertEqual(len(s["shadows"]), 3)
 
     def test_a_new_starting_balance_starts_the_account_over_and_reset_keeps_the_record(self):
         self.run_at(T0)
