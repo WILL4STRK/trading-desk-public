@@ -1747,7 +1747,11 @@ new MutationObserver(updateCompactTables).observe(document.querySelector("main")
 function candleSvg(d, cwPx) {
   if (!d.bars.length) return `<div class="empty"><b>No candles for this coin yet</b>GeckoTerminal has no trades for its pool in this window.</div>`;
   // Drawn at the card's real pixel width (1 SVG unit = 1 px) so text stays 12px at any width; price tags live in the right gutter.
-  const W = Math.max(280, Math.round(cwPx || 720)), H = W < 520 ? 300 : 340, FS = 12, L = 6, R = Math.max(74, Math.ceil(Math.max(0, ...d.levels.map(v => (v.title + " " + cpx(v.price)).length)) * 7.4) + 14), T = 10, VB = 44, PB = H - VB - 24;
+  const W = Math.max(280, Math.round(cwPx || 720)), H = W < 520 ? 300 : 340, FS = 12, L = 6, compact = W < 500, tagTxt = v => (compact ? v.title.slice(0, 1) : v.title) + " " + cpx(v.price);
+  const R = Math.max(74, Math.ceil(Math.max(0, ...d.levels.map(v => tagTxt(v).length)) * 7.4) + 14), VB = 44;
+  // Buy and sell marks in view get a legend row above the plot, so the legend never sits on a candle.
+  const seenFrom = d.bars.length ? d.bars[Math.max(0, d.bars.length - Math.max(30, Math.min(120, Math.floor((W - L - R) / 3))))].time : 0;
+  const marks = d.trades.filter(x => x.time >= seenFrom), T = marks.length ? 28 : 10, PB = H - VB - 24;
   const plotW = W - L - R, bars = d.bars.slice(-Math.max(30, Math.min(120, Math.floor(plotW / 3))));
   const prices = bars.flatMap(b => [b.high, b.low]).concat(d.levels.map(v => v.price));
   let lo = Math.min(...prices), hi = Math.max(...prices); if (hi === lo) { hi *= 1.01; lo *= 0.99; }
@@ -1760,9 +1764,13 @@ function candleSvg(d, cwPx) {
   tags.forEach((t, i) => { if (i && t.y < tags[i - 1].y + TH + 2) t.y = tags[i - 1].y + TH + 2; });
   const over = tags.length ? tags.at(-1).y + TH / 2 - PB : 0; if (over > 0) tags.forEach(t => t.y -= over);
   let g = "";
-  for (let k = 0; k <= 4; k++) { const p = lo + (hi - lo) * k / 4, y = Y(p);
-    g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="var(--sep)" stroke-width=".5"/>`;
-    if (!tags.some(t => Math.abs(t.y - y) < TH)) g += `<text x="${W - R + 6}" y="${y + 4}" font-size="${FS}" fill="var(--label2)">${cpx(p)}</text>`; }
+  // five gridlines; each price label is skipped when a level tag sits on it, then in-between labels fill in so at least 3 show
+  const axis = k => { const p = lo + (hi - lo) * k / 8; return {p, y: Y(p)}; }, shown = [];
+  for (const k of [0, 2, 4, 6, 8, 1, 3, 5, 7]) { const a = axis(k);
+    if (k % 2 === 0) g += `<line x1="${L}" x2="${W - R}" y1="${a.y}" y2="${a.y}" stroke="var(--sep)" stroke-width=".5"/>`;
+    if (k % 2 && shown.length >= 3) continue;
+    if (tags.some(t => Math.abs(t.y - a.y) < TH) || shown.some(y => Math.abs(y - a.y) < 18)) continue;
+    shown.push(a.y); g += `<text x="${W - R + 6}" y="${a.y + 4}" font-size="${FS}" fill="var(--label2)">${cpx(a.p)}</text>`; }
   bars.forEach((b, i) => {
     const up = b.close >= b.open, c = up ? "var(--go)" : "var(--stop)", bw = Math.max(1, cw * 0.7);
     g += `<line x1="${X(i)}" x2="${X(i)}" y1="${Y(b.high)}" y2="${Y(b.low)}" stroke="${c}" stroke-width="1"/>`;
@@ -1770,14 +1778,19 @@ function candleSvg(d, cwPx) {
     const vh = (b.volume || 0) / vmax * VB;
     g += `<rect x="${X(i) - bw / 2}" y="${H - 24 - vh}" width="${bw}" height="${vh}" fill="${c}" opacity=".35"/>`;
   });
-  tags.forEach(({v, y}) => { const col = COLS[v.kind] || "var(--label2)", py = Y(v.price), txt = `${v.title} ${cpx(v.price)}`;
+  tags.forEach(({v, y}) => { const col = COLS[v.kind] || "var(--label2)", py = Y(v.price), txt = tagTxt(v);
     g += `<line x1="${L}" x2="${W - R}" y1="${py}" y2="${py}" stroke="${col}" stroke-dasharray="5 4"/>`;
-    g += `<rect x="${W - R + 2}" y="${y - TH / 2}" width="${R - 4}" height="${TH}" rx="4" fill="${col}"/><text x="${W - R + 2 + (R - 4) / 2}" y="${y + 4}" text-anchor="middle" font-size="${FS}" font-weight="600" fill="${TAGTXT[v.kind] || "#000"}">${esc(txt)}</text>`; });
+    g += `<rect x="${W - R + 2}" y="${y - TH / 2}" width="${R - 4}" height="${TH}" rx="4" fill="${col}"><title>${esc(v.title + " " + cpx(v.price))}</title></rect><text x="${W - R + 2 + (R - 4) / 2}" y="${y + 4}" text-anchor="middle" font-size="${FS}" font-weight="600" fill="${TAGTXT[v.kind] || "#000"}">${esc(txt)}</text>`; });
   const t0 = bars[0].time, idx = t => { let j = 0; bars.forEach((b, i) => { if (b.time <= t) j = i; }); return j; };
-  d.trades.filter(x => x.time >= t0).forEach(x => { const i = idx(x.time), b = bars[i], buy = x.side === "buy";
-    g += `<text x="${X(i)}" y="${buy ? Y(b.low) + 14 : Y(b.high) - 6}" text-anchor="middle" font-size="13" fill="${buy ? "var(--tint)" : "#FFB340"}">${buy ? "▲" : "▼"}</text>`; });
   const fmt = t => new Date(t * 1000).toISOString().slice(11, 16);
-  g += `<text x="${L}" y="${H - 4}" font-size="${FS}" fill="var(--label2)">${fmt(t0)} UTC</text><text x="${W - R}" y="${H - 4}" text-anchor="end" font-size="${FS}" fill="var(--label2)">${fmt(bars.at(-1).time)} UTC</text>`;
+  d.trades.filter(x => x.time >= t0).forEach(x => { const i = idx(x.time), b = bars[i], buy = x.side === "buy";
+    const tip = (buy ? "Bought" : "Sold") + (x.policy ? " · " + String(x.policy).replace(/_/g, " ") : "") + (x.why ? " · " + x.why : "") + " · " + fmt(x.time) + " UTC";
+    g += `<text x="${X(i)}" y="${buy ? Y(b.low) + 14 : Y(b.high) - 6}" text-anchor="middle" font-size="13" fill="${buy ? "var(--tint)" : "#FFB340"}"><title>${esc(tip)}</title>${buy ? "▲" : "▼"}</text>`; });
+  if (marks.length) g += `<text x="${L}" y="14" font-size="${FS}" fill="var(--label2)"><tspan fill="var(--tint)">▲</tspan> bought · <tspan fill="#FFB340">▼</tspan> sold</text>`;
+  // time axis: first, middle and last bar (fewer when there are fewer bars), text kept inside the plot
+  const tl = n >= 3 ? [[0, "start"], [(n - 1) >> 1, "middle"], [n - 1, "end"]] : n === 2 ? [[0, "start"], [1, "end"]] : [[0, "end"]];
+  tl.forEach(([i, a]) => { const x = a === "start" ? L : a === "end" ? W - R : X(i);
+    g += `<text x="${x}" y="${H - 4}" text-anchor="${a}" font-size="${FS}" fill="var(--label2)">${fmt(bars[i].time)} UTC</text>`; });
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;max-width:100%" aria-hidden="true">${g}</svg>`;
 }
 let MCHD = null, MCHW = 0;
