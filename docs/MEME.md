@@ -352,3 +352,50 @@ least 15 mints. A favorable result also needs the paired interval's lower bound 
 worse than the control. An incomplete window, unresolved outcomes or too few observations is inconclusive.
 A less negative result can show loss avoidance. Any entry-edge claim requires the separate N1 arms and their
 full controls and pass bar.
+
+## 15. Rule P9: quick, a tight bracket on P0's own entries (pre-registered 2026-11-22, before any of its data)
+
+**Question.** P0 (`all`) entries on coins that passed the plain safety check lose on average with the section 3
+exits (-15 % stop, +30 % target, 4 hours). Would the same entries do better with a short, tight bracket? Paper only.
+This section is written and pushed before any P9 code or P9 data exists. Sections 2 to 8 are unchanged.
+
+**Entry.** Exactly P0's decision: hour volume >= $20k, one decision point per coin every 15 minutes, on coins whose
+plain safety check (`screen` verdict) is `pass`. Unknown is no. Same fill as P0: the snapshot price at the decision.
+Same guards as P0: no buy of a coin whose pool already reports under $1,000, none while that coin's P9 shadow is open,
+none inside the 60-minute cooldown that follows that coin's last P9 exit. Each entry also logs the pool's `dexId`
+(`dex`) so results can be re-priced per venue later.
+
+**Exits (from the buy price, before costs).** Target +10 %, stop -5 %, time limit 30 minutes. A pool whose liquidity
+falls under $1,000, a missing price, or a drop of liquidity under half of its level at the buy (practice account) closes
+as in section 2. Samples arrive about every 60 seconds, so a stop fills at the **sampled** price, which can be well
+under -5 % (gaps are real); a target fills at the target, as a limit order would. When one sample or candle touches
+both stop and target the **stop is first**. Order of checks on one sample: dead pool, stop, target, time, liquidity pull.
+If the desk was away, an open item is replayed from 5-minute candles as in section 4 (a candle that opens below the
+stop fills at its open).
+
+**Cost.** The desk cost, 3.5 % round trip and 6 % on Ethereum (section 2 and 6), half on each side. The practice account
+also pays price impact on each side (size / half the pool's liquidity), as P0's account does. The shadow line, like every
+shadow line, is net of the round-trip cost only.
+
+**Break-even win rate.** At 3.5 % cost a win nets about +6.2 % and a stop about -8.3 %, so a bracket needs about **57 %**
+of trades to win to break even (on Ethereum's 6 % cost, about 75 %). The readout reports P9's win rate (net above 0) with
+its 95 % range, and its target-hit rate, next to 57 %.
+
+**Control.** The same rule's entries with P0's exits (-15 % / +30 % / 4 hours) are the existing `all+screen` line. P9
+must beat it. Because P9 exits sooner and its cooldown starts at its own exit, its entry times are not identical to the
+control's, so the two share the decision rule and the coins but not every entry. To keep the comparison fair, the control
+and the buy-everything line (`all`, P0 with no screen) are both restricted to entries on or after the first P9 shadow.
+Older P0 history is not used for the comparison.
+
+**Practice account.** Its own $100 account (`quick`), desk sizing: 20 % of equity a position, at most 4 open, one
+position per coin, the P0 entries above, the P9 exits and cost. A shadow is recorded for every entry whether or not the
+account can take it. The account is a readable balance. The pass bar is read on the shadows.
+
+**Pass bar.** Section 5 plus section 8's time slices, on P9's closed shadows: at least 100 trades on at least 50 distinct
+coins; mean and median net return above 0; mean above 0 without its 3 best trades; positive mean in at least 3 of 4 equal
+time slices of its own entries; **at least 10 trades in every slice**; and a mean above both the control and
+buy-everything lines (entries since the first P9 shadow). The 95 % range of the mean, by whole coins, is reported.
+The same rule applies to a pass as to every rule here: it earns a fresh forward test and nothing more.
+
+**Changes.** Changing any number in this section after a result is seen restarts the count and is logged in
+docs/CHANGES.md.

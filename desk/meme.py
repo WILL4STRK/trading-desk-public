@@ -30,6 +30,7 @@ from . import memigrate as M
 from . import memoon as MN
 from . import memoonpilot as MP
 from . import memereentry as MR
+from . import memequick as QK
 from . import settings as S
 from .paths import ROOT, data_dir
 from .skills import read_json, write_json
@@ -183,7 +184,8 @@ LEARN = ("hype", "breakout", "calm_aged", "dip_aged", "aged_liquid", "news")
 # that passed the safety check, and "careful": any rule, strict check passed and no research filter (docs/MEME.md s.7).
 BOOKS = tuple((r, (r,), "screen") for r in R.POLICIES) + (("careful", LEARN, "evidence"),
                                                            ("migration", ("migration",), "strict"),
-                                                           ("moonshot", ("moonshot",), "screen"))
+                                                           ("moonshot", ("moonshot",), "screen"),
+                                                           ("quick", ("quick",), "screen"))
 DELAYED = {"migration": ("migration", "migrations.jsonl"), "migration_base": (None, "migrations.jsonl"),
            "moonshot": ("moonshot", "moonshots.jsonl"), "moonshot_base": (None, "moonshots.jsonl")}  # policy: (book, log)
 PRACTICE_DRAWDOWN_PCT = 15
@@ -513,6 +515,14 @@ def _practice_drawdown(st, s, entries, exits, tracked, now):
             book["positions"].append(dict(source, cost=size, fill=fill, qty=size / fill))
 
 
+def _quick_error(s, now, err):
+    """Rule P9's guard, like N1's: a failure is kept on its own record and never stops the core scan."""
+    book = s.get(QK.STATE_KEY)
+    if not isinstance(book, dict):
+        book = s[QK.STATE_KEY] = {}
+    book["error"] = f"{_iso(now)}: {type(err).__name__}: {err}"
+
+
 def _exit_rule(entry_px, entry_ts, px, liq, now, entry_liq=None):
     """The forward exit from one price sample: (price to use, why) or None. The stop fills at the sampled price
     (a gap is real); the target fills at the target (as a limit would); a dead pool is a total loss."""
@@ -623,15 +633,19 @@ def _run(now, fetch):
         entry_px, entry_ts = it["px"], it["ts"]
         hit = None
         moon = it.get("policy") in MN.POLICIES
+        quick = it.get("policy") in QK.POLICIES
         if now - it.get("checked", entry_ts) > GAP and t.get("pool") and gt_budget[0] > MIG_RESERVE:
             gt_budget[0] -= 1
             try:
-                hold = MN.HOLD_MIN if moon else R.HOLD_MIN
+                hold = MN.HOLD_MIN if moon else QK.HOLD_MIN if quick else R.HOLD_MIN
                 bars = gt_bars(t["chain"], t["pool"], min(now, entry_ts + hold * 60 + 300), limit=300 if moon else 60,
                                fetch=fetch)
                 dead = it["key"] in snap and _dead(t.get("liq"))
                 if moon:
                     r, it["peak"] = MN.replay(entry_ts, entry_px, it.get("peak") or entry_px, bars, dead=dead, now=now)
+                elif quick:
+                    r = R.replay(entry_ts, entry_px, bars, dead=dead, now=now, stop=QK.STOP_PCT, target=QK.TARGET_PCT,
+                                 hold_min=QK.HOLD_MIN)
                 else:
                     r = R.replay(entry_ts, entry_px, bars, dead=dead, now=now)
                 hit = r and (r["price"], r["why"], r["ts"])
@@ -645,6 +659,13 @@ def _run(now, fetch):
                                    it.get("liq") if kind == "pos" else None, R.DEAD_LIQ)
                 if not e and t.get("px"):
                     it["peak"] = max(it.get("peak") or entry_px, t["px"])
+            elif quick:
+                try:
+                    e = QK.exit_sample(entry_px, entry_ts, t.get("px"), t.get("liq"), now,
+                                       it.get("liq") if kind == "pos" else None, R.DEAD_LIQ)
+                except Exception as err:
+                    _quick_error(s, now, err)
+                    continue
             else:
                 e = _exit_rule(entry_px, entry_ts, t.get("px"), t.get("liq"), now, it.get("liq") if kind == "pos" else None)
             hit = e and (e[0], e[1], now)
@@ -835,6 +856,11 @@ def _run(now, fetch):
                 pass
         dec = R.decide(f)
         sc = screens.get(k) or {"verdict": "unknown", "why": ["not screened yet"]}
+        try:
+            dec[QK.POLICY] = QK.decide(dec.get("all"), sc.get("verdict"))      # P9 (docs/MEME.md s.15): P0's entry, screen pass
+        except Exception as err:
+            dec[QK.POLICY] = False
+            _quick_error(s, now, err)
         for name, yes in dec.items():
             if not yes or (k, name) in open_sh or now < t["cool"].get(name, 0) or not t.get("px") or _dead(t.get("liq")):
                 continue
@@ -842,7 +868,8 @@ def _run(now, fetch):
                             "at": _iso(now), "px": t["px"], "screen": sc["verdict"], "checked": now,
                             "strict": sc.get("strict", "unknown"), "news": p["_news"],
                             "veto": R.vetoes(f, now - (t.get("last_promo") or -1e12) < 86400),
-                            "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()}})
+                            "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()},
+                            **({"dex": p.get("dexId")} if name in QK.POLICIES else {})})
             out["shadows_opened"] += 1
         veto = R.vetoes(f, now - (t.get("last_promo") or -1e12) < 86400)
         plan = [("main", acct, LEARN if pol in ("learn", "careful") else (pol,), "evidence" if pol == "careful" else "screen")] + [(n, books[n], rules, how)
@@ -859,7 +886,8 @@ def _run(now, fetch):
                     ba["cash"] = round(ba["cash"] - size, 6)
                     ba["positions"].append({"key": k, "symbol": t.get("symbol"), "chain": t["chain"], "policy": fired[0],
                                             "ts": now, "at": _iso(now), "px": t["px"], "fill": fill, "qty": size / fill,
-                                            "cost": size, "liq": t["liq"], "checked": now})
+                                            "cost": size, "liq": t["liq"], "checked": now,
+                                            **({"dex": p.get("dexId")} if fired[0] in QK.POLICIES else {})})
                     held[bn].add(k)
                     out["bought"] += bn == "main"
 
@@ -1039,12 +1067,17 @@ def forward(rows=None):
         _fw_cache.update(sig=sig, out=out)
         return out
     out = {}
-    for p in R.POLICIES + M.POLICIES + MN.POLICIES:
+    for p in R.POLICIES + M.POLICIES + MN.POLICIES + QK.POLICIES:
         mine = [x for x in rows if x["policy"] == p]
         out[p] = stats(mine)
         out[p + "+screen"] = stats([x for x in mine if x.get("screen") == "pass"])
         out[p + "+strict"] = stats([x for x in mine if x.get("strict") == "pass"])
         out[p + "+evidence"] = stats([x for x in mine if x.get("screen") == "pass" and x.get("veto") == []])
+    # P9's comparators (docs/MEME.md s.15): P0 with and without the screen, entries since the first P9 shadow
+    start = min((x["ts"] for x in rows if x["policy"] in QK.POLICIES and x.get("ts") is not None), default=None)
+    p0 = [x for x in rows if x["policy"] == "all"]
+    out["quick_control"] = stats(QK.since([x for x in p0 if x.get("screen") == "pass"], start))
+    out["quick_all"] = stats(QK.since(p0, start))
     return out
 
 
@@ -1062,6 +1095,10 @@ def bar(x, base=None, control=None, min_slice=0):
 def _bar_for(k, v, fw):
     if k.startswith(("migration_base", "moonshot_base")):
         return False                      # a control is a comparator, never a candidate
+    if k.startswith("quick_"):
+        return False                      # a comparator, never a candidate
+    if k.startswith("quick"):
+        return bar(v, fw.get("quick_all"), fw.get("quick_control"), QK.MIN_PER_SLICE)
     if k.startswith("moonshot"):
         return bar(v, fw.get("all"), fw.get("moonshot_base"), M.MIN_PER_SLICE)
     if k.startswith("migration"):
@@ -1159,7 +1196,7 @@ def view():
         distributions[name] = bins
     model_results = {
         name: {"passed": _bar_for(name, fw.get(name) or {}, fw)}
-        for name in R.POLICIES + M.POLICIES + MN.POLICIES
+        for name in R.POLICIES + M.POLICIES + MN.POLICIES + QK.POLICIES
         if name not in ("all", "migration_base", "moonshot_base")
     }
     model_results["careful"] = {"stats": stats(careful),
@@ -1190,6 +1227,7 @@ def view():
             "practice_drawdown": risk,
             "migrations": migration_funnel(),
             "moonshots": moonshot_funnel(),
+            "quick": quick_view(rows, fw, s),
             "forward": fw, "verdict": verdict(fw, pol, [{"key": t["key"], "net_pct": t["ret_pct"], "ts": t["ts"]} for t in closed]), "cost_pct": st["meme_cost_pct"],
             "rules": {"stop": R.STOP_PCT, "target": R.TARGET_PCT, "hold_min": R.HOLD_MIN},
             "checked": s.get("checked"), "error": s.get("error"), "paper_only": True}
@@ -1232,6 +1270,23 @@ def moonshot_funnel():
             "best": fw.get("best"), "share_100": fw.get("share_100"), "mean_no_top10": fw.get("mean_no_top10")}
 
 
+def quick_view(rows, fw, s):
+    """Rule P9's card (docs/MEME.md section 15): its closed shadows against the control, the win rate against the
+    break-even rate its costs imply, and how its trades ended."""
+    mine = [x for x in rows if x["policy"] in QK.POLICIES]
+    ends = {}
+    for x in mine:
+        ends[x.get("why")] = ends.get(x.get("why"), 0) + 1
+    n = len(mine)
+    return {"stats": fw.get("quick") or {}, "control": fw.get("quick_control") or {}, "everything": fw.get("quick_all") or {},
+            "ends": ends, "target_pct": round(100 * ends.get("target", 0) / n, 1) if n else None,
+            "breakeven_pct": QK.breakeven_win_pct(R.COST_PCT), "breakeven_eth_pct": QK.breakeven_win_pct(R.CHAIN_COST["ethereum"]),
+            "open": len([x for x in s.get("shadows") or [] if x.get("policy") in QK.POLICIES]),
+            "dex": {d: sum(1 for x in mine if x.get("dex") == d) for d in sorted({x.get("dex") or "?" for x in mine})},
+            "error": (s.get(QK.STATE_KEY) or {}).get("error"),
+            "rules": {"stop": QK.STOP_PCT, "target": QK.TARGET_PCT, "hold_min": QK.HOLD_MIN}}
+
+
 BOOK_NAMES = {"careful": "Careful: any rule, strict check, no research filter"}
 
 
@@ -1267,7 +1322,7 @@ def lines(v=None):
          % (v["tracked"], v["discoveries"], v["screens"]["pass"], v["screens"]["fail"], v["screens"]["unknown"], v["cost_pct"]),
          "  Forward record (closed shadows, net of cost, stop %d%% / target +%d%% / %d min):"
          % (v["rules"]["stop"], v["rules"]["target"], v["rules"]["hold_min"])]
-    for p in R.POLICIES + M.POLICIES + MN.POLICIES:
+    for p in R.POLICIES + M.POLICIES + MN.POLICIES + QK.POLICIES:
         for name in (p, p + "+screen", p + "+strict", p + "+evidence"):
             x = v["forward"][name]
             if not x["n"] and name != p:
