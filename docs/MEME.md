@@ -308,3 +308,43 @@ net result of matched and skipped opportunities. This account overlay is evaluat
 finalized paper events locally. Source inspiration: [ClaudeFi's
 README](https://github.com/claudefi/claudefi/blob/e86dea3d3c5777d1145137c935de8e5487bcf0bf/README.md)
 (MIT as declared there).
+
+## 12. N1 shadow. Same-mint two-stop lockout (pre-registered 2026-11-22)
+
+**Question.** Does skipping a repeat after two stops improve the net result of the same Careful fills?
+FIONA's losses and later target motivated the test. All historical fills are outside the study.
+[Meambot N1 and the source tape](https://github.com/WILL4STRK/Meambot/blob/b7e32f2a4cef7578006427e09a2c1f8f3d6b960f/research/models/NEW-IDEAS.md#n1--same-mint-two-stop-lockout)
+
+**Opportunity and control.** Use the named `careful` book's actual new Solana practice fills from P1–P6,
+with at least $25k pool liquidity and $20k trailing-hour pool volume at entry. The book supplies its existing
+strict screen, vetoes, slots, 60-minute re-entry cooldown, fill clock, size, exits and cost model. Take every
+eligible fill in the control. An accepted shadow copies that fill and its closed net P&L, including price
+impact at the reference size. A blocked shadow stays in cash at zero P&L and retains the control's eventual
+outcome. This is the paired part of N1, conditional on recorded Careful fills. Testing replacement trades or
+independent size-aware quotes would require a separately registered study.
+
+**Lock.** Key by chain and exact token mint, across rule and pool changes. Count only accepted shadow fills
+that the reference book closes with reason `stop`, including gap fills. If the latest two accepted stops are
+less than 24 hours apart by exit timestamp, block new fills until 24 hours after the second exit. An entry at
+the expiry is eligible. Only a booked close can affect a decision. Process closes before entries on a pass
+and record both exit time and the pass time, so candle catch-up cannot change an earlier decision. Blocked
+trades, targets, time exits, liquidity pulls and total losses classified as rugs add no stops.
+
+**Window and record.** Opt in with `meme_reentry_shadow: true` in Settings JSON. The first enabled pass sets
+the start to the next midnight UTC. Enroll for 120 consecutive days in four fixed 30-day UTC slices, then
+allow four hours and 150 seconds for final closes. Start with empty lock history. Freeze the desk source,
+starting balance, size, slots, cost, chains and discovery setting. The ordinary daily topic feed is part of the
+source protocol. Disabling the observer or changing a frozen setting before enrollment ends marks the window
+incomplete and stops new enrollment. Retain unmatched fills as unresolved. Store inputs, lock decisions and
+reference outcomes under `reentry_shadow_v1` in the same atomic `model.json` save. The observer makes zero
+provider requests. Existing practice books and P0–P8 use their registered paths.
+
+**Readout.** Score once after the window. Assign fills to slices by their entry time and use the observed
+close order for realized drawdown. Report accepted and blocked counts, distinct mints, foregone winners,
+avoided losses, net P&L for each arm, difference per eligible fill, and realized drawdown from the same starting
+balance. Compute the paired 95% UTC-day block-bootstrap interval with mint-cluster sensitivity. Require 100
+resolved accepted fills on at least 50 mints, ten accepted fills in each slice, and 30 resolved blocks on at
+least 15 mints. A favorable result also needs the paired interval's lower bound above zero and drawdown no
+worse than the control. An incomplete window, unresolved outcomes or too few observations is inconclusive.
+A less negative result can show loss avoidance. Any entry-edge claim requires the separate N1 arms and their
+full controls and pass bar.
