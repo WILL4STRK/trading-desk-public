@@ -385,6 +385,152 @@ tr.grp:first-of-type td,tr.grp:nth-child(2) td{border-top:0}
   .compact-table td[colspan]{display:block}
 }
 
+/* Polish layer: look only. No markup, script or behaviour changes. Later rules win over the base styles above. */
+:root{
+  --r-card:12px; --r-inner:8px;
+  --lift:0 1px 0 oklch(1 0 0 / .05) inset, 0 8px 24px -12px oklch(0 0 0 / .55);
+  --edge:oklch(1 0 0 / .07);
+  --accent-glow:oklch(0.72 0.14 252 / .16);
+}
+html{background:var(--bg)}
+body{
+  background:
+    radial-gradient(900px 420px at 50% -120px, var(--accent-glow), transparent 70%),
+    var(--bg);
+  background-attachment:fixed;
+  letter-spacing:-.003em;
+}
+.wrap{padding-top:max(16px,env(safe-area-inset-top))}
+
+/* header */
+.top{padding:10px 4px 0}
+.greet{font-size:14px;font-weight:500;letter-spacing:.01em}
+.large{font:700 38px/1.05 var(--display);letter-spacing:-.025em;margin:6px 4px 6px}
+.clock{margin:0 4px 20px;font-size:13.5px;letter-spacing:.01em}
+.mode-badge{font-size:12px;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;border-radius:999px;
+  border:1px solid oklch(0.82 0.09 215 / .28)}
+.mark{background:linear-gradient(160deg,var(--card2),var(--card));box-shadow:0 0 0 1px var(--edge)}
+
+/* tabs: glass pill on wide screens, quiet bar on phones */
+.tabs{background:oklch(0.205 0.01 265 / .82);-webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%)}
+@media(min-width:900px){
+  .tabs{border:1px solid var(--edge);border-radius:999px;padding:5px;box-shadow:0 10px 30px -14px oklch(0 0 0 / .7)}
+  .tabs button{border-radius:999px;color:var(--label2);transition:background-color .15s ease,color .15s ease}
+  .tabs button:hover{color:var(--label);background:oklch(1 0 0 / .05)}
+  .tabs button[aria-selected=true]{background:linear-gradient(180deg,oklch(0.36 0.02 265),oklch(0.30 0.014 265));
+    box-shadow:0 0 0 1px oklch(1 0 0 / .1),0 4px 12px -6px oklch(0 0 0 / .6)}
+}
+.tabs button[aria-selected=true] svg{color:var(--tint)}
+
+/* cards: a little depth, a clearer edge */
+.card,.group,.tile{border:1px solid var(--edge);box-shadow:var(--lift)}
+.card{background:linear-gradient(180deg,oklch(0.215 0.011 265),var(--card));padding:18px}
+.tile{background:linear-gradient(180deg,oklch(0.215 0.011 265),var(--card));border-radius:var(--r-card);padding:14px 16px}
+.tile b{font-size:24px;letter-spacing:-.015em;font-variant-numeric:tabular-nums}
+.tile span{font-size:12.5px;letter-spacing:.02em;text-transform:uppercase;color:var(--label2)}
+.section-title{font:650 15px/1.2 var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--label2);margin:28px 4px 12px}
+.section-title:first-child{margin-top:6px}
+.card-h{font:650 18px/1.2 var(--display);letter-spacing:-.01em}
+
+/* the account card leads the page */
+.hero{position:relative;overflow:hidden;background:
+    radial-gradient(420px 160px at 0 0, var(--accent-glow), transparent 70%),
+    linear-gradient(180deg,oklch(0.225 0.013 265),var(--card))}
+.hero .cap{font-size:13px;letter-spacing:.04em;text-transform:uppercase}
+.hero .big{font:700 46px/1.05 var(--display);letter-spacing:-.03em;margin:8px 0 4px}
+.hero .three{gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid var(--edge)}
+.hero .three b{font-size:19px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.hero .three span{font-size:12.5px}
+
+/* chips, pills and tags share one shape */
+.chip,.pill,.tag,.side-tag{border-radius:999px}
+.chip{padding:5px 11px;letter-spacing:.01em}
+.pill{padding:5px 12px;font-size:12.5px;letter-spacing:.02em}
+.tag{padding:2px 8px;letter-spacing:.03em}
+.side-tag{padding:2px 9px}
+
+/* buttons */
+.btn{border-radius:10px;font-size:15px;letter-spacing:.005em;
+  background:linear-gradient(180deg,oklch(0.56 0.17 258),var(--btn));
+  box-shadow:0 1px 0 oklch(1 0 0 / .18) inset,0 6px 16px -8px oklch(0.52 0.17 258 / .9)}
+.btn:not(:disabled):hover{background:linear-gradient(180deg,oklch(0.61 0.17 258),oklch(0.56 0.17 258))}
+.btn.gray{background:linear-gradient(180deg,oklch(0.34 0.012 265),var(--fill));box-shadow:0 1px 0 oklch(1 0 0 / .08) inset}
+.btn.gray:not(:disabled):hover{background:linear-gradient(180deg,oklch(0.39 0.012 265),oklch(0.34 0.012 265))}
+.btn.text,.btn.text:not(:disabled):hover{background:none;box-shadow:none}
+.btn.text:not(:disabled):hover{text-decoration:underline;text-underline-offset:3px}
+.btn.small{border-radius:var(--r-inner)}
+
+/* segmented control */
+.seg{background:oklch(0.16 0.008 265);border:1px solid var(--edge);border-radius:10px;padding:3px}
+.seg button{border-radius:8px;color:var(--label2);transition:background-color .15s ease,color .15s ease}
+.seg button:hover{color:var(--label)}
+.seg button[aria-pressed=true]{background:var(--fill);color:var(--label);box-shadow:0 1px 0 oklch(1 0 0 / .1) inset,0 2px 6px -2px oklch(0 0 0 / .6)}
+
+/* signal cards */
+.logo{border-radius:12px;box-shadow:0 0 0 1px var(--edge) inset}
+.sig.ready{border-color:oklch(0.52 0.17 258 / .55);box-shadow:var(--lift),0 0 0 1px oklch(0.52 0.17 258 / .25)}
+.ticker{font-size:22px;letter-spacing:-.02em}
+.order{font-size:18px;letter-spacing:-.005em}
+.list{background:oklch(0.17 0.009 265 / .7);border:1px solid var(--edge);border-radius:10px}
+.li{padding:11px 14px}
+.li + .li{border-top:1px solid var(--edge)}
+.li > b{font-variant-numeric:tabular-nums}
+.pl div{border-radius:10px;border:1px solid var(--edge)}
+.pl b{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.callout{border-radius:10px;border:1px solid oklch(1 0 0 / .05)}
+.odds-bar{height:8px;border-radius:999px;gap:2px;background:transparent}
+.odds-bar div{border-radius:999px}
+.meter{height:6px;border-radius:999px}
+.meter i{border-radius:999px;background:linear-gradient(90deg,oklch(0.62 0.15 255),var(--tint))}
+.field{background:oklch(0.17 0.009 265 / .7);border:1px solid var(--edge);border-radius:10px;padding:9px 13px}
+.field:focus-within{border-color:var(--tint);box-shadow:0 0 0 3px oklch(0.72 0.14 252 / .25)}
+.field span{font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+
+/* tables */
+table{font-variant-numeric:tabular-nums}
+th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--label2)}
+tr + tr td{border-top:1px solid oklch(1 0 0 / .06)}
+tbody tr{transition:background-color .12s ease}
+tbody tr:hover td{background:oklch(1 0 0 / .025)}
+
+/* desk tab: list, chart, slips */
+.tv-list{padding:10px}
+.trow{border-radius:var(--r-inner);transition:background-color .12s ease}
+.trow:hover{background:oklch(1 0 0 / .05)}
+.trow[aria-current=true]{background:linear-gradient(90deg,oklch(0.72 0.14 252 / .16),oklch(1 0 0 / .05));box-shadow:inset 2px 0 0 var(--tint)}
+.trow b{font-size:14.5px;letter-spacing:.01em}
+.chartcard{padding:14px;border-radius:var(--r-card)}
+.ch-sym{font:700 22px/1 var(--display);letter-spacing:-.02em}
+.ch-last{font-variant-numeric:tabular-nums}
+.chart{border-radius:var(--r-inner);overflow:hidden}
+.buybar{border-top:1px solid var(--edge)}
+details.disc{background:oklch(0.17 0.009 265 / .7);border:1px solid var(--edge);border-radius:10px}
+details.disc summary{transition:background-color .12s ease;border-radius:10px}
+details.disc summary:hover{background:oklch(1 0 0 / .04)}
+
+/* settings and forms */
+.frow + .frow{border-top:1px solid var(--edge)}
+.frow input,.frow select,.frow textarea,.inp{background:oklch(0.17 0.009 265 / .8);border:1px solid var(--edge);border-radius:10px;transition:border-color .12s ease,box-shadow .12s ease}
+.frow input:focus,.frow select:focus,.frow textarea:focus,.inp:focus{outline:none;border-color:var(--tint);box-shadow:0 0 0 3px oklch(0.72 0.14 252 / .25)}
+.drop{border-radius:var(--r-card);border-color:oklch(1 0 0 / .14);background:oklch(1 0 0 / .015)}
+.drop:hover,.drop.over{background:oklch(0.72 0.14 252 / .07)}
+.demo-banner{border-radius:12px;font-size:14.5px;box-shadow:0 8px 24px -14px oklch(0.82 0.14 78 / .7)}
+#toast{border-radius:999px;box-shadow:0 12px 32px -12px oklch(0 0 0 / .8);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.empty{border:1px dashed oklch(1 0 0 / .1);border-radius:var(--r-card)}
+
+@media(max-width:899px){
+  .large{font-size:32px}
+  .hero .big{font-size:40px}
+  .card{padding:16px}
+}
+@media(prefers-reduced-motion:reduce){
+  .tabs button,.seg button,.trow,tbody tr,.frow input,.inp{transition:none}
+}
+@media(forced-colors:active){
+  .card,.group,.tile{border-color:CanvasText;box-shadow:none}
+  .btn{background:ButtonFace;color:ButtonText;border:1px solid ButtonText;box-shadow:none}
+}
+
 </style>
 </head>
 <body>
