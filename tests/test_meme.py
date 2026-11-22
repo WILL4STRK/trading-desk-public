@@ -118,6 +118,34 @@ class Rules(DeskCase):
 
 
 class Research(DeskCase):
+    def test_nul_truncated_shadow_and_migration_logs_keep_complete_rows(self):
+        shadow = {"key": "solana:sample", "policy": "migration", "net_pct": 2.5, "ts": T0}
+        migration = {"event": "decide", "yes": ["migration", "migration_base"]}
+        meme.folder().mkdir(parents=True)
+        for name, row in (("shadows.jsonl", shadow), ("migrations.jsonl", migration)):
+            with self.subTest(name=name):
+                (meme.folder() / name).write_bytes(json.dumps(row).encode("utf-8") + b'\r\n\n{"key":"\x00\x00')
+                with self.assertLogs("desk.meme", level="WARNING") as logs:
+                    self.assertEqual(meme._jsonl(name), [row])
+                self.assertEqual(logs.records[0].getMessage(), f"Skipped 1 malformed JSONL line(s) in {name}")
+        with self.assertLogs("desk.meme", level="WARNING"):
+            self.assertEqual(meme.forward()["migration"]["n"], 1)
+            self.assertEqual(meme.migration_funnel()["yes"], 1)
+
+    def test_jsonl_append_separates_partial_tail_and_keeps_counting_bad_lines(self):
+        name = "discoveries.jsonl"
+        path = meme.folder() / name
+        meme._append(name, {"key": "first"})
+        prefix = b'{"key":"first"}\n{"key":"\xff"}\n{"key":\x00'
+        self.assertEqual(path.read_bytes(), b'{"key":"first"}\n')
+        path.write_bytes(prefix)
+        meme._append(name, {"key": "second"})
+        meme._append(name, {"key": "third"})
+        self.assertEqual(path.read_bytes(), prefix + b'\n{"key":"second"}\n{"key":"third"}\n')
+        with self.assertLogs("desk.meme", level="WARNING") as logs:
+            self.assertEqual(meme._jsonl(name), [{"key": "first"}, {"key": "second"}, {"key": "third"}])
+        self.assertEqual(logs.records[0].getMessage(), f"Skipped 2 malformed JSONL line(s) in {name}")
+
     def test_aged_liquid_needs_a_deep_pool_and_no_boost(self):
         p = FakeAPI.pair(SOL, "P", 1.0, 100000.0, age_h=100, h24=5.0, h1=1.0)
         p["marketCap"] = 500000

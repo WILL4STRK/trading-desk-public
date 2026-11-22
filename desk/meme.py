@@ -16,6 +16,8 @@ makes read-only GETs to public APIs.
 """
 import datetime
 import json
+import logging
+from os import SEEK_END
 import statistics
 import threading
 import time
@@ -58,6 +60,8 @@ SPACING = {"api.dexscreener.com": 0.25, "api.geckoterminal.com": 2.4, "api.rugch
 
 _lock, _last, _cool = threading.Lock(), {}, {}
 _running = threading.Lock()
+_append_lock = threading.Lock()
+log = logging.getLogger(__name__)
 
 
 class MemeError(Exception):
@@ -124,17 +128,35 @@ def _save(state):
 
 
 def _append(name, row):
-    folder().mkdir(parents=True, exist_ok=True)
-    with open(folder() / name, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row, separators=(",", ":")) + "\n")
+    directory = folder()
+    directory.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(row, separators=(",", ":")).encode("utf-8") + b"\n"
+    with _append_lock, (directory / name).open("a+b") as fh:
+        if fh.tell():
+            fh.seek(-1, SEEK_END)
+            if fh.read(1) != b"\n":
+                line = b"\n" + line
+        fh.write(line)
 
 
 def _jsonl(name):
+    rows, skipped = [], 0
     try:
-        with open(folder() / name, encoding="utf-8") as fh:
-            return [json.loads(l) for l in fh if l.strip()]
-    except (OSError, ValueError):
-        return []
+        with (folder() / name).open("rb") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                try:
+                    rows.append(json.loads(line.decode("utf-8")))
+                except (ValueError, RecursionError):
+                    skipped += 1
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        log.warning("Could not read %s: %s", name, exc)
+    if skipped:
+        log.warning("Skipped %d malformed JSONL line(s) in %s", skipped, name)
+    return rows
 
 
 def _count(name):
