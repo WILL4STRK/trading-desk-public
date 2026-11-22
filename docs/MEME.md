@@ -352,3 +352,49 @@ least 15 mints. A favorable result also needs the paired interval's lower bound 
 worse than the control. An incomplete window, unresolved outcomes or too few observations is inconclusive.
 A less negative result can show loss avoidance. Any entry-edge claim requires the separate N1 arms and their
 full controls and pass bar.
+
+## 13. Model 6: new launches. Data gate and universe (pre-registered 2026-11-22, before any return)
+
+Numbering: section 12 is taken by N1, so this is section 13. The draft notes (`C:\Trading\launches\MODEL6-DRAFT-NOTES.md`,
+written 2026-11-21 01:30) called it section 12. Paper only. No wallet, no key, no order. No return has been computed
+on any collected launch; this section was committed before any was.
+
+**Status of this registration.** This commit fixes the data gate, the universe, the stated limits, the treatment of
+non-SOL and mayhem coins, and the shape of the pass bar. It does **not** yet fix the entry/exit rule, the control's
+exact trigger minute, or the split date. Those go into a second commit on this branch, made before any return is
+computed. A return computed before that commit voids the test.
+
+**Data and gate.** Source: `C:\Trading\launches` (collector, `README.md`). Pilot clock started 2026-11-21 01:21:35 EST
+(`SAMPLE_BP` 1500). No test, backtest or return runs until the collector has **168 hours of uptime** since that start
+(7 days of collection). Uptime is measured from the STATS lines and the `events-*.jsonl` gap records. Gaps already on
+record: runner switch 2026-11-21 18:40:34 to 18:40:51 (about 16 s, `kind: runner_switch`); host power loss
+2026-11-22 13:24:52 to 16:10:24 (about 9,932 s, `kind: host_power_loss`); a 14 s redeploy restart at 01:37 on
+2026-11-21. Any sampled coin whose 60-minute window overlaps a gap longer than 5 minutes (launched inside the gap, or in
+the 60 minutes before it) is excluded for the rule and the control alike, and counted in the funnel as "window
+interrupted". Disconnect and resubscribe gaps of under 5 minutes are kept and counted.
+
+**Universe and stated limits.**
+1. A "launch" is a launch **delivered by PumpPortal's free feed**. Measured about 15 % of pump.fun creates (firehose
+   test 2026-11-21: 15.6 % of 1,228 creates; census: 12 % of 284). Delivered coins are less often mayhem than
+   undelivered ones (41 % vs 64 % in the firehose test), so the feed is skewed away from mayhem coins and the delivery
+   rule is unknown. Every result is about the delivered set, not all launches.
+2. pump.fun only (trades of other platforms cannot be decoded). Sampled by `sha256(mint) mod 10000 < 1500`, nothing else.
+   Cap skips above 5 % of sampled coins make the run incomplete.
+3. Trades in the first 1 to 3 s after the launch message are missing; decisions are at minute 2 or later.
+4. **Non-SOL-quote coins are out** (`quote_mint` other than the SOL placeholder). Recorded and counted in the funnel.
+5. **Mayhem-mode SOL-quoted coins are in**, with curve parameters read per coin from its own events. Whole-universe
+   result carries the pass bar; the mayhem / non-mayhem split is for reading only and cannot rescue a failed bar. A coin
+   whose parameters cannot be fixed from its own events is excluded as "parameters unknown", for rule and control alike.
+6. RugCheck at minute 2 and 10 is a feature only when status is `ok`; `unknown` is never a pass.
+
+**Rule and control.** The control buys every delivered coin the universe allows at the same minute as the rule. Same
+universe, same costs.
+
+**Costs.** Exact bonding-curve fill from the coin's own reserves, plus the curve fee on each side (PHASE1.md section 2),
+plus price impact from the curve. No tips or latency are credited. A coin that never trades again after entry is
+valued at the last observed curve price; a coin that rugs or goes untraded counts as booked, never dropped.
+
+**Pass bar (shape, from section 5).** On the holdout (chronological last 40 % of the window, looked at once): mean and
+median net return per coin above 0; mean above 0 with the 3 best coins removed; at least 100 coins; positive mean in at
+least 3 of 4 equal time folds; and better than the control on the same holdout. Changing any number after a result is
+seen restarts the count and is logged in docs/CHANGES.md.
