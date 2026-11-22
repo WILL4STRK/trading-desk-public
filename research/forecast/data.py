@@ -7,6 +7,7 @@ one call per GAP seconds (15 s = 4 a minute), one process. Cached under INPUT/ba
 Run: python research/forecast/data.py
 """
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -84,6 +85,8 @@ def fetch_bars(tok):
         if before:
             url += "&before_timestamp=%d" % before
         d = _get(url)
+        if d is None and before:                  # page 1 was full but page 2 gave 400/404: do not cache half a history
+            raise RuntimeError("page 2 missing for " + tok["pool"])
         page = ((d or {}).get("data") or {}).get("attributes", {}).get("ohlcv_list") or []
         for r in page:
             rows[int(r[0])] = [int(r[0])] + [float(x) for x in r[1:6]]
@@ -92,7 +95,9 @@ def fetch_bars(tok):
         before = int(min(r[0] for r in page))
     doc = {"fetched": fetched, "bars": [rows[k] for k in sorted(rows)]}
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(doc))
+    tmp = f.with_name(f.name + ".tmp")           # atomic: a crash mid-write leaves no half file under the real name
+    tmp.write_text(json.dumps(doc))
+    os.replace(tmp, f)
     return doc
 
 
