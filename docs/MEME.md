@@ -412,7 +412,7 @@ is written to `research/forecast/MODEL_REVISION` at the first download and never
 a new rule. Zero-shot only: no fine-tuning, no fitting to dev or holdout, so dev is a smoke test of the code and cannot tune a number.
 
 **Data.** The same 5-minute GeckoTerminal candles and discovery list as the section 5 backtest (`research/meme/`). Desk data
-(`discoveries.jsonl`, `model.json`) is read only through a copy placed under `C:\Tradingesearchorecast\input\`; the live
+(`discoveries.jsonl`, `model.json`) is read only through a copy placed under `C:\Tradingesearchorecast\input\`; the live
 desk folder and `C:\Trading\memebot` are never opened by the code. GeckoTerminal: 5 calls a minute or fewer, one process.
 Chronos sees only closes dated on or before the decision time.
 
