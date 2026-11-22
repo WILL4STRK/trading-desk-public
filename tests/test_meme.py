@@ -441,6 +441,30 @@ class PracticeDrawdown(DeskCase):
         self.assertEqual(len(meme.load()["account"]["positions"]), 1)
         self.assertEqual(meme.load()["practice_drawdown"]["positions"], [])
 
+    def test_companion_exit_uses_recorded_liquidity_at_its_own_size(self):
+        st = S.validate({"meme_practice_drawdown": True})
+        entry = {"key": SOL, "chain": "solana", "ts": T0, "px": 1.0, "cost": 30, "liq": 100000}
+        for exit_liq in (20000, None, 0):
+            with self.subTest(exit_liq=exit_liq):
+                s = {}
+                meme._practice_drawdown(st, s, [entry], [], {}, T0)
+                book = s["practice_drawdown"]
+                main = meme._new_account(100)
+                main_pos = dict(entry, qty=30)
+                main["positions"].append(main_pos)
+                meme._sell(st, main, main_pos, 1.3, exit_liq, T0 + 60, "target")
+                self.assertEqual(main["closed"][0]["exit_liq"], exit_liq)
+
+                meme._practice_drawdown(st, s, [], main["closed"], {SOL: {"liq": 900}}, T0 + 120)
+                close = book["closed"][0]
+                expected = 0.0
+                if exit_liq != 0:
+                    liq = entry["liq"] if exit_liq is None else exit_liq
+                    expected = 1.3 * (1 - 0.0175 - close["qty"] * 1.3 / (liq / 2))
+                self.assertEqual(close["cost"], 20)
+                self.assertEqual(close["exit_liq"], exit_liq)
+                self.assertAlmostEqual(close["exit_fill"], expected)
+
     def test_closed_profit_raises_the_peak_before_the_exact_drawdown_limit(self):
         st = S.validate({"meme_practice_drawdown": True})
         s = {}
@@ -493,6 +517,19 @@ class Route(DemoCase):
         self.assertEqual(self.call("/api/meme/reset", {"sure": True}, {"Content-Type": "application/json"})[0], 403)
         self.assertEqual(self.call("/api/meme/reset", {}, h)[0], 400)
         self.assertEqual(self.call("/api/meme/reset", {"sure": True}, h)[0], 200)
+
+    def test_reset_returns_a_conflict_if_a_pass_holds_the_lock_for_ten_seconds(self):
+        state = {"account": meme._new_account(80), "practice_drawdown": meme._new_account(100)}
+        meme._save(state)
+        headers = {"Content-Type": "application/json", "X-Desk": "1"}
+        with mock.patch.object(meme, "_running") as lock:
+            lock.acquire.return_value = False
+            code, body = self.call("/api/meme/reset", {"sure": True}, headers)
+        lock.acquire.assert_called_once_with(timeout=10)
+        lock.release.assert_not_called()
+        self.assertEqual(code, 409)
+        self.assertEqual(body["error"], "A memecoin pass is running, try again in a minute.")
+        self.assertEqual(meme.load(), state)
 
 
 class Schedule(DemoCase):

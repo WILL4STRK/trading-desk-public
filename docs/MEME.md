@@ -291,8 +291,9 @@ its best 3 and best 10 trades.
 `meme_starting_balance` on its first enabled pass. It uses the main practice account's new paper fills and
 corresponding exits as its event tape. At entry it uses the desk's position percentage on its own marked
 equity, capped by the main fill's dollar size and its own cash, with the same $1 minimum. Entry and exit charge
-the desk's costs and price impact at the companion's own size. The main book's slots, cooldown and execution
-timing define this prototype's opportunity set.
+the desk's costs and price impact at the companion's own size. The companion uses the liquidity saved on the
+main close for exit impact and falls back to entry liquidity when that field is missing or unknown. The main
+book's slots, cooldown and execution timing define this prototype's opportunity set.
 
 **Halt.** Realized equity is cash plus the entry cost of positions still open. Start the peak at starting
 cash and update it on each matched close in the order the desk books them. At a realized loss of 15 % or more

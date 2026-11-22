@@ -426,8 +426,8 @@ def _dead(liq):
     return liq is not None and liq < R.DEAD_LIQ
 
 
-def _sell(st, acct, pos, px, liq, ts, why):
-    liq = pos["liq"] if liq is None else liq
+def _sell(st, acct, pos, px, exit_liq, ts, why):
+    liq = pos["liq"] if exit_liq is None else exit_liq
     if px and why != "rug" and not _dead(liq):
         fill = max(0.0, px * (1 - _side_cost(st, pos["qty"] * px, liq, pos["chain"], pos.get("policy"))))
     else:
@@ -435,7 +435,8 @@ def _sell(st, acct, pos, px, liq, ts, why):
     proceeds = pos["qty"] * fill
     acct["cash"] = round(acct["cash"] + proceeds, 6)
     acct["positions"].remove(pos)
-    acct["closed"].append(dict(pos, exit_at=_iso(ts), exit_ts=ts, exit_px=px or 0.0, exit_fill=fill, why=why,
+    acct["closed"].append(dict(pos, exit_at=_iso(ts), exit_ts=ts, exit_px=px or 0.0, exit_liq=exit_liq,
+                               exit_fill=fill, why=why,
                                pnl=round(proceeds - pos["cost"], 4),
                                ret_pct=round((proceeds / pos["cost"] - 1) * 100, 2)))
 
@@ -469,8 +470,7 @@ def _practice_drawdown(st, s, entries, exits, tracked, now):
         pos = positions.get((closed["key"], closed["ts"]))
         if pos is None:
             continue
-        liq = tracked.get(pos["key"], {}).get("liq")
-        _sell(st, book, pos, closed["exit_px"], liq, closed["exit_ts"], closed["why"])
+        _sell(st, book, pos, closed["exit_px"], closed.get("exit_liq"), closed["exit_ts"], closed["why"])
         realized = round(book["cash"] + sum(p["cost"] for p in book["positions"]), 6)
         book["realized_peak"] = max(book["realized_peak"], realized)
         limit = round(book["realized_peak"] * (1 - PRACTICE_DRAWDOWN_PCT / 100), 6)
@@ -883,11 +883,15 @@ def note_error(now, err):
 
 def reset():
     """Start the paper account over. The forward record (discoveries, shadows, screens) is kept."""
-    with _running:
+    if not _running.acquire(timeout=10):
+        raise MemeError("A memecoin pass is running, try again in a minute.")
+    try:
         s = load()
         s["account"] = _new_account(S.load()["meme_starting_balance"])
         s.pop("practice_drawdown", None)
         _save(s)
+    finally:
+        _running.release()
 
 
 # ---- the forward test (the review and the tab) --------------------------------------------------------------------
