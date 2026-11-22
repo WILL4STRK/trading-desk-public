@@ -16,6 +16,7 @@ not a reason to change a rule; a change needs enough trades to mean something.
 
 | Date | What changed | Why |
 |---|---|---|
+| 2026-11-22 | Known: the server's candle list repeats its last bar with the same timestamp; the page now drops duplicates (PR #8); a server-side fix needs a desk restart. | A repeated time made the Desk chart log "Value is null" on every page load. |
 | 2026-11-22 | Pre-registered N1 as a paired, shadow-only same-mint lockout on new Careful fills. | Measure net losses avoided and winners skipped after two stops. See [MEME.md §12](MEME.md#12-n1-shadow-same-mint-two-stop-lockout-pre-registered-2026-11-22). |
 | 2026-11-21 | Registered an opt-in, practice-only main-account companion with a 15 % realized drawdown halt. | Compare sizing and halting on the same simulated fill tape. See [MEME.md §11](MEME.md#11-main-practice-drawdown-prototype-registration-2026-11-21-before-any-of-its-data). |
 | 2026-11-18 | Paper mode only: 4x buying power, 5 % risk a trade, 20 % daily loss, no weekly stop, 50 % drop stop, no cash buffer, no trade cap, sales settle at once. Live unchanged. Rule stamps now record these. | Bolder, bigger practice trades show more in the review log. Paper is pretend money. |
