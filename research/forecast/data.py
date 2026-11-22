@@ -1,7 +1,7 @@
 """Rule F1 data (docs/MEME.md section 16 and 16.1). Reads only the COPY of desk data in INPUT (never the live folders).
 
-Token selection uses desk data only, no price: first sighting with age >= 24 h, max liquidity over sightings >= $25k,
-a pool address. Candles: GeckoTerminal 5-minute bars for that pool, 2 pages of 1000 at most (as research/meme/data.py),
+Token selection (docs/MEME.md 16.2) uses desk data only, no price and NO liquidity filter: every token whose first sighting
+has age >= 24 h and a pool address. Candles: GeckoTerminal 5-minute bars for that pool, 2 pages of 1000 at most (as research/meme/data.py),
 one call per GAP seconds (15 s = 4 a minute), one process. Cached under INPUT/bars (git-ignored, never committed).
 
 Run: python research/forecast/data.py
@@ -17,7 +17,7 @@ INPUT = Path(r"C:\Trading\research\forecast\input")
 GT = "https://api.geckoterminal.com/api/v2/networks/%s/pools/%s/ohlcv/minute"
 NETWORK = {"solana": "solana", "base": "base", "bsc": "bsc", "ethereum": "eth"}
 GAP = 15.0                 # seconds between GeckoTerminal calls: 4 a minute, under the 5 a minute cap
-MIN_AGE_H, MIN_LIQ = 24.0, 25000.0
+MIN_AGE_H = 24.0
 DEAD_LIQ = 1000.0
 DAYS = 7
 _last = [0.0]
@@ -35,14 +35,13 @@ def select_tokens(path=None):
         k = r.get("key")
         if not k or r.get("chain") not in NETWORK:
             continue
-        d = by.setdefault(k, {"first": r, "last": r, "max_liq": 0.0})
+        d = by.setdefault(k, {"first": r, "last": r})
         d["last"] = r
-        d["max_liq"] = max(d["max_liq"], r.get("liq") or 0.0)
     out = []
     for k, d in sorted(by.items()):
         f, l = d["first"], d["last"]
         age = (f.get("features") or {}).get("age_h")
-        if age is None or age < MIN_AGE_H or d["max_liq"] < MIN_LIQ or not f.get("pool"):
+        if age is None or age < MIN_AGE_H or not f.get("pool"):
             continue
         out.append({"key": k, "chain": f["chain"], "token": k.split(":", 1)[1], "pool": f["pool"], "symbol": f.get("symbol"),
                     "created_ts": f["ts"] - age * 3600, "last_liq": l.get("liq"), "dead": (l.get("liq") or 0.0) < DEAD_LIQ})

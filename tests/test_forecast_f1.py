@@ -1,10 +1,14 @@
 """Rule F1 (docs/MEME.md section 16.1): input cutoff, fill at the next bar's open, gaps, one position per token.
 Synthetic bars only; no model, no network, no desk data."""
 import copy
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from desk import memerules as R
 from research.forecast import core
+from research.forecast import data as fdata
 
 T0 = 1795000200               # divisible by 300 (a 5-minute bar open) and a bar that closes on the 15-minute grid at T0 + 600
 TOK = {"key": "solana:TEST", "chain": "solana", "token": "TEST", "created_ts": T0 - 40 * 3600, "dead": False}
@@ -124,6 +128,27 @@ class Signal(unittest.TestCase):
         self.assertFalse(core.f1_signal(c, 0.95, 1.0799))     # median just under +8 %
         self.assertFalse(core.f1_signal(c, 0.8999, 1.2))      # 20th percentile just under -10 %
         self.assertTrue(core.f1_signal(c, 0.9, 1.2))
+
+
+class Universe(unittest.TestCase):
+    """docs/MEME.md 16.2: every token with first-sighting age >= 24 h and a pool; no liquidity filter."""
+
+    def test_low_liquidity_token_is_still_selected(self):
+        def row(key, ts, age, liq, pool="POOL"):
+            return {"ts": ts, "key": key, "chain": "solana", "symbol": key[-3:], "pool": pool, "liq": liq,
+                    "features": {"age_h": age}}
+        rows = [row("solana:LOW", 1.0, 40.0, 3000.0), row("solana:LOW", 2.0, 41.0, 800.0),          # never above $25k, later under $1k
+                row("solana:RICH", 1.0, 50.0, 90000.0),
+                row("solana:YOUNG", 1.0, 5.0, 90000.0),                                                # first sighting under 24 h
+                row("solana:NOPOOL", 1.0, 60.0, 90000.0, pool=None)]
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "discoveries.jsonl"
+            f.write_text(chr(10).join(json.dumps(r) for r in rows), encoding="utf8")
+            got = {t["key"]: t for t in fdata.select_tokens(f)}
+        self.assertEqual(sorted(got), ["solana:LOW", "solana:RICH"])
+        self.assertTrue(got["solana:LOW"]["dead"])          # the last sighting is under $1,000: the 16.1 dead flag, not a filter
+        self.assertFalse(got["solana:RICH"]["dead"])
+        self.assertFalse(hasattr(fdata, "MIN_LIQ"))
 
 
 if __name__ == "__main__":
