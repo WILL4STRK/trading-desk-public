@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en" data-type="software" data-radius="sharp" data-ground="sky" data-buttons="pill" data-motion>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trading Desk: paper-trading desk for day traders</title>
+<meta name="description" content="A free desk that finds opening-range breakouts in US stocks and new memecoins, sizes each order to your limits and records practice trades. It never places a real order.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Trading Desk: paper-trading desk for day traders">
+<meta property="og:description" content="Finds breakouts in US stocks and new memecoins, sizes each order to your limits and records practice trades.">
+<meta property="og:image" content="share.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#ffffff">
+<!-- <link rel="canonical" href="https://[the client's domain]/"> : the client's domain is still to come -->
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/system.css">
+<link rel="stylesheet" href="assets/ui/cards.css">
+<link rel="stylesheet" href="assets/motion/motion.css">
+<link rel="stylesheet" href="assets/backgrounds/backgrounds.css">
+<link rel="stylesheet" href="assets/layout/layout.css">
+<link rel="stylesheet" href="assets/icons/icon.css">
+<link rel="stylesheet" href="assets/ui/base.css">
+<link rel="stylesheet" href="assets/ui/terminal-run/fragment.css">
+<style>
+:root {
+  --p-bg: #ffffff; --p-surface: #f4f4f4; --p-ink: #111111; --p-muted: #6b6b6b;
+  --p-accent: #1a4be0; --p-accent-ink: #ffffff; --p-action: #1a4be0; --p-action-ink: #ffffff;
+  --p-inv-bg: #111111; --p-inv-surface: #1e1e1e; --p-inv-ink: #ffffff; --p-inv-muted: #9a9a9a;
+  --p-inv-accent: #ffffff; --p-inv-accent-ink: #111111; --p-inv-action: #ffffff; --p-inv-action-ink: #111111;
+  --font-display: "Host Grotesk", system-ui, sans-serif;
+  --font-text: "Host Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --display-weight: 500;
+  --display-tracking: -0.035em;
+  --display-tracking-xl: -0.04em;
+}
+</style>
+<script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),700)</script>
+<script src="assets/backgrounds/backgrounds.js"></script>
+<script>document.documentElement.classList.add('mo-js');setTimeout(()=>document.documentElement.classList.add('mo-safe'),2500)</script>
+<link rel="modulepreload" href="assets/moments/moments.js">
+<link rel="modulepreload" href="assets/moments/lib.js">
+<link rel="modulepreload" href="assets/moments/pinned-chapters/moment.js">
+<link rel="modulepreload" href="assets/moments/liquid-type/moment.js">
+<style>
+/* The desk's own window, drawn in HTML from the demo's saved data (Monday 2026-10-19, 10:15 AM). */
+.hero__window { background: linear-gradient(#cfdcf7, #e8eefb 70%, #f4f7fd); }
+.tw { background: #17191c; color: #eceef0; border-radius: 12px; overflow: hidden; font: 400 14px/1.4 var(--font-text);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .08), 0 30px 70px -30px rgb(0 0 0 / .6); }
+.tw__bar { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border-bottom: 1px solid rgb(255 255 255 / .07); font-size: 13px; color: #9aa0a6; }
+.tw__bar b { font-weight: 500; color: #eceef0; } .tw__bar .sp { flex: 1; }
+.tw__dots { display: flex; gap: 6px; } .tw__dots i { width: 10px; height: 10px; border-radius: 50%; background: #3a3e43; }
+.tw__body { display: grid; grid-template-columns: 250px 1fr; min-height: 420px; }
+.tw__list { border-right: 1px solid rgb(255 255 255 / .07); padding: 10px; display: grid; align-content: start; gap: 2px; }
+.tw__list .q { height: 34px; margin-bottom: 6px; border-radius: 6px; background: rgb(255 255 255 / .06); display: flex; align-items: center; padding: 0 10px; color: #8d9399; font-size: 13px; }
+.tw__row { display: grid; grid-template-columns: 1fr auto; gap: 1px 10px; padding: 9px 8px; border-radius: 6px; font-size: 13px; }
+.tw__row.is-on { background: rgb(255 255 255 / .07); }
+.tw__row b { font-weight: 500; color: #eceef0; } .tw__row span { color: #8d9399; }
+.tw__row em { font-style: normal; color: #5fd3b0; text-align: right; } .tw__row em.no { color: #ff8a80; }
+.tw__main { display: grid; align-content: start; gap: 10px; padding: 18px; min-width: 0; }
+.tw__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; } .tw__head b { font: 500 22px/1.1 var(--font-display); letter-spacing: -.02em; }
+.tw__head span { color: #9aa0a6; font-size: 13px; }
+.tw__why { margin: 0; color: #c7ccd1; }
+.tw__chart { width: 100%; height: 64px; display: block; }
+.tw__slip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 16px; margin: 0; }
+.tw__slip div { padding: 8px 0; border-top: 1px solid rgb(255 255 255 / .1); } .tw__slip dt { font-size: 13px; color: #8d9399; } .tw__slip dd { margin: 2px 0 0; font: 500 16px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
+.tw__acts { display: flex; gap: 8px; flex-wrap: wrap; } .tw__acts span { height: 32px; padding: 0 14px; border-radius: 99px; display: inline-flex; align-items: center; font-size: 13px; font-weight: 500; background: #f2f2f0; color: #111; }
+.tw__acts span + span { background: rgb(255 255 255 / .08); color: #e9ecee; }
+.tw__ok { color: #5fd3b0; font-size: 13px; }
+@media (max-width: 1279px) { .tw__chart { display: none; } }
+@media (max-width: 1023px) { .tw__body { grid-template-columns: 1fr; } .tw__list { display: none; } .tw__slip { grid-template-columns: 1fr; } .tw__slip div { display: flex; justify-content: space-between; } }
+@media (max-width: 639px) { .tw__body { grid-template-columns: 1fr; } .tw__list { display: none; } .tw__bar .sp ~ span { display: none; } .tw__why, .tw__acts, .tw__chart, .tw__ok { display: none; } }
+.hero--centred .hero__lead { color: var(--ink); }
+#install .rows__name { display: flex; align-items: center; gap: var(--s-3); }
+.tw .ui-pause:focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
+
+/* the cards and the memecoin steps: one small pane each */
+.pane { background: #17191c; color: #e9ecee; border-radius: 8px; padding: 14px 16px; font: 400 14px/1.4 var(--font-text); box-shadow: 0 0 0 1px rgb(255 255 255 / .08); }
+.pane h5 { margin: 0 0 10px; font: 500 13px/1.3 var(--font-text); color: #aeb3b8; }
+.pane__rows { display: grid; } .pane__rows span { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid rgb(255 255 255 / .07); }
+.pane__rows span:first-child { border-top: 0; } .pane__rows b { font-weight: 500; color: #fff; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 13px; }
+.pane__rows b.ok { color: #5fd3b0; }
+#stocks .panel, #journal .panel { --p-h: 220px; }
+#install .panel { --p-h: 460px; }
+@media (min-width: 640px) and (max-width: 1023px) { #record .statement { gap: var(--s-8); } #record .rows li { padding-block: var(--s-5); } }
+@media (min-width: 640px) and (max-width: 1023px) { #install .panel { --p-h: 376px; } }
+@media (min-width: 640px) { #install .at-rise { --ax: 32px; margin-inline: auto; } }
+@media (min-width: 640px) and (max-width: 1023px) { #stocks, #journal { --padt: 96px; --padb: 48px; } #stocks .section-head, #journal .section-head { margin-bottom: var(--s-6); } }
+@media (max-width: 639px) { #stocks, #journal { --hm: 2; } main > #memecoins:not(.is-live) { min-height: calc(2 * 100lvh); } }
+.stat-cards > .card { grid-column: 1 / -1; }
+@media (min-width: 1024px) { .stat-cards > .card { grid-column: auto / span 4; } }
+@media (min-width: 640px) and (max-width: 1023px) {
+  .stat-cards > .card { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-auto-rows: min-content; column-gap: var(--s-6); align-content: start; }
+  .stat-cards > .card > :not(.panel) { grid-column: 1; }
+  .stat-cards > .card > .panel { grid-column: 2; grid-row: 1 / span 4; --p-h: 180px; margin: calc(var(--c-gap) - var(--c-pad)) calc(var(--c-gap) - var(--c-pad)) calc(var(--c-gap) - var(--c-pad)) 0; border-radius: calc(var(--c-r) - var(--c-gap)); }
+}
+#memecoins .mo-pc__visual { background: #dfe6f8; padding: var(--s-3); display: grid; align-items: center; }
+#memecoins .pane { padding: 10px 14px; } #memecoins .pane h5 { margin-bottom: 2px; } #memecoins .pane__rows span { padding: 4px 0; }
+@media (max-width: 639px) {  #install .panel { --p-h: 180px; } #install { --padt: 72px; } #install .rows li:nth-child(2) p { display: none; } #stocks { --padt: 216px; } .hero__c .pill { display: flex; justify-content: space-between; width: 100%; } .tw__head span { display: none; } #stocks .panel, #journal .panel { --p-h: 250px; } }
+
+/* the install commands */
+.cmds { background: #17191c; color: #eceef0; border-radius: 8px; padding: var(--s-5); font: 400 15px/1.7 var(--font-mono); display: grid; gap: var(--s-2); overflow-x: auto; }
+.cmds span { color: #8d9399; } .cmds code { font: inherit; white-space: nowrap; }
+.statement { display: grid; gap: var(--s-5); max-width: 940px; }
+.statement .mo-lt__type { font: var(--display-weight) var(--t-h1)/1.05 var(--font-display); letter-spacing: var(--display-tracking); }
+</style>
+</head>
+<body>
+<!-- type: software · kind: software (paper-trading desk for US stocks and memecoins) · main action: Run the demo
+     deal: hero centred, nav nav-mega, close close-type, footer footer-statement, rhythm dark-band, buttons pill, mark wordmark,
+     palette white-link-blue (white sheet, one blue accent: a desk for reading numbers, nothing to decorate), type host + JetBrains Mono, radius sharp (fintech)
+     grounds: sky (lit frame behind the hero window)
+     moments: pinned-chapters in #memecoins, liquid-type in #record -->
+
+<header class="nav">
+  <div class="wrap nav__bar">
+    <a class="skip-link" href="#top">Skip to content</a>
+    <a class="nav__logo" href="#top">Trading Desk</a>
+    <nav class="nav__links" aria-label="Main">
+      <div class="nav__item"><a class="nav__link" href="#stocks">Stocks</a></div>
+      <div class="nav__item">
+        <a class="nav__link" href="#memecoins">Memecoins <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        <div class="nav__menu">
+          <div class="wrap grid">
+            <div class="menu-col span-3">
+              <p class="t-label">Model</p>
+              <a href="#memecoins">Finds coins<span>Four chains, every minute</span></a>
+              <a href="#memecoins">Checks safety<span>RugCheck and GoPlus</span></a>
+              <a href="#memecoins">Trades practice cash<span>A $100 paper account</span></a>
+            </div>
+            <div class="menu-col span-3">
+              <p class="t-label">Evidence</p>
+              <a href="#record">Record so far<span>No rule has paid after costs</span></a>
+              <a href="../docs/MEME.md">Model rules<span>Written before any result</span></a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nav__item"><a class="nav__link" href="#journal">Journal</a></div>
+      <div class="nav__item"><a class="nav__link" href="#install">Install</a></div>
+    </nav>
+    <div class="nav__actions">
+      <a class="btn btn--primary" href="#install">Run the demo</a>
+    </div>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-label="Menu">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 5h14M2 13h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero hero--centred" data-enter aria-labelledby="hero-h">
+    <div class="wrap"><div class="hero-text">
+      <div class="hero__c">
+        <a class="pill" href="#stocks"><span>Free delayed data, no account</span><span class="muted">See how it works</span></a>
+        <h1 id="hero-h">Paper-trading desk for day traders</h1>
+        <p class="hero__lead">Finds opening-range breakouts in US stocks and new memecoins on 4 chains, sizes each order to your limits and records every practice trade. It never places a real order.</p>
+        <div class="btn-row"><a class="btn btn--primary" href="#install">Run the demo</a><a class="btn btn--secondary" href="#memecoins">See the memecoin model</a></div>
+      </div>
+      <div class="hero__window" role="img" aria-label="The desk showing a PLTR breakout signal with a ready order slip">
+        <div class="ly-piece tw" aria-hidden="true">
+          <div class="tw__bar"><span class="tw__dots"><i></i><i></i><i></i></span><span><b>Desk</b> · demo mode</span><span class="sp"></span><span>Monday 10:15 AM · paper</span></div>
+          <div class="tw__body">
+            <div class="tw__list">
+              <div class="q">Find a ticker</div>
+              <div class="tw__row is-on"><b>PLTR</b><em>ready</em><span>Breakout</span><span class="num">192.80</span></div>
+              <div class="tw__row"><b>SYK</b><em>ready</em><span>Breakout</span><span class="num">297.79</span></div>
+              <div class="tw__row"><b>PNC</b><em>ready</em><span>Breakout</span><span class="num">218.54</span></div>
+            </div>
+            <div class="tw__main" data-ly-steps="900">
+              <div class="tw__head"><b>PLTR</b><span>Opening-range breakout · good until 10:25</span></div>
+              <p class="tw__why" data-step>The 10:10 bar closed above the range high of 191.88.</p>
+              <svg class="tw__chart" data-step viewBox="0 0 400 64" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="26" width="400" height="26" fill="#ffffff" fill-opacity=".07"/><path d="M0 44 L40 38 L80 46 L120 32 L160 40 L200 30 L240 36 L280 24 L320 16 L360 12 L400 8" fill="none" stroke="#5fd3b0" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+              <dl class="tw__slip" data-step>
+                <div><dt>Buy limit</dt><dd>192.80</dd></div>
+                <div><dt>Shares</dt><dd>2</dd></div>
+                <div><dt>Stop</dt><dd>189.02</dd></div>
+                <div><dt>Target</dt><dd>198.47</dd></div>
+              </dl>
+              <p class="tw__ok" data-step>Passes your limits. Max loss $7.56, reward to risk 1.50.</p>
+              <div class="tw__acts" data-step><span>I placed it</span><span>Skip</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="section" id="stocks" aria-labelledby="stocks-h">
+    <div class="wrap">
+      <div class="section-head section-head--center">
+        <h2 id="stocks-h">Stock signals with the order worked out. <span class="muted">You place it at your broker.</span></h2>
+      </div>
+      <div class="grid stat-cards">
+        <article class="card card--row">
+          <h3 class="t-card">Finds breakouts</h3>
+          <p>Watches your list on 5-minute candles for a close above the first 15 minutes.</p>
+          <div class="panel panel--inset" role="img" aria-label="PLTR opened between 186.17 and 191.88, then closed at 192.17">
+            <div class="stage"><div class="at-rise fit"><div class="pane" aria-hidden="true">
+              <h5>PLTR opening range</h5>
+              <div class="pane__rows"><span>Range low<b>186.17</b></span><span>Range high<b>191.88</b></span><span>Trigger close<b class="ok">192.17</b></span></div>
+            </div></div></div>
+          </div>
+        </article>
+        <article class="card card--row">
+          <h3 class="t-card">Sizes the order</h3>
+          <p>Shares, buy limit, stop, target and how long the signal stays good.</p>
+          <div class="panel panel--inset" role="img" aria-label="Buy 2 PLTR at a limit of 192.80, stop 189.02, target 198.47">
+            <div class="stage"><div class="at-rise fit"><div class="pane" aria-hidden="true">
+              <h5>Order slip</h5>
+              <div class="pane__rows"><span>Buy 2, limit<b>192.80</b></span><span>Stop<b>189.02</b></span><span>Target<b>198.47</b></span></div>
+            </div></div></div>
+          </div>
+        </article>
+        <article class="card card--row">
+          <h3 class="t-card">Checks your limits</h3>
+          <p>Blocks any order that breaks your max loss, position size or daily cap.</p>
+          <div class="panel panel--inset" role="img" aria-label="The order risks 7.56 dollars of a 20 dollar limit, so it passes">
+            <div class="stage"><div class="at-rise fit"><div class="pane" aria-hidden="true">
+              <h5>Risk check</h5>
+              <div class="pane__rows"><span>Max loss<b>$7.56 of $20</b></span><span>Binding limit<b>Position cap</b></span><span>Verdict<b class="ok">PASS</b></span></div>
+            </div></div></div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="memecoins" style="--h: 2" data-moment="pinned-chapters" aria-labelledby="memecoins-h">
+    <div class="wrap mo-pc__grid">
+      <div class="mo-pc__text">
+        <h2 id="memecoins-h">Memecoin model, paper only</h2>
+        <ol class="mo-pc__steps">
+          <li class="mo-pc__step">
+            <h3>Finds coins on four chains</h3>
+            <p>Every minute it reads DexScreener for new coins on Solana, Base, BSC and Ethereum.</p>
+            <figure class="mo-pc__visual"><div class="pane" role="img" aria-label="Four chains scanned through DexScreener every minute">
+              <h5>Scanned every minute</h5>
+              <div class="pane__rows"><span>Chains<b>Solana, Base, BSC, Ethereum</b></span><span>Source<b>DexScreener</b></span><span>Every<b>1 minute</b></span></div>
+            </div></figure>
+          </li>
+          <li class="mo-pc__step">
+            <h3>Safety check on every memecoin</h3>
+            <p>RugCheck screens Solana coins and GoPlus the rest. Missing data is never a pass.</p>
+            <figure class="mo-pc__visual"><div class="pane" role="img" aria-label="Solana is checked with RugCheck, Base, BSC and Ethereum with GoPlus">
+              <h5>Safety check</h5>
+              <div class="pane__rows"><span>Solana<b>RugCheck</b></span><span>Base, BSC, Ethereum<b>GoPlus</b></span><span>No data<b>Not a pass</b></span></div>
+            </div></figure>
+          </li>
+          <li class="mo-pc__step">
+            <h3>Trades a $100 practice account</h3>
+            <p>It has no wallet and no keys, so it cannot buy a real coin.</p>
+            <figure class="mo-pc__visual"><div class="pane" role="img" aria-label="Practice account rules: 100 dollars, 20 percent a position, 4 open at most">
+              <h5>Practice account</h5>
+              <div class="pane__rows"><span>Starting cash<b>$100</b></span><span>Each position<b>20% of equity</b></span><span>Open at once<b>4 at most</b></span></div>
+            </div></figure>
+          </li>
+        </ol>
+      </div>
+      <div class="mo-pc__visuals frame"></div>
+    </div>
+  </section>
+
+  <section class="section ground-inverse" id="record" aria-labelledby="record-h">
+    <div class="wrap">
+      <div class="statement" data-moment="liquid-type">
+        <h2 id="record-h" class="mo-lt__type">No memecoin rule has made money after costs yet.</h2>
+        <p class="t-lead">The desk records what seven fixed rules would buy and scores them on prices it had not seen. Read the report before you trust any of them.</p>
+        <ul class="rows">
+          <li><span class="rows__name">Rules</span><p>Seven fixed rules, written before any result</p></li>
+          <li><span class="rows__name">Test</span><p>The last 40% of about 7 days of 5-minute candles, looked at once</p></li>
+          <li><span class="rows__name">Pass bar</span><p>Mean and median above zero after costs, on at least 100 trades</p></li>
+        </ul>
+        <div class="btn-row"><a class="btn btn--primary" href="../research/meme/REPORT.md">Read the memecoin report</a></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="journal" aria-labelledby="journal-h">
+    <div class="wrap">
+      <div class="section-head section-head--center">
+        <h2 id="journal-h">Desk journal. <span class="muted">Every trade kept in a file on your computer.</span></h2>
+      </div>
+      <div class="grid stat-cards">
+        <article class="card card--row">
+          <h3 class="t-card">Records your fills</h3>
+          <p>Press I placed it, type your fill price, and cash and open trades update.</p>
+          <div class="panel panel--inset" role="img" aria-label="A trade entry: the signal, your fill price and your exit">
+            <div class="stage"><div class="at-rise fit"><div class="pane" aria-hidden="true">
+              <h5>Journal entry</h5>
+              <div class="pane__rows"><span>Signal<b>PLTR breakout</b></span><span>Fill<b>You type it</b></span><span>Exit<b>You record it</b></span></div>
+            </div></div></div>
+          </div>
+        </article>
+        <article class="card card--row">
+          <h3 class="t-card">Practises by itself</h3>
+          <p>Auto paper takes signals on a pretend account that lives in its own file.</p>
+          <div class="panel panel--inset" role="img" aria-label="Auto paper uses a pretend account and sends nothing to a broker">
+            <div class="stage"><div class="at-rise fit"><div class="pane" aria-hidden="true">
+              <h5>Auto paper</h5>
+              <div class="pane__rows"><span>Account<b>Pretend</b></span><span>Orders<b>Own file only</b></span><span>Broker<b>No connection</b></span></div>
+            </div></div></div>
+          </div>
+        </article>
+        <article class="card card--row">
+          <h3 class="t-card">Reviews the rules</h3>
+          <p>Writes up how the rules are doing, for paper and live trades alike.</p>
+          <div class="panel panel--inset" role="img" aria-label="Review covers the record for paper and live trades">
+            <div class="stage"><div class="at-rise fit"><div class="pane" aria-hidden="true">
+              <h5>Review</h5>
+              <div class="pane__rows"><span>Paper record<b>Included</b></span><span>Live record<b>Included</b></span><span>Command<b>review</b></span></div>
+            </div></div></div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="install" aria-labelledby="install-h">
+    <div class="wrap grid grid--top">
+      <div class="span-6">
+        <div class="section-head">
+          <h2 id="install-h">Install the desk on your computer</h2>
+          <p>Nothing to install beyond Python. The dashboard answers only on your own machine.</p>
+        </div>
+        <ul class="rows">
+          <li><span class="rows__name"><img class="ic ic-40" src="assets/icons/python.svg" alt="" width="40" height="40">Python 3.9 or newer</span><p>Standard library only</p></li>
+          <li><span class="rows__name"><img class="ic ic-40 ic-ink" src="assets/icons/apple.svg" alt="" width="33" height="40">macOS, Linux and Windows</span><p>The screenshot reader is Mac only</p></li>
+          <li><span class="rows__name">Address</span><p>127.0.0.1:8787, reachable only from this computer</p></li>
+        </ul>
+      </div>
+      <div class="span-6 start-7">
+        <div class="panel panel--inset" role="img" aria-label="A terminal starting the demo: the desk runs in paper mode and never places a real order">
+          <div class="stage"><div class="at-rise fit" style="--fit-max: 440px">
+<div class="ui ui-panel ui-term" data-ui="terminal-run" aria-hidden="true">
+  <div class="ui-term__head">
+    <span class="ui-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="ui-term__title">trading-desk</span>
+    <span class="ui-meta">shell</span>
+    <span class="ui-spacer"></span>
+  </div>
+  <div class="ui-term__screen" data-term-screen>
+    <div class="ui-term__track" data-term-track>
+      <div class="ui-term__ln ui-term__cmd"><span class="ui-term__cwd">~/desk</span><span class="ui-term__sig">$</span><span class="ui-term__typed" data-term-cmd>python3 -m desk --demo</span></div>
+      <div class="ui-term__ln ui-term__log" data-term-out data-term-step><svg class="ui-term__tick" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.4 2.8 2.8 6.2-6.4"/></svg><span class="ui-term__path">Saved data, no network</span><span class="ui-term__n">demo</span></div>
+      <div class="ui-term__ln ui-term__log" data-term-out data-term-step><svg class="ui-term__tick" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.4 2.8 2.8 6.2-6.4"/></svg><span class="ui-term__path">Record: paper (practice)</span><span class="ui-term__n">paper</span></div>
+      <div class="ui-term__ln ui-term__log" data-term-out data-term-step><svg class="ui-term__tick" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.4 2.8 2.8 6.2-6.4"/></svg><span class="ui-term__path">Never places a real order</span><span class="ui-term__n">0 orders</span></div>
+      <div class="ui-term__ln ui-term__gap" data-term-out aria-hidden="true"></div>
+      <div class="ui-term__ln ui-term__sum" data-term-out><span class="ui-term__key">Dashboard</span><span class="ui-term__val">127.0.0.1:8787</span></div>
+      <div class="ui-term__ln ui-term__done" data-term-out data-term-done><span class="ui-term__ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 8.3 2.4 2.4 4.6-5"/></svg></span><b>Ready</b><span class="ui-term__dim">Ctrl+C stops it</span></div>
+      <div class="ui-term__ln ui-term__cmd" data-term-next><span class="ui-term__cwd">~/desk</span><span class="ui-term__sig">$</span><span class="ui-term__typed"></span><i class="ui-term__caret" aria-hidden="true"></i></div>
+    </div>
+  </div>
+</div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer closing footer--statement" id="contact" aria-labelledby="close-h">
+  <div class="wrap">
+    <div class="closing__cta close--type">
+      <div class="section-head">
+        <h2 id="close-h">Run the demo</h2>
+        <p>Free, local and paper only. Most day traders lose money.</p>
+      </div>
+      <a class="btn btn--primary btn--xl btn--wide" href="#install">Run the demo<svg class="m-arrow" viewBox="0 0 12 12" aria-hidden="true"><path class="m-arrow__stem" d="M1 6h8"/><path class="m-arrow__head" d="M4.5 2.5 8 6l-3.5 3.5"/></svg></a>
+    </div>
+    <div class="closing__links">
+      <div class="grid">
+        <div class="span-6 stack-4">
+          <a class="nav__logo" href="#top">Trading Desk</a>
+          <p class="footer__lede">A paper-trading desk for US stocks and memecoins. Not financial advice: the data is free and delayed.</p>
+        </div>
+        <div class="span-3 start-7 footer__col"><h3>Models</h3><ul><li><a href="#stocks">Stocks</a></li><li><a href="#memecoins">Memecoins</a></li><li><a href="#journal">Journal</a></li></ul></div>
+        <div class="span-3 footer__col"><h3>Records</h3><ul><li><a href="#record">Record</a></li><li><a href="#install">Install</a></li></ul></div>
+      </div>
+      <div class="footer__legal">
+        <span>&copy; 2026 Trading Desk</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<nav class="actionbar" aria-label="Quick actions">
+  <a class="btn btn--primary" href="#install">Run the demo</a>
+</nav>
+
+<script type="module" src="assets/system.js"></script>
+<script type="module" src="assets/motion/motion.js"></script>
+<script type="module" src="assets/layout/layout.js"></script>
+</body>
+</html>
