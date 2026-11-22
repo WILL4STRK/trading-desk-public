@@ -119,7 +119,10 @@ def make_handler(desk, scheduler=None):
                 elif path == "/api/meme/reset":            # start the memecoin practice account over; the record stays
                     if body.get("sure") is not True:
                         raise DeskError("Starting the memecoin account over needs sure: true.")
-                    meme.reset()
+                    try:
+                        meme.reset()
+                    except meme.MemeError as e:
+                        return self._send(409, {"error": str(e)})
                     out = {}
                 elif path == "/api/take":
                     out = {"trade_id": desk.take(body.get("signal_id"), body.get("qty"), body.get("price"))}
