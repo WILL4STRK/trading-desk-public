@@ -398,3 +398,53 @@ valued at the last observed curve price; a coin that rugs or goes untraded count
 median net return per coin above 0; mean above 0 with the 3 best coins removed; at least 100 coins; positive mean in at
 least 3 of 4 equal time folds; and better than the control on the same holdout. Changing any number after a result is
 seen restarts the count and is logged in docs/CHANGES.md.
+
+### 13.1 Rules, fills, exits, split and pass bar (pre-registered 2026-11-22, second commit, before any return)
+
+Drawn from PHASE1.md evidence only (curve-state variables and early breadth are the predictors that survive; every tested
+rule loses after costs). Nothing here was tuned on pilot returns; none was computed. This replaces the "rule still to be
+fixed" status in the first commit of this section.
+
+**Decision times.** One decision per coin: minute 5 after creation (L1, C0) and minute 10 (L2, C0-10). Features use only
+trades and RugCheck data stamped at or before that minute.
+
+**Features** (decoded trades of SOL-quoted coins; creator = the launch record's creator wallet): `buyers5` distinct buying
+wallets excluding the creator, minutes 0 to 5; `creator_sold` any creator sell before the decision; `top1_share` largest
+single buyer's share of buy SOL volume; `net_inflow` SOL bought minus SOL sold on the curve; `curve_progress` share of the
+graduation threshold from the curve state; `rugcheck2` the minute-2 RugCheck verdict.
+
+**Rules.**
+- **L1 broad early demand (minute 5):** `buyers5 >= 30` AND `creator_sold = false` AND `top1_share <= 0.15` AND
+  `net_inflow >= 5` SOL AND `rugcheck2` has no `danger` risk. `unknown` or missing RugCheck means no buy.
+- **L2 graduation-bound (minute 10):** L1 held at minute 5 AND `curve_progress >= 0.5` at minute 10 AND still
+  `creator_sold = false`.
+- **C0:** buy every eligible SOL-quoted coin at minute 5. **C0-10:** every eligible coin at minute 10. L1 is judged against
+  C0, L2 against C0-10.
+
+**Fills.** Exact bonding-curve math with per-coin (mayhem) parameters, 1.25 % fee per side, first state at least 3 s after
+the decision, $5 per trade. After migration: first PumpSwap trade price. **Fee deviation, stated:** the brief asked for the
+"tiered fee from the cost audit". PHASE1.md section 2.1 says the live fee account decoded to a single 1.25 % tier and the
+tiered 0.30 to 1.25 % schedule is unconfirmed, and the nightly cost audit is published fees, not measured. A tier table
+cannot be sourced, so the primary post-migration fee is **1.25 % per side** (the conservative, live-read figure). A
+tiered re-pricing is reported as secondary only and never used to choose.
+
+**Exits (primary, identical for every rule).** The first of: a -30 % stop on the curve price; migration (sell at the first
+post-migration trade); minute 60 after creation (end of the recorded window). A coin with no trade in its last 10 minutes
+sells at the last trade price minus a 10 % illiquidity haircut; zero trades after entry is a total loss (-100 %).
+**Secondary, reported, never used to choose:** a 25 % trail from the peak; holding to minute 60.
+
+**Exclusions** (rule and control alike): sampled coins whose window overlaps a gap over 5 minutes, non-SOL quote coins,
+coins with unreadable curve parameters. Each is counted in the funnel.
+
+**Holdout.** After the 168 h uptime gate is met, split eligible launches by creation time. Dev = launches before the 60th
+percentile of uptime-weighted creation time (creation time mapped to cumulative collector uptime, gaps contribute zero);
+holdout = the rest. The split timestamp is computed once, from launch creation times and the gap records only, never from
+returns, then logged in a commit and locked by writing `C:\Trading\launches\holdout-split.lock` (timestamp, uptime hours,
+launch counts per side). The holdout is looked at exactly once. Dev is for debugging code and reporting only; no
+parameter in this section may be changed after a return is seen, and a change restarts the count (CHANGES.md).
+
+**Pass bar.** Section 5's bar on the holdout (mean and median net return per coin above 0; mean above 0 with the best 3
+trades removed; at least 100 trades; at least 3 of 4 equal time folds positive; beats its control) plus: at least 10
+trades in each of 4 time slices; still positive without its best 3 **and** best 10 trades; beats its control (L1 vs C0, L2
+vs C0-10). Section 5's distinct-token count applies. Fewer than 100 trades is "inconclusive", not a fail. Results are also
+split by mayhem / non-mayhem for reading; only the whole-universe result counts.
