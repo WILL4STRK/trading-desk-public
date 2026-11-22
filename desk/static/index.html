@@ -745,6 +745,10 @@ const C = {up: "#26A69A", down: "#EF5350", vwap: "#F5C518", e9: "#22D3EE", e20: 
   lv: {pm: ["#9AA0AE", 2], pd: ["#5B9CF6", 2], or: ["#F59E0B", 1], slip: [null, 0]}, slip: {Entry: "#5B9CF6", Stop: "#EF5350", Target: "#26A69A"}};
 const CH = {sym: null, int: "5m", chart: null, lines: [], last: null, busy: false};
 const RISKY_ATR = 5;                      // % a day: a mover that swings this much gets the Risky tag
+// Lightweight Charts throws "Value is null" on setData when two bars share a time, times run backwards, or a value is not a number.
+// The feed can repeat its last print, so every series is cleaned first: finite values only, one row per time (the later wins), ascending.
+// Time is epoch seconds on intraday charts and a YYYY-MM-DD string on the daily chart; both sort correctly with < and >.
+function cleanBars(rows, keys) { const m = new Map(); for (const r of rows || []) if (r && (Number.isFinite(r.time) || (typeof r.time === "string" && r.time)) && keys.every(k => Number.isFinite(r[k]))) m.set(r.time, r); return [...m.values()].sort((a, b) => a.time < b.time ? -1 : a.time > b.time ? 1 : 0); }
 function ema(cs, n) { const k = 2 / (n + 1); let e = null; return cs.map(c => ({time: c.time, value: e = e == null ? c.close : c.close * k + e * (1 - k)})); }
 function makeChart() {
   if (CH.chart || !window.LightweightCharts) return !!CH.chart;
@@ -771,10 +775,11 @@ async function loadChart(sym, quiet) {
   catch (e) { CH.busy = false; return quiet || toast(e.message, true); }
   CH.busy = false;
   const fresh = CH.sym !== sym || CH.shown !== CH.int; CH.sym = sym; CH.shown = CH.int;
-  const cs = d.candles.map(c => ({time: c.time, open: c.open, high: c.high, low: c.low, close: c.close}));
+  const bars = cleanBars(d.candles, ["open", "high", "low", "close"]);
+  const cs = bars.map(c => ({time: c.time, open: c.open, high: c.high, low: c.low, close: c.close}));
   CH.cs.setData(cs);
-  CH.vol.setData(d.candles.map(c => ({time: c.time, value: c.volume, color: c.close >= c.open ? "rgba(38,166,154,.35)" : "rgba(239,83,80,.35)"})));
-  CH.vw.setData(d.vwap); CH.e9.setData(ema(cs, 9)); CH.e20.setData(ema(cs, 20));
+  CH.vol.setData(bars.map(c => ({time: c.time, value: Number.isFinite(c.volume) ? c.volume : 0, color: c.close >= c.open ? "rgba(38,166,154,.35)" : "rgba(239,83,80,.35)"})));
+  CH.vw.setData(cleanBars(d.vwap, ["value"])); CH.e9.setData(ema(cs, 9)); CH.e20.setData(ema(cs, 20));
   CH.lines.forEach(l => CH.cs.removePriceLine(l));
   CH.lines = d.levels.map(l => CH.cs.createPriceLine({price: l.price, title: l.name, lineWidth: 1, axisLabelVisible: true,
     color: l.kind === "slip" ? C.slip[l.name] || C.lv.pd[0] : C.lv[l.kind][0], lineStyle: l.kind === "slip" ? 0 : C.lv[l.kind][1]}));
