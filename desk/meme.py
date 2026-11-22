@@ -1036,9 +1036,36 @@ def view():
                      "fdv": t.get("fdv"), "v24": t.get("v24"), "f": f, "held": k in held,
                      "rules": [r for r, yes in R.decide(f).items() if yes] if f else [],
                      "screen": sc.get("verdict", "unknown"),
+                     "strict": sc.get("strict", "unknown"), "strict_why": sc.get("strict_why") or [],
+                     "screen_at": sc.get("at"), "snapshot_at": _iso(t["seen"]) if t.get("seen") else None,
+                     "vetoes": R.vetoes(f, (t.get("seen") or 0) - (t.get("last_promo") or -1e12) < 86400) if f else None,
                      "why": (sc.get("why") or ["no red flags found"]) if sc else ["not screened yet"],
                      "url": "https://dexscreener.com/%s/%s" % (t["chain"], t.get("pool") or t["addr"])})
     sv = [x.get("verdict") for x in screens.values()]
+    practice = books_view(st, s, tracked)
+    # Present existing saved marks and closed rows without changing trading state.
+    for book in practice:
+        saved = acct if book["name"] == "main" else s["books"][book["name"]]
+        book["curve"] = (saved.get("curve") or [])[-72:]
+    careful = next((book["rows"] for book in practice if book["name"] == "careful"), [])
+    values = {}
+    for row in rows:
+        values.setdefault(row["policy"], []).append(row["net_pct"])
+    values["careful"] = [row["net_pct"] for row in careful]
+    boundaries = (-50, -20, 0, 20, 50, 100)
+    distributions = {}
+    for name, returns in values.items():
+        bins = [0] * (len(boundaries) + 1)
+        for result in returns:
+            bins[sum(result >= edge for edge in boundaries)] += 1
+        distributions[name] = bins
+    model_results = {
+        name: {"passed": _bar_for(name, fw.get(name) or {}, fw)}
+        for name in R.POLICIES + M.POLICIES + MN.POLICIES
+        if name not in ("all", "migration_base", "moonshot_base")
+    }
+    model_results["careful"] = {"stats": stats(careful),
+                                "passed": all(item["ok"] for item in verdict(fw, "careful", careful))}
     return {"enabled": st["meme_enabled"], "paused": st["meme_paused"], "policy": pol, "policy_why": why,
             "research": dict(zip(("pick", "passed"), research_pick())),
             "account": {"start": acct["start"], "cash": round(acct["cash"], 2), "equity": round(eq, 2),
@@ -1049,7 +1076,10 @@ def view():
             "candidates": cand, "tracked": len(tracked), "open_shadows": len(s.get("shadows") or []),
             "screens": {v: sv.count(v) for v in ("pass", "fail", "unknown")},
             "discoveries": _count("discoveries.jsonl"),
-            "books": books_view(st, s, tracked),
+            "books": practice,
+            "model_results": model_results,
+            "model_min_per_slice": M.MIN_PER_SLICE,
+            "distributions": {"boundaries": boundaries, "counts": distributions},
             "migrations": migration_funnel(),
             "moonshots": moonshot_funnel(),
             "forward": fw, "verdict": verdict(fw, pol, [{"key": t["key"], "net_pct": t["ret_pct"], "ts": t["ts"]} for t in closed]), "cost_pct": st["meme_cost_pct"],
