@@ -406,13 +406,13 @@ docs/CHANGES.md.
 P0's own entries than P0 itself and than a naive "it kept rising" rule? Paper only. No wallet, key or order path. "No edge" is
 an allowed and the likely answer (section 0).
 
-**Model.** `chronos-forecasting` 2.3.2 in `C:\Tradingorecast-venv` (Python 3.13, torch 2.15.0 CPU, transformers 5.24.0, pandas
+**Model.** `chronos-forecasting` 2.3.2 in `C:\Trading\forecast-venv` (Python 3.13, torch 2.15.0 CPU, transformers 5.24.0, pandas
 3.1.1, numpy 2.5.5; pins in `research/forecast/requirements.txt`). Checkpoint: `amazon/chronos-2`. Its Hugging Face commit hash
 is written to `research/forecast/MODEL_REVISION` at the first download and never changed; a different checkpoint or revision is
 a new rule. Zero-shot only: no fine-tuning, no fitting to dev or holdout, so dev is a smoke test of the code and cannot tune a number.
 
 **Data.** The same 5-minute GeckoTerminal candles and discovery list as the section 5 backtest (`research/meme/`). Desk data
-(`discoveries.jsonl`, `model.json`) is read only through a copy placed under `C:\Tradingesearchorecast\input\`; the live
+(`discoveries.jsonl`, `model.json`) is read only through a copy placed under `C:\Trading\research\forecast\input\`; the live
 desk folder and `C:\Trading\memebot` are never opened by the code. GeckoTerminal: 5 calls a minute or fewer, one process.
 Chronos sees only closes dated on or before the decision time.
 
@@ -449,3 +449,15 @@ if the number of forecasts needed exceeds what finishes in a day, forecast every
 choice made by calendar and not by results.
 
 **Changes.** Changing any number in this section after a result is seen restarts the count and is logged in docs/CHANGES.md.
+
+### 16.1 Amendment, 2026-11-22 (after review, before any F1 code, forecast or data)
+
+No F1 code, no forecast, no model download and no desk-data copy exists yet; the only files on this branch are this section and `research/forecast/requirements.txt`. This amendment fixes ambiguities only. It changes no threshold, exit, cost, control or pass-bar number of section 16, and it was written without seeing any F1, P0 or C-persist result. It also corrects two Windows paths above that had been saved with control characters (they now read `C:\Trading\forecast-venv` and `C:\Trading\research\forecast\input\`).
+
+1. **Input cutoff.** GeckoTerminal stamps a bar by its open time. A bar is usable at decision time `t` only if its close time (bar timestamp + 300 s) is at or before `t`. Decision times are the same as `research/meme/backtest.py`: `t` is a bar's close time that falls on the 15-minute grid. No bar that closes after `t` reaches Chronos or any feature.
+2. **Fill.** An entry fills at the **open of the first bar after the input window** (the bar that opens at `t`), with the section 2 cost (`net_pct`, 3.5 % round trip, half each side). This is the rule `backtest.py` uses (`bars[i + 1]` open), and it applies unchanged to F1, P0 and C-persist.
+3. **Gaps and eligibility.** The 288 context closes are placed on a regular 5-minute grid ending at the last usable bar. GeckoTerminal omits bars with no trades, so a missing step takes the previous close (forward fill). A decision point is **ineligible** if more than 20 % of its 288 steps (more than 57) were filled, or if the first step has no earlier close to fill from. The same eligibility applies to all three arms, so P0 and C-persist in this study are "P0 and C-persist on F1-eligible points", not the section 5 P0. The age >= 24 h and `v1h` >= $20k floors still apply.
+4. **Liquidity and dead pools.** The backtest uses what `backtest.py` uses for P0: one liquidity figure per token, `liq_usd` of its highest-liquidity pool when `research/meme/data.py` fetched it, and the token's `dead` flag (`liq_usd` under $1,000, a missing figure also counted as dead, as `data.py` stores it). The same flag applies to every arm. The backtest charges no size-dependent price impact (`net_pct` is flat 3.5 %) for any arm. The missing-liquidity-treated-as-alive sensitivity from `backtest.py` is reported, not used to decide. The forward recorder, if one is ever built, adds the section 2 price impact.
+5. **One position per token per arm.** No new buy of a token by an arm while that arm's position in it is open; a position still open at the end of the data blocks that arm for the rest of the data, and the section 3 60-minute cooldown after an exit stays. Arms do not block each other.
+6. **15 versus 30 minute decision points.** The default is 15 minutes (as for every rule). The choice of 30 is allowed only by a rule that uses no price result: after the model is downloaded and the desk-data copy exists, a timing run on **synthetic series** (50 random walks of 288 steps, batch of one, 48-step horizon, on this PC's CPU) gives the median seconds per forecast `s`. The estimated number of forecasts is `N = (tokens in the input copy that are at least 24 h old) x 7 days x 96`, using only a token count. If `s x N` is 12 hours or less, decide every 15 minutes; otherwise every 30 minutes (the `:00` and `:30` grid points) for all three arms. The numbers `s`, `N` and the choice are committed to `research/forecast/TIMING-NOTE.md` with its date **before** any real price series is forecast.
+7. **Order of work.** After sign-off: (a) the first model download, writing `research/forecast/MODEL_REVISION`; (b) the copy of desk data to `C:\Trading\research\forecast\input\`; (c) the timing run and its note; (d) code and tests; (e) the real run. GeckoTerminal stays at 5 calls a minute or fewer, one process. No merge and no deploy.
