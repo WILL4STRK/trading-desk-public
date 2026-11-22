@@ -1,6 +1,8 @@
 """Model 4, memecoins (desk/meme.py, desk/memerules.py, docs/MEME.md): rules, costs, screen, the paper account,
 catch-up from candles, the route and the scheduler. No network: a fake API answers every GET."""
 import json
+import os
+import tempfile
 import threading
 import time
 import urllib.error
@@ -378,6 +380,91 @@ class Book(DeskCase):
     def test_review_has_a_model_4_section(self):
         self.run_at(T0)
         self.assertTrue(any("Forward record" in l for l in meme.lines()))
+
+
+class PracticeDrawdown(DeskCase):
+    def replay(self, enabled):
+        S.save({"meme_policy": "calm_aged", "meme_practice_drawdown": enabled})
+        api = FakeAPI()
+
+        def add(addr, pool):
+            api.feed.append({"chainId": "solana", "tokenAddress": addr})
+            api.pairs[addr] = api.pair(addr, pool, 1.0, 100000.0)
+
+        second, third, fourth = ("Second111111111111111111111111111111",
+                                 "Third1111111111111111111111111111111",
+                                 "Fourth111111111111111111111111111111")
+        add(second, "POOL2")
+        meme.run(now=T0, fetch=api)
+        meme.run(now=T0 + 150, fetch=api)
+        api.pairs[SOL]["liquidity"]["usd"] = 900.0
+        add(third, "POOL3")
+        meme.run(now=T0 + 300, fetch=api)
+        at_halt = meme.load()
+        api.pairs[second]["priceUsd"] = "1.31"
+        meme.run(now=T0 + 360, fetch=api)
+        meme.run(now=T0 + 480, fetch=api)
+        add(fourth, "POOL4")
+        meme.run(now=T0 + 600, fetch=api)
+        final = meme.load()
+        logs = {path.name: path.read_bytes() for path in meme.folder().glob("*.jsonl")}
+        return at_halt, final, logs, api.calls
+
+    def test_halt_leaves_main_results_shadow_logs_and_data_requests_identical(self):
+        before, baseline, baseline_logs, baseline_calls = self.replay(False)
+        self.assertNotIn("practice_drawdown", before)
+        with tempfile.TemporaryDirectory() as other, mock.patch.dict(os.environ, {"DESK_DATA": other}):
+            at_halt, final, logs, calls = self.replay(True)
+            risk = final.pop("practice_drawdown")
+            status = meme.view()["practice_drawdown"]
+            self.assertEqual(status["book"]["halted"], risk["halted"])
+            self.assertIn("Main drawdown experiment (15% halt): halted", "\n".join(meme.lines()))
+            self.assertEqual(at_halt["practice_drawdown"]["halted"]["equity"], 80.0)
+            self.assertEqual(len(at_halt["practice_drawdown"]["positions"]), 1)
+            self.assertEqual([p["why"] for p in risk["closed"]], ["rug", "target"])
+            self.assertEqual(risk["positions"], [])
+            self.assertGreater(risk["cash"], 85.0)
+            self.assertEqual(risk["halted"], at_halt["practice_drawdown"]["halted"])
+            self.assertEqual(final, baseline)
+            self.assertEqual(logs, baseline_logs)
+            self.assertEqual(calls, baseline_calls)
+            meme.reset()
+            self.assertIsNone(meme.view()["practice_drawdown"]["book"])
+            self.assertEqual(logs, {path.name: path.read_bytes() for path in meme.folder().glob("*.jsonl")})
+
+    def test_enabling_with_an_existing_main_position_only_copies_new_fills(self):
+        S.save({"meme_policy": "calm_aged"})
+        api = FakeAPI()
+        meme.run(now=T0, fetch=api)
+        S.update({"meme_practice_drawdown": True})
+        meme.run(now=T0 + 60, fetch=api)
+        self.assertEqual(len(meme.load()["account"]["positions"]), 1)
+        self.assertEqual(meme.load()["practice_drawdown"]["positions"], [])
+
+    def test_closed_profit_raises_the_peak_before_the_exact_drawdown_limit(self):
+        st = S.validate({"meme_practice_drawdown": True})
+        s = {}
+        first = {"key": SOL, "chain": "solana", "ts": T0, "px": 1.0, "cost": 20, "liq": 100000}
+        meme._practice_drawdown(st, s, [first], [], {}, T0)
+        book = s["practice_drawdown"]
+        pos = book["positions"][0]
+        px = 1.3
+        won = dict(first, exit_px=px, exit_ts=T0 + 60, why="target")
+        second = dict(first, key="second", ts=T0 + 60)
+        meme._practice_drawdown(st, s, [second], [won], {}, T0 + 60)
+        self.assertGreater(book["realized_peak"], 100)
+        self.assertAlmostEqual(book["closed"][0]["pnl"],
+                               pos["qty"] * px * (1 - meme._side_cost(st, pos["qty"] * px, pos["liq"], "solana")) - 20,
+                               places=4)
+
+        # A rug at the exact realized limit still halts. Keep the open basis equal to that loss.
+        exact_loss = book["realized_peak"] * 0.15
+        open_pos = book["positions"][0]
+        book["cash"] = book["realized_peak"] - exact_loss
+        open_pos["cost"] = exact_loss
+        lost = dict(second, exit_px=0, exit_ts=T0 + 120, why="rug")
+        meme._practice_drawdown(st, s, [], [lost], {}, T0 + 120)
+        self.assertAlmostEqual(book["halted"]["equity"], book["realized_peak"] * 0.85, places=6)
 
 
 class Route(DemoCase):

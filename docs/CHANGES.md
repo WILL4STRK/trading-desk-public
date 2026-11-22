@@ -16,6 +16,7 @@ not a reason to change a rule; a change needs enough trades to mean something.
 
 | Date | What changed | Why |
 |---|---|---|
+| 2026-11-21 | Registered an opt-in, practice-only main-account companion with a 15 % realized drawdown halt. | Compare sizing and halting on the same simulated fill tape. See [MEME.md §11](MEME.md#11-main-practice-drawdown-prototype-registration-2026-11-21-before-any-of-its-data). |
 | 2026-11-18 | Paper mode only: 4x buying power, 5 % risk a trade, 20 % daily loss, no weekly stop, 50 % drop stop, no cash buffer, no trade cap, sales settle at once. Live unchanged. Rule stamps now record these. | Bolder, bigger practice trades show more in the review log. Paper is pretend money. |
 | 2026-11-18 | New risk stops: weekly loss (`max_weekly_loss_pct`), drop from the best point (`max_drawdown_pct`), losers in a row (`max_losing_streak`, off by default). | Ideas from CloddsBot (docs/CLODDSBOT.md). |
 | 2026-11-18 | Short side added, off by default (`directions` = long). Shorts are practice only unless `short_approved` is on. | docs/SHORTING.md. |

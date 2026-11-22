@@ -163,6 +163,7 @@ BOOKS = tuple((r, (r,), "screen") for r in R.POLICIES) + (("careful", LEARN, "ev
                                                            ("moonshot", ("moonshot",), "screen"))
 DELAYED = {"migration": ("migration", "migrations.jsonl"), "migration_base": (None, "migrations.jsonl"),
            "moonshot": ("moonshot", "moonshots.jsonl"), "moonshot_base": (None, "moonshots.jsonl")}  # policy: (book, log)
+PRACTICE_DRAWDOWN_PCT = 15
 
 
 def _book_ok(how, sc, veto):
@@ -449,6 +450,43 @@ def equity(st, acct, tracked):
     return v
 
 
+def _practice_drawdown(st, s, entries, exits, tracked, now):
+    """Size a companion account from the main book's fills, without feeding back into the scan."""
+    enabled = st["meme_practice_drawdown"]
+    start = st["meme_starting_balance"]
+    book = s.get("practice_drawdown")
+    if book and book["start"] != start:
+        s.pop("practice_drawdown")
+        book = None
+    if book is None:
+        if not enabled:
+            return
+        book = s["practice_drawdown"] = _new_account(start)
+        book.update(started=_iso(now), realized_peak=start, halted=None)
+
+    positions = {(p["key"], p["ts"]): p for p in book["positions"]}
+    for closed in exits:
+        pos = positions.get((closed["key"], closed["ts"]))
+        if pos is None:
+            continue
+        liq = tracked.get(pos["key"], {}).get("liq")
+        _sell(st, book, pos, closed["exit_px"], liq, closed["exit_ts"], closed["why"])
+        realized = round(book["cash"] + sum(p["cost"] for p in book["positions"]), 6)
+        book["realized_peak"] = max(book["realized_peak"], realized)
+        limit = round(book["realized_peak"] * (1 - PRACTICE_DRAWDOWN_PCT / 100), 6)
+        if book["halted"] is None and realized <= limit:
+            book["halted"] = {"at": _iso(now), "equity": realized, "peak": book["realized_peak"]}
+
+    if not enabled or book["halted"]:
+        return
+    for source in entries:
+        size = min(source["cost"], equity(st, book, tracked) * st["meme_position_pct"] / 100, book["cash"])
+        if size >= 1:
+            fill = source["px"] * (1 + _side_cost(st, size, source["liq"], source["chain"]))
+            book["cash"] = round(book["cash"] - size, 6)
+            book["positions"].append(dict(source, cost=size, fill=fill, qty=size / fill))
+
+
 def _exit_rule(entry_px, entry_ts, px, liq, now, entry_liq=None):
     """The forward exit from one price sample: (price to use, why) or None. The stop fills at the sampled price
     (a gap is real); the target fills at the target (as a limit would); a dead pool is a total loss."""
@@ -485,6 +523,7 @@ def _run(now, fetch):
     if not acct or acct.get("start") != st["meme_starting_balance"]:
         acct = _new_account(st["meme_starting_balance"])          # a new starting balance starts the account over
     acct["started"] = acct.get("started") or _iso(now)
+    first_main_close = len(acct["closed"])
     books = s.get("books") or {}
     for name, _, _ in BOOKS:
         if not books.get(name) or books[name].get("start") != st["meme_starting_balance"]:
@@ -592,6 +631,7 @@ def _run(now, fetch):
         elif it["key"] in snap:
             it["checked"] = now
 
+    first_main_entry = len(acct["positions"])
     # 4. safety screens: newest unscreened (or stale) first
     todo = sorted((k for k, t in tracked.items() if t.get("pool") and now - (screens.get(k) or {}).get("ts", 0) > SCREEN_TTL),
                   key=lambda k: -tracked[k]["first_seen"])[:SCREENS_PER_RUN]
@@ -794,6 +834,8 @@ def _run(now, fetch):
                     held[bn].add(k)
                     out["bought"] += bn == "main"
 
+    _practice_drawdown(st, s, acct["positions"][first_main_entry:], acct["closed"][first_main_close:], tracked, now)
+
     # prune: old or dead tokens with nothing open
     busy = set().union(*held.values()) | {sh["key"] for sh in shadows} | {pe["key"] for pe in pending}
     for k in [k for k, t in tracked.items() if k not in busy and (now - t["first_seen"] > TRACK_DAYS * 86400
@@ -841,9 +883,11 @@ def note_error(now, err):
 
 def reset():
     """Start the paper account over. The forward record (discoveries, shadows, screens) is kept."""
-    s = load()
-    s["account"] = _new_account(S.load()["meme_starting_balance"])
-    _save(s)
+    with _running:
+        s = load()
+        s["account"] = _new_account(S.load()["meme_starting_balance"])
+        s.pop("practice_drawdown", None)
+        _save(s)
 
 
 # ---- the forward test (the review and the tab) --------------------------------------------------------------------
@@ -1066,6 +1110,15 @@ def view():
     }
     model_results["careful"] = {"stats": stats(careful),
                                 "passed": all(item["ok"] for item in verdict(fw, "careful", careful))}
+    companion = s.get("practice_drawdown")
+    risk = {"enabled": st["meme_practice_drawdown"], "limit_pct": PRACTICE_DRAWDOWN_PCT, "book": None}
+    if companion:
+        risk["book"] = {
+            "started": companion["started"], "start": companion["start"], "cash": round(companion["cash"], 2),
+            "equity": round(equity(st, companion, tracked), 2), "realized_peak": companion["realized_peak"],
+            "realized_equity": round(companion["cash"] + sum(p["cost"] for p in companion["positions"]), 2),
+            "trades": len(companion["closed"]), "open": len(companion["positions"]), "halted": companion["halted"],
+        }
     return {"enabled": st["meme_enabled"], "paused": st["meme_paused"], "policy": pol, "policy_why": why,
             "research": dict(zip(("pick", "passed"), research_pick())),
             "account": {"start": acct["start"], "cash": round(acct["cash"], 2), "equity": round(eq, 2),
@@ -1080,6 +1133,7 @@ def view():
             "model_results": model_results,
             "model_min_per_slice": M.MIN_PER_SLICE,
             "distributions": {"boundaries": boundaries, "counts": distributions},
+            "practice_drawdown": risk,
             "migrations": migration_funnel(),
             "moonshots": moonshot_funnel(),
             "forward": fw, "verdict": verdict(fw, pol, [{"key": t["key"], "net_pct": t["ret_pct"], "ts": t["ts"]} for t in closed]), "cost_pct": st["meme_cost_pct"],
@@ -1174,6 +1228,13 @@ def lines(v=None):
     for b in v.get("books") or []:
         L.append("    %-10s $%.2f (%+.2f%%), %d closed, %d won, %d open" % (b["name"], b["equity"], b["return_pct"],
                                                                         b["trades"], b["wins"], b["open"]))
+    risk = v.get("practice_drawdown") or {}
+    practice = risk.get("book")
+    if practice:
+        status = "halted" if practice["halted"] else ("on" if risk["enabled"] else "off")
+        L.append("    Main drawdown experiment (%d%% halt): %s, realized equity $%.2f, peak $%.2f, %d closed, %d open."
+                 % (risk["limit_pct"], status, practice["realized_equity"], practice["realized_peak"],
+                    practice["trades"], practice["open"]))
     L.append("  Pass bar for %s+screen: %s" % (v["policy"], "; ".join("%s %s" % (c["check"], "yes" if c["ok"] else "NO")
                                                                      for c in v["verdict"])))
     mo = v.get("moonshots") or {}

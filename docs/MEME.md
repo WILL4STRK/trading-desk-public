@@ -284,3 +284,26 @@ and buy-everything. Because P8 is built for a skewed payoff, its **median is exp
 stays (a rule that only works through its top three trades fails "still above 0 without the 3 best" anyway), so the
 bar is not loosened for it. Report also its largest win, the share of trades above +100 %, and its result without
 its best 3 and best 10 trades.
+
+## 11. Main practice drawdown (prototype registration, 2026-11-21, before any of its data)
+
+**Account.** Opt in with `meme_practice_drawdown: true` in the desk settings JSON. The companion starts with
+`meme_starting_balance` on its first enabled pass. It uses the main practice account's new paper fills and
+corresponding exits as its event tape. At entry it uses the desk's position percentage on its own marked
+equity, capped by the main fill's dollar size and its own cash, with the same $1 minimum. Entry and exit charge
+the desk's costs and price impact at the companion's own size. The main book's slots, cooldown and execution
+timing define this prototype's opportunity set.
+
+**Halt.** Realized equity is cash plus the entry cost of positions still open. Start the peak at starting
+cash and update it on each matched close in the order the desk books them. At a realized loss of 15 % or more
+from that peak, latch the halt before copying any new entries that pass. Already open positions close on
+their reference exits. A later recovery or switching the setting off and on preserves the latch. Switching
+off stops copying entries while still processing exits. The existing main-account reset or a changed starting
+balance starts a new companion record. The review and `/api/meme` report the peak and halt state.
+
+**Control and readout.** Compare with the simultaneous main practice account from a common empty-account start,
+with settings frozen over the comparison. Read net ending equity, maximum realized drawdown and the count and
+net result of matched and skipped opportunities. This account overlay is evaluated on its own ledger. It consumes
+finalized paper events locally. Source inspiration: [ClaudeFi's
+README](https://github.com/claudefi/claudefi/blob/e86dea3d3c5777d1145137c935de8e5487bcf0bf/README.md)
+(MIT as declared there).
