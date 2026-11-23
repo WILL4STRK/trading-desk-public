@@ -11,7 +11,7 @@ from desk.paths import STATIC
 
 
 def _source():
-    page = (STATIC / "index.html").read_text(encoding="utf-8")
+    page = (STATIC / "app.js").read_text(encoding="utf-8")
     start = page.index("function candleSvg(")
     end = page.index("\nlet MCHD", start)
     return page[start:end]

@@ -294,6 +294,19 @@ def snapshot(tracked, fetch=get):
     return out
 
 
+# Display only (the Terminal tab's "last strong"): never read by a rule, shadow, exit or cost.
+STRONG_R1H = 20.0       # %, the 1-hour move
+STRONG_BUY = 0.55       # buys / all trades in the last 5 minutes
+
+
+def _note_strong(t, now):
+    """Stamp last_strong_ts on a tracked coin whose snapshot moved +20% or more in an hour with 55% or more buys."""
+    f = t.get("f") or {}
+    r1h, buy = f.get("r1h"), f.get("buy_ratio_m5")
+    if isinstance(r1h, (int, float)) and isinstance(buy, (int, float)) and r1h >= STRONG_R1H and buy >= STRONG_BUY:
+        t["last_strong_ts"] = now
+
+
 def _liq(p):
     """Pool liquidity in USD, or None when DexScreener gives none (a pump.fun bonding curve): unknown, not zero."""
     v = (p.get("liquidity") or {}).get("usd")
@@ -630,6 +643,7 @@ def _run(now, fetch, demo=False):
         t["px"] = float(p.get("priceUsd") or 0) or None
         t["liq"] = _liq(p)
         t["f"] = {x: (round(y, 4) if isinstance(y, float) else y) for x, y in R.features_from_pair(p, now * 1000).items()}
+        _note_strong(t, now)
         t["fdv"], t["mcap"] = p.get("fdv"), p.get("marketCap")
         t["v24"] = (p.get("volume") or {}).get("h24")
         if t.get("pool") and p.get("pairAddress") != t["pool"]:

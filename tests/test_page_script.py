@@ -1,4 +1,4 @@
-"""The dashboard is one inline <script>. A top-level name declared twice (const, let, var, function, class) is a
+"""The dashboard is one script, desk/static/app.js. A top-level name declared twice (const, let, var, function, class) is a
 SyntaxError that stops the whole page, and no Python test would notice. This scans for it."""
 import re
 import unittest
@@ -155,11 +155,14 @@ class PageScript(unittest.TestCase):
     def test_scanner_catches_function_vs_const(self):
         self.assertEqual(duplicates("function load() {}\nconst load = 1;\n"), ["load"])
 
-    def test_index_html_has_no_duplicate_top_level_names(self):
+    def test_page_has_no_inline_script(self):
+        # the CSP allows scripts only from the desk itself and Jupiter's Plugin host: an inline <script> would not run
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        scripts = [s for s in re.findall(r"<script>(.*?)</script>", html, re.S)]
-        self.assertTrue(scripts, "no inline <script> found in desk/static/index.html")
-        js = max(scripts, key=len)
+        self.assertEqual(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>", html), [])
+        self.assertIsNone(re.search(r"\son[a-z]+\s*=", html), "an inline event handler would not run under the CSP")
+
+    def test_app_js_has_no_duplicate_top_level_names(self):
+        js = (STATIC / "app.js").read_text(encoding="utf-8")
         names = top_level_names(js)
         self.assertGreater(len(names), 50, "the scanner found too few top-level names; it is probably confused")
         self.assertEqual(duplicates(js), [], "declared more than once at the top level of the page script")

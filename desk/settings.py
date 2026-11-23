@@ -83,6 +83,7 @@ DEFAULTS = {
     "meme_ntfy": "off",              # phone alerts for memecoin paper buys and sells: off | main (main account) | all (every account)
     "meme_ntfy_topic": "",           # empty = the ntfy_topic above
     "meme_ntfy_max_per_hour": 20,    # over this, alerts are dropped and one "N alerts skipped" follows at the next free slot
+    "meme_terminal_allow_unsellable": False,  # Terminal tab: open Jupiter's swap even when the screen says you may not be able to sell
 }
 
 MEME_CHAINS = ("solana", "base", "bsc", "ethereum")
@@ -172,7 +173,8 @@ def validate(raw):
     if s["directions"] not in ("long", "short", "both"):
         raise SettingsError("directions must be long, short or both")
     for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak", "auto_watchlist", "watchlist_agent", "breaking_news",
-              "meme_enabled", "meme_paused", "meme_search_new", "meme_practice_drawdown", "meme_reentry_shadow"):
+              "meme_enabled", "meme_paused", "meme_search_new", "meme_practice_drawdown", "meme_reentry_shadow",
+              "meme_terminal_allow_unsellable"):
         if not isinstance(s[k], bool):
             raise SettingsError("%s must be true or false" % k)
     s["blocked"] = _tickers(s["blocked"], "blocked")
