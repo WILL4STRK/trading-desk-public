@@ -549,3 +549,14 @@ changes; this fixes what the section left open.
    of a coin's weight on each day it enters or leaves the set. Both are compared by compounded return over the holdout days; cash is 0.
 5. **Mechanics.** Entry price is the day d+1 point, exit price the execution point; costs are half of 1.25 % on each side
    (the section 2 `net_pct` formula with a 1.25 % cost); the -25 % stop is tested at every present point after entry against the entry price.
+
+### 14.11 Note, 2026-11-22 (outcome, and the order of work)
+
+**No forward recorder:** the holdout failed and section 14's abandonment rule is met (see research/largecap/REPORT.md, 9c2a9c6 in meambot, branch `model5-largecap`). The branch `model-largecap` is left as the record; it is not to be merged.
+
+**Order of work, stated plainly.**
+1. The CoinGecko download scripts (`fetch_cg.py`, `fetch_extra.py`, `wayback_members.py`) and the counting script (`universe.py`) existed, and the downloads had run, **before** section 14 was committed (2bfa684, 2026-11-22 21:22:57 -0500). Their files date from 16:31 to 16:39 the same day.
+2. 2bfa684 (section 14), then 1fbcb8b (14.10, data-shape clarifications, 21:23:43) were pushed. `backtest.py`, its tests and every dev and holdout run came after both (`backtest.py` was last edited 21:24:39, the dev output file is dated 21:24:41, the holdout results and lock file 21:25:03).
+3. Dev ran once as a result view (its numbers are in the report), the holdout ran once, and the lock file was written. 9c2a9c6 followed.
+
+**Was any return, P&L or backtest output computed before 2bfa684? None.** No trade, signal, moving-average comparison, return, equity curve or backtest of any rule existed or was run before 2bfa684, including partial or debug runs. What was seen before 2bfa684 was only: (a) coin counts per date meeting the size and volume bar (19 to 35 coins, 48 distinct), which section 14.1 and 14.7 disclose; (b) counts and names of coins recovered from Wayback snapshots and whether a price history file existed for them; (c) FDV and symbol of the 11 desk and memebot tokens with FDV of at least $100M, matched to cached coin ids; (d) whether the SOL history call returned data (366 points). After 2bfa684 and before 1fbcb8b, only the shape of the cached series was counted (interior gaps, duplicate last-date points, series ending early); no price movement was looked at.
