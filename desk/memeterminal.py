@@ -240,6 +240,11 @@ _chain_lock = threading.Lock()
 _chain_last = [0.0]
 _chain_cache = {}
 _chain_vaults = {}
+# key -> (dex, mint, pool) for tracked pump.fun / PumpSwap coins, so a poll never opens model.json: on Windows an open
+# model.json can make the scanner's save fail (WinError 5 on replace). Refreshed from model.json at most once a minute;
+# a key not in the map reloads it at most once every 5 s.
+COINS_EVERY, COINS_MISS_EVERY = 60.0, 5.0
+_coins = {"at": -1e18, "miss_at": -1e18, "map": {}}
 
 
 class ChainError(Exception):
@@ -279,17 +284,35 @@ def _rpc_accounts(addrs, post=None):
     return out
 
 
+def _coin(key, now):
+    """(dex, mint, pool) for a tracked pump.fun or PumpSwap coin, or None; reads model.json only as described above."""
+    c = _coins
+    if now - c["at"] >= COINS_EVERY or (key not in c["map"] and now - c["miss_at"] >= COINS_MISS_EVERY):
+        if key not in c["map"]:
+            c["miss_at"] = now
+        tracked = meme.load().get("tracked") or {}
+        c["map"] = {k: (t["dex"], t["addr"], t["pool"]) for k, t in tracked.items()
+                    if isinstance(t, dict) and t.get("chain") == "solana" and t.get("dex") in CHAIN_DEX
+                    and valid_mint(t.get("addr")) and valid_mint(t.get("pool"))}
+        c["at"] = now
+    return c["map"].get(key)
+
+
 def chain(key, post=None, now=None):
     """The raw accounts for one tracked pump.fun or PumpSwap coin: {kind, addrs: {role: address}, accounts: {address:
-    {owner, data} | None}}. Raises ChainError for anything else. At most one RPC call every 0.5 s, answers reused 0.8 s."""
+    {owner, data} | None}}. Raises ChainError for anything else. At most one RPC call every 0.5 s, answers reused 0.8 s.
+    No file is read for a cached answer, and model.json at most once a minute (see _coin)."""
     import base64
     now = time.time() if now is None else now
-    t = (meme.load().get("tracked") or {}).get(key) if isinstance(key, str) else None
-    if not t or t.get("chain") != "solana" or t.get("dex") not in CHAIN_DEX or not valid_mint(t.get("addr")) or not valid_mint(t.get("pool")):
+    if not isinstance(key, str):
         raise ChainError("on-chain prices are for tracked pump.fun and PumpSwap coins only")
     hit = _chain_cache.get(key)
     if hit and now - hit[0] < CHAIN_CACHE:
         return hit[1]
+    coin = _coin(key, now)
+    if not coin:
+        raise ChainError("on-chain prices are for tracked pump.fun and PumpSwap coins only")
+    t = {"dex": coin[0], "addr": coin[1], "pool": coin[2]}
     with _chain_lock:
         wait = _chain_last[0] + CHAIN_EVERY - time.time()
         if wait > 0:

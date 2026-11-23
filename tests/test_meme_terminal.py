@@ -462,6 +462,7 @@ class ChainProxy(DeskCase):
             return {"result": {"value": [acc.get(a) for a in req["params"][0]]}}
         self.post = post
         MT._chain_cache.clear(); MT._chain_vaults.clear(); MT._chain_last[0] = 0.0
+        MT._coins.update(at=-1e18, miss_at=-1e18, map={})
 
     def test_a_pumpswap_coin_gets_its_pool_mint_and_both_vaults(self):
         out = MT.chain(self.pk, self.post, now=1000)
@@ -474,6 +475,32 @@ class ChainProxy(DeskCase):
         self.assertEqual(len(self.calls), 2)                                    # reused for 0.8 s
         MT.chain(self.pk, self.post, now=1002)
         self.assertEqual([len(c) for c in self.calls], [2, 4, 4])               # vaults known: one call of four
+
+    def test_100_calls_in_10_seconds_open_model_json_at_most_once(self):
+        real = meme.load
+        with mock.patch.object(meme, "load", side_effect=real) as load, mock.patch.object(MT, "CHAIN_EVERY", 0):
+            for i in range(100):
+                MT.chain(self.pk, self.post, now=5000 + i * 0.1)
+        self.assertLessEqual(load.call_count, 1)
+        self.assertEqual(load.call_count, 1)
+        self.assertLessEqual(len(self.calls), 2 + 13)               # and the RPC: answers reused 0.8 s
+
+    def test_unknown_keys_cannot_make_it_read_model_json_every_time(self):
+        real = meme.load
+        with mock.patch.object(meme, "load", side_effect=real) as load:
+            for i in range(100):
+                with self.assertRaises(MT.ChainError):
+                    MT.chain("solana:" + GOOD, self.post, now=6000 + i * 0.1)
+        self.assertLessEqual(load.call_count, 2)                    # at most once every 5 s for a miss
+        self.assertEqual(self.calls, [])
+
+    def test_a_coin_that_stops_being_tracked_is_refused_within_a_minute(self):
+        with mock.patch.object(MT, "CHAIN_EVERY", 0):
+            MT.chain(self.ck, self.post, now=7000)
+            write_json(meme.folder() / "model.json", {"tracked": {}})
+            MT.chain(self.ck, self.post, now=7030)                  # the map is still the old one
+            with self.assertRaises(MT.ChainError):
+                MT.chain(self.ck, self.post, now=7061)              # refreshed after 60 s
 
     def test_a_curve_coin_gets_its_curve_and_mint(self):
         out = MT.chain(self.ck, self.post, now=1000)
