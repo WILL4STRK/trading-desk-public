@@ -533,40 +533,103 @@ details.disc summary:hover{background:oklch(1 0 0 / .04)}
 
 /* real-money banner, on every screen */
 .real-banner{position:sticky;top:0;z-index:2147483647;background:var(--stop);color:#fff;font-size:14px;font-weight:600;text-align:center;padding:8px 16px}
-/* Terminal tab */
-.t-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:0 22px;align-items:start}
-@media(min-width:900px){.t-grid{grid-template-columns:minmax(0,1fr) 280px}}
-.t-intro{margin:0 0 12px}
-.t-row{padding:10px 12px;border-radius:var(--r-inner);cursor:pointer}
-.t-row + .t-row{border-top:.5px solid var(--sep)}
-.t-row.on{background:var(--card2)}
-.t-row:focus-visible{outline:2px solid var(--tint)}
-.t-top{display:flex;align-items:baseline;gap:8px}
-.t-sym{font-size:16px;overflow-wrap:anywhere}
-.t-name{color:var(--label2);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.pill.t-bad{background:var(--stopBg);color:var(--stop)}
-.t-nums{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13.5px;margin-top:4px}
-.t-checks{margin:6px 0 0;padding-left:18px;font-size:13px;color:var(--stop)}
-.t-rec{margin:4px 0 0}
-.t-links{display:flex;flex-wrap:wrap;gap:6px}
+/* Terminal tab: a dense three-column trading terminal (watchlist | chart | token and swap), stacked panes under 900 px */
+#v-terminal{font-variant-numeric:tabular-nums}
+#v-terminal .num,#v-terminal table{font-variant-numeric:tabular-nums}
+.t-intro{margin:0 0 8px;font-size:13px;padding:7px 11px}
+.tx{display:grid;gap:8px;grid-template-columns:290px minmax(0,1fr) 330px;grid-template-rows:minmax(560px,calc(100vh - 150px)) auto;
+  grid-template-areas:"list chart side" "list bottom side"}
+.tx-pane{background:var(--card);border:1px solid var(--sep);border-radius:var(--r-inner);min-width:0;min-height:0;display:flex;flex-direction:column}
+.tx-list{grid-area:list;max-height:calc(100vh - 110px);position:sticky;top:100px}
+.tx-chart{grid-area:chart}
+.tx-side{grid-area:side;overflow:auto;max-height:calc(100vh - 110px);position:sticky;top:100px;display:block}
+.tx-bottom{grid-area:bottom;min-height:180px}
+.tx-head{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:1px solid var(--sep);font-size:12.5px;flex-wrap:wrap}
+.tx-head b{font-size:13px}
+.tx-head .sp{flex:1}
+.tx-in{background:var(--card2);border:0;border-radius:6px;padding:5px 8px;font-size:13px;color:var(--label);min-height:30px}
+.tx-head .tx-in[type=search]{flex:1 1 120px;min-width:0}
+.tx-btn{background:var(--card2);border:0;border-radius:6px;color:var(--label2);font-size:12.5px;font-weight:600;padding:4px 9px;min-height:28px;cursor:pointer}
+.tx-btn[aria-pressed=true],.tx-btn[aria-selected=true]{background:var(--fill);color:var(--label)}
+.tx-btn:focus-visible,.tx-in:focus-visible,#t-list:focus-visible{outline:2px solid var(--tint);outline-offset:-2px}
+/* watchlist */
+.wl-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+#t-list{flex:1;min-height:0;overflow-y:auto;overflow-anchor:none;overscroll-behavior:contain;outline:none}
+.wl-row{display:grid;grid-template-columns:minmax(0,1fr) 52px 76px;grid-template-areas:"a spark px" "b spark chg";gap:0 8px;
+  padding:5px 9px;border-bottom:1px solid var(--sep);cursor:pointer;font-size:12.5px;line-height:17px;
+  height:46px;box-sizing:border-box;overflow:hidden} /* a whole-pixel height: inserting rows above keeps the view exactly in place */
+.wl-row:hover{background:var(--card2)}
+.wl-row.act{box-shadow:inset 2px 0 0 var(--tint)}
+.wl-row.sel{background:oklch(0.72 0.14 252 / .16)}
+.wl-row.gone{opacity:.45}
+.wl-a{grid-area:a;display:flex;align-items:center;gap:6px;min-width:0}
+.wl-sym{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.wl-badge{flex:none;font-size:10.5px;font-weight:700;border-radius:9px;padding:0 6px;line-height:16px}
+.wl-badge.bad{background:var(--stopBg);color:var(--stop)} .wl-badge.warn{background:var(--warnBg);color:var(--warn)}
+.wl-spark{grid-area:spark;width:52px;height:18px;align-self:center}
+.wl-spark path{fill:none;stroke:var(--label2);stroke-width:1.3}
+.wl-px{grid-area:px;text-align:right}
+.wl-b{grid-area:b;display:flex;gap:8px;color:var(--label2);font-size:11.5px;white-space:nowrap}
+.wl-chg{grid-area:chg;text-align:right;font-size:12px}
+.pos{color:var(--go)} .neg{color:var(--stop)}
+.wl-pill{position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:2;border:0;border-radius:12px;background:var(--btn);color:#fff;
+  font-size:12px;font-weight:700;padding:4px 11px;cursor:pointer;box-shadow:0 2px 8px rgb(0 0 0 / .4)}
+#t-empty{padding:22px 12px}
+@media (prefers-reduced-motion:no-preference){
+  .wl-row.wl-new{animation:wl-in .35s ease-out,wl-glow 2s ease-out}
+}
+@keyframes wl-in{from{transform:translateY(-8px);opacity:0}to{transform:none;opacity:1}}
+@keyframes wl-glow{from{background:oklch(0.82 0.14 78 / .28)}to{background:transparent}}
+/* chart */
+#t-ohlc{font-size:12px;color:var(--label2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#t-ohlc b{font-weight:600;margin-right:6px}
+.tx-cbox{position:relative;flex:1;min-height:300px}
+#t-chart{position:absolute;inset:0}
+#t-cmsg{position:absolute;inset:0;display:grid;place-items:center;color:var(--label2);font-size:13px;pointer-events:none}
+.tx-attr{font-size:11px;color:var(--label2);padding:3px 9px;text-align:right}
+.tx-attr a{color:var(--label2)}
+/* token and swap */
+#t-token{padding:9px 11px;font-size:12.5px}
+.tk-head{display:flex;align-items:baseline;gap:7px;min-width:0}
+.tk-sym{font-size:16px;overflow-wrap:anywhere}
+.tk-name{color:var(--label2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tk-px{font-size:20px;font-weight:700;margin:2px 0 6px}
+.tk-px span{font-size:13px}
+.tk-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px}
+.tk-kv{display:flex;justify-content:space-between;gap:6px;padding:2px 0;border-bottom:1px solid var(--sep)}
+.tk-kv span{color:var(--label2)}
+.tk-sec{margin:9px 0 3px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--label2)}
+.tk-checks{margin:0;padding-left:16px;color:var(--warn)}
+.tk-checks li.bad{color:var(--stop);font-weight:600}
+.tk-rec{margin:0;font-size:12.5px}
+.tk-links{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.tx-link{font-size:12px;font-weight:600;color:var(--label);background:var(--card2);border-radius:6px;padding:4px 9px;text-decoration:none}
+.tx-swap{padding:9px 11px;border-top:1px solid var(--sep)}
+.tx-swap .callout{margin-top:6px;font-size:13px}
 .t-warn ul,.t-block ul{margin:6px 0;padding-left:18px}
 .t-ack{display:flex;gap:8px;align-items:center;margin-top:8px;color:var(--label);font-weight:600}
 .t-ack input{width:20px;height:20px}
-.t-small{font-size:13px;margin:6px 0 0}
-#t-chart{margin-top:8px;min-height:120px}
-#t-swap{margin-top:12px;position:relative;z-index:0;isolation:isolate} /* Jupiter's widget never covers the banner */
-.t-side{position:sticky;top:110px}
-.t-ticker{height:420px;overflow:hidden;position:relative}
-.t-roll{list-style:none;margin:0;padding:0}
-.t-tick{display:grid;grid-template-columns:1fr auto auto;gap:2px 10px;padding:8px 2px;border-top:.5px solid var(--sep);font-size:14px}
-.t-tick b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.t-tick small{grid-column:1/-1;color:var(--label2)}
-@media (prefers-reduced-motion:no-preference){
-  .t-roll{animation:t-roll 60s linear infinite}
-  .t-ticker:hover .t-roll,.t-ticker:focus-within .t-roll{animation-play-state:paused}
+.t-small{font-size:12.5px;margin:6px 0 0}
+#t-swap{margin-top:10px;position:relative;z-index:0;isolation:isolate} /* Jupiter's widget never covers the banner */
+/* bottom tabs */
+.tx-body{overflow:auto;max-height:280px;padding:0 4px}
+.tx-table{width:100%;border-collapse:collapse;font-size:12px}
+.tx-table th,.tx-table td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--sep);white-space:nowrap}
+.tx-table th{color:var(--label2);font-weight:600;position:sticky;top:0;background:var(--card)}
+.tx-bar{display:none}
+@media(max-width:899px){
+  .tx{display:block}
+  .tx-pane{margin-bottom:8px}
+  .tx-list,.tx-side{position:static;max-height:none}
+  .tx[data-pane=list] .tx-chart,.tx[data-pane=list] .tx-bottom,.tx[data-pane=list] .tx-side{display:none}
+  .tx[data-pane=chart] .tx-list,.tx[data-pane=chart] .tx-side{display:none}
+  .tx[data-pane=swap] .tx-list,.tx[data-pane=swap] .tx-chart,.tx[data-pane=swap] .tx-bottom{display:none}
+  .tx-list{height:max(360px,calc(100vh - var(--navh,0px) - 200px))}
+  .tx-chart{height:min(70vh,480px)}
+  .tx-bar{display:flex;position:fixed;left:0;right:0;bottom:var(--navh,0px);z-index:11;background:var(--card);border-top:1px solid var(--sep);padding:5px 8px;gap:6px}
+  .tx-bar button{flex:1;min-height:40px;font-size:14px}
+  #v-terminal{padding-bottom:56px}
 }
-@keyframes t-roll{from{transform:translateY(0)}to{transform:translateY(-100%)}}
-@media (prefers-reduced-motion:reduce){.t-ticker{overflow-y:auto}.t-roll[aria-hidden]{display:none}}
 </style>
 </head>
 <body>
@@ -819,28 +882,40 @@ details.disc summary:hover{background:oklch(1 0 0 / .04)}
 
     <section class="view" id="v-terminal" aria-label="Terminal">
       <div class="callout bad t-intro"><b>Manual swaps, your own wallet.</b> Every coin here failed a safety check. The desk never holds a key and never sends a transaction: Jupiter's widget builds the swap and you sign it in Phantom or Solflare. Never type a seed phrase or private key into this page.</div>
-      <div class="t-grid">
-        <div>
-          <div class="card">
-            <div class="hrow tight"><b class="card-h">Coins that failed a check</b><small class="foot-note meta0" id="t-meta"></small></div>
-            <div class="scroll" id="t-list" style="max-height:520px;overflow-y:auto"><div class="empty"><b>Loading coins…</b></div></div>
+      <div class="tx" id="tx" data-pane="list">
+        <section class="tx-pane tx-list" aria-label="Watchlist">
+          <div class="tx-head"><b>Watchlist</b><span class="num" id="t-count">–</span><span class="sp"></span>
+            <label class="vh" for="t-sort">Sort by</label>
+            <select class="tx-in" id="t-sort"><option value="newest">Newest pool</option><option value="r1h">1 h change</option><option value="volume">Volume 1 h</option><option value="liquidity">Liquidity</option><option value="strong">Last strong</option></select></div>
+          <div class="tx-head"><label class="vh" for="t-find">Search a symbol or mint</label><input class="tx-in" type="search" id="t-find" placeholder="Symbol or mint" autocomplete="off" spellcheck="false"><small id="t-status" role="status"></small></div>
+          <div class="wl-wrap">
+            <button class="wl-pill" id="t-pill" hidden>0 new ↑</button>
+            <div id="t-list" role="listbox" tabindex="0" aria-label="Coins that failed a check. Up and down move, Enter opens."></div>
+            <div class="empty" id="t-empty" hidden></div>
           </div>
-          <div class="card" id="t-detail" hidden>
-            <div class="hrow tight"><b class="card-h" id="t-dsym">–</b><span style="flex:1"></span><span class="t-links" id="t-links"></span></div>
-            <div id="t-chart" role="img" aria-label="Coin candle chart"></div>
+        </section>
+        <section class="tx-pane tx-chart" aria-label="Chart">
+          <div class="tx-head"><b id="t-csym">–</b>
+            <span role="group" aria-label="Candle size"><button class="tx-btn" data-tivl="5m" aria-pressed="true">5m</button> <button class="tx-btn" data-tivl="15m" aria-pressed="false">15m</button> <button class="tx-btn" data-tivl="1h" aria-pressed="false">1h</button></span>
+            <button class="tx-btn" id="t-fit" title="Fit all candles">Fit</button><span id="t-ohlc"></span></div>
+          <div class="tx-cbox"><div id="t-chart" role="img" aria-label="Coin candle chart. Scroll to zoom, drag to pan."></div><div id="t-cmsg">Pick a coin</div></div>
+          <div class="tx-attr">Chart: <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a>, Apache-2.0</div>
+        </section>
+        <section class="tx-pane tx-side" aria-label="Token and swap">
+          <div id="t-token"><div class="empty"><b>Pick a coin</b></div></div>
+          <div class="tx-swap"><b>Swap</b> <small class="foot-note">your wallet signs every swap</small>
             <div id="t-gate"></div>
             <div id="t-swap" hidden><div id="jup-target"></div></div>
           </div>
-          <h2 class="section-title">Your swaps</h2>
-          <div class="card scroll" id="t-log"><div class="empty"><b>Loading…</b></div></div>
-          <p class="foot-note">Logged from Jupiter's success message, with the coin's failed checks and the desk's price at that moment. Amounts are in the token's base units (SOL: lamports). Coming later: your net result against the bots on the same coins.</p>
-        </div>
-        <aside class="card t-side" aria-label="Watched coins">
-          <b class="card-h">Watched coins</b>
-          <p class="foot-note">Strong = 1 h move +20% or more with 55% or more buys in the last 5 minutes.</p>
-          <div class="t-ticker" id="t-ticker"></div>
-        </aside>
+        </section>
+        <section class="tx-pane tx-bottom" aria-label="Trades">
+          <div class="tx-head" role="tablist"><button class="tx-btn" role="tab" data-tbottom="swaps" aria-selected="true">Your swaps</button><button class="tx-btn" role="tab" data-tbottom="bots" aria-selected="false">Bot trades on this coin</button></div>
+          <div class="tx-body" id="t-log"><div class="empty"><b>Loading…</b></div></div>
+          <div class="tx-body" id="t-bots" hidden></div>
+          <p class="foot-note" style="margin:4px 9px 8px">Your swaps: from Jupiter's success message, with the coin's failed checks and the desk's price then. Amounts in base units (SOL: lamports).</p>
+        </section>
       </div>
+      <nav class="tx-bar" id="tx-bar" aria-label="Terminal panes"><button class="tx-btn" data-tpane="list" aria-selected="true">List</button><button class="tx-btn" data-tpane="chart" aria-selected="false">Chart</button><button class="tx-btn" data-tpane="swap" aria-selected="false">Swap</button></nav>
     </section>
 
     <section class="view" id="v-settings" aria-label="Settings">

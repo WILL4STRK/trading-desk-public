@@ -148,7 +148,7 @@ class Mints(unittest.TestCase):
 
 def node(code):
     js = "const T = require(%s);\n%s" % (json.dumps(str(STATIC / "terminal.js")), code)
-    return subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=30, check=True).stdout
+    return subprocess.run(["node", "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=30, check=True).stdout
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")
@@ -157,8 +157,8 @@ class Escaping(unittest.TestCase):
         c = {"key": "solana:" + EVIL, "symbol": EVIL, "name": EVIL + '"\'`', "dex": EVIL, "mint": GOOD, "swap": "confirm",
              "failed": [{"check": "safety", "reason": EVIL}], "cant_sell": [EVIL], "record": {}, "links": {}}
         out = json.loads(node("""const c = %s;
-            process.stdout.write(JSON.stringify([T.coinRow(c, true), T.gate(c, false), T.gate(Object.assign({}, c, {swap: "blocked"}), false),
-              T.tickerItem({symbol: c.symbol, px: 1, r1h: 2}, 0),
+            process.stdout.write(JSON.stringify([T.rowHtml(c, "wl-1"), T.gate(c, false), T.gate(Object.assign({}, c, {swap: "blocked"}), false),
+              T.tokenPanel(c), T.botRow({time: 1, side: c.symbol, policy: c.symbol, why: c.symbol}),
               T.manualRow({symbol: c.symbol, side: c.symbol, txid: c.symbol, at: c.symbol, in_amount: c.symbol, out_amount: 1})]))""" % json.dumps(c)))
         for html in out:
             self.assertNotIn("<img", html)
@@ -179,6 +179,45 @@ class Escaping(unittest.TestCase):
                                   "in_amount": 5, "out_amount": 7, "time": 1})
         self.assertEqual(out[1]["side"], "sell")
         self.assertEqual(out[2:], [None, None])
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class Watchlist(unittest.TestCase):
+    """The watchlist's pure parts: sort, search, which coins are new or gone, and the sparkline."""
+    COINS = [{"key": "a", "symbol": "AAA", "mint": GOOD, "age_h": 5, "r1h": 3, "v1h": 10, "liq": 900, "last_strong_ts": None, "px": 2.0, "r6h": 0, "r24h": 100},
+             {"key": "b", "symbol": "bbb", "mint": "1" * 40, "age_h": 1, "r1h": -9, "v1h": 30, "liq": 100, "last_strong_ts": 50, "px": 1.0},
+             {"key": "c", "symbol": "CCC", "mint": "2" * 40, "age_h": None, "r1h": 40, "v1h": None, "liq": 500, "last_strong_ts": 90, "px": None}]
+
+    def run_js(self, code):
+        return json.loads(node("const C = %s; process.stdout.write(JSON.stringify(%s))" % (json.dumps(self.COINS), code)))
+
+    def test_sorts(self):
+        got = self.run_js("['newest','r1h','volume','liquidity','strong','nonsense'].map(b => T.sortCoins(C, b).map(c => c.key))")
+        self.assertEqual(got, [["b", "a", "c"], ["c", "a", "b"], ["b", "a", "c"], ["a", "c", "b"], ["c", "b", "a"], ["b", "a", "c"]])
+
+    def test_search_by_symbol_or_mint(self):
+        got = self.run_js("['bb', 'BB', '1111', GOOD_PREFIX, '', 'zzz'].map(q => C.filter(c => T.matches(c, q)).map(c => c.key))"
+                          .replace("GOOD_PREFIX", json.dumps(GOOD[:6].lower())))
+        self.assertEqual(got, [["b"], ["b"], ["b"], ["a"], ["a", "b", "c"], []])
+
+    def test_new_and_gone(self):
+        got = self.run_js("T.diff(['a', 'x'], C, 'newest')")
+        self.assertEqual(([c["key"] for c in got["added"]], got["gone"]), (["b", "c"], ["x"]))
+        self.assertEqual(self.run_js("T.diff(['a', 'b', 'c'], C, 'r1h')"), {"added": [], "gone": []})
+
+    def test_sparkline_from_the_coins_own_changes(self):
+        pts = self.run_js("T.sparkPoints(C[0])")                      # 24 h ago, 6 h ago, 1 h ago, now
+        self.assertEqual(len(pts), 4)
+        for got, want in zip(pts, [1.0, 2.0, 2.0 / 1.03, 2.0]):
+            self.assertAlmostEqual(got, want)
+        self.assertEqual(self.run_js("[T.sparkPath(C[2]), T.sparkPoints({px: 1, r1h: -100})]"), ["", [1]])
+
+    def test_prices_never_use_e_notation(self):
+        self.assertEqual(self.run_js("[1.148e-8, 0.000009219, 0.0011, 42, 0, null].map(T.price)"),
+                         ["0.00000001148", "0.000009219", "0.001100", "42.0000", "0", "\u2013"])
+
+    def test_price_precision_for_tiny_prices(self):
+        self.assertEqual(self.run_js("[T.precision(0.000002111), T.precision(0.5), T.precision(42), T.precision(null)]"), [9, 4, 2, 4])
 
 
 class ManualLog(DeskCase):
