@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import sys
 import time
 from collections import defaultdict
@@ -36,6 +37,14 @@ EXCHANGE_SIGS = 10000
 HIST_CAP = 3000            # 19.1: more transactions than this in the history window is "too active to score"
 WINDOW_TX_CAP = 10000      # 19.1: per runner, per address and window, the earliest 10,000 transactions
 CREDIT_CAP_C1 = 600000
+
+
+def gt_per_min():
+    """GeckoTerminal calls a minute: COPY_GT_PER_MIN (1 to 5), default 5. Section 19.A allows at most 5."""
+    try:
+        return max(1, min(5, int(os.environ.get("COPY_GT_PER_MIN", "5"))))
+    except ValueError:
+        return 5
 CREDIT_CAP_KOL = 300000    # 19.1
 RANDOM_POOL = 300          # 19.1
 FALLBACK_PAGES = 3000      # 19.2: getSignaturesForAddress pages (1,000 signatures each) per address and window
@@ -259,37 +268,56 @@ class Fetch:
 
     def __init__(self, helius, cache, t19=C.T19, http=C.http_json, sleep=time.sleep):
         self.h, self.cache, self.t19, self.http = helius, Path(cache), t19, http
-        self.gt = C.Pacer(5, 60.0, sleep=sleep)
+        self.sleep = sleep
+        self.gt = C.Pacer(gt_per_min(), 60.0, sleep=sleep)
         self.rc = C.Pacer(1, 1.1, sleep=sleep)
         self.gtfa_ok = None
 
     def _cached(self, kind, name, fn):
         p = self.cache / kind / (hashlib.sha256(name.encode()).hexdigest()[:40] + ".json")
         if p.exists():
-            return json.loads(p.read_text(encoding="utf-8"))
+            v = json.loads(p.read_text(encoding="utf-8"))
+            if "error" not in v:
+                return v
         v = fn()
-        C.atomic_write(p, json.dumps(v))
+        if "error" not in v:                    # a failed fetch is never cached: a rerun asks again
+            C.atomic_write(p, json.dumps(v))
         return v
+
+    def _http_retry(self, url, pacer, host):
+        """GET with the pacer; a 429 or other failure waits 60 s, 120 s, ... (at most 5 tries). Every failure is logged to
+        fetch_errors.jsonl next to the cache folder. Returns (json, None) or (None, last error)."""
+        err = None
+        for i in range(5):
+            pacer.wait()
+            try:
+                return self.http(url), None
+            except RuntimeError as e:
+                err = str(e)
+                try:
+                    with open(self.cache.parent / "fetch_errors.jsonl", "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"ts": time.time(), "host": host, "try": i + 1, "error": C.mask(err)}) + "\n")
+                except OSError:
+                    pass
+                self.sleep(60 * (i + 1))
+        return None, err
 
     def candles(self, pool, ts0):
         before = int(min(ts0 + DAY, self.t19))
 
         def go():
-            self.gt.wait()
-            try:
-                r = self.http(GT % (pool, before))
-            except RuntimeError as e:
-                return {"error": str(e)}
+            r, err = self._http_retry(GT % (pool, before), self.gt, "api.geckoterminal.com")
+            if r is None:
+                return {"error": err}
             return {"bars": ((r.get("data") or {}).get("attributes") or {}).get("ohlcv_list") or []}
         return self._cached("candles", "%s|%d" % (pool, before), go)
 
     def creator(self, mint):
         def go():
-            self.rc.wait()
-            try:
-                return {"creator": (self.http(RUGCHECK % mint) or {}).get("creator")}
-            except RuntimeError as e:
-                return {"error": str(e)}
+            r, err = self._http_retry(RUGCHECK % mint, self.rc, "api.rugcheck.xyz")
+            if r is None:
+                return {"error": err}
+            return {"creator": (r or {}).get("creator")}
         return self._cached("rugcheck", mint, go).get("creator")
 
     def _gtfa(self, address, cfg):
@@ -424,9 +452,14 @@ def run_c1(fx, desk_path, out_dir=C.HERE, log=print):
     rep = {"t19": fx.t19, "d0": d0, "input_sha256": C.sha256_file(desk_path), "solana_coins": len(first),
            "universe": len(uni), "no_candles": 0, "runners": 0, "runners_dropped_cap": 0, "truncated_windows": 0}
     runners = []
-    for k in mint_order(uni):
+    for n, k in enumerate(mint_order(uni)):
+        if n % 50 == 0:
+            log("candles %d of %d" % (n, len(uni)))
         d = uni[k]
         c = fx.candles(d["pool"], d["ts"])
+        if "error" in c:
+            rep["candle_fetch_failed"] = rep.get("candle_fetch_failed", 0) + 1
+            continue
         if not c.get("bars"):
             rep["no_candles"] += 1
             continue
