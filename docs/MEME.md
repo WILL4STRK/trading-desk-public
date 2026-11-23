@@ -473,3 +473,63 @@ No forecast has run: no Chronos call on any real series, no dev run, no holdout 
 **Data already fetched.** 32 token candle files were downloaded under the withdrawn rule; they are a subset of the 442-token universe, are kept (a token's candles do not depend on the rule), and nothing was computed from them. The remaining tokens are fetched at 4 GeckoTerminal calls a minute or fewer, one process. The timing note stands: its N already used the 442 tokens of this universe.
 
 Nothing else in section 16 or 16.1 changes. A number changed after a result is seen would restart the count (docs/CHANGES.md).
+
+## 17. D1: downside vetoes on P0's own entries (pre-registered 2026-11-22, before any code and before any outcome was looked at)
+
+**Why.** Both Chronos studies (section 16 and the Meambot F1 holdout) found the model picking coins that had just run up, and those hit the
+stop early (on the Meambot F1 holdout, 19 of 32 kept trades stopped within the first hour). D1 tests that directly, without Chronos: would a
+simple "do not buy a coin that just ran up, or whose last 5 minutes were mostly selling" rule have avoided downside on P0's own entries?
+Paper only. Nothing here changes any running rule.
+
+**What was seen before this section.** Only counts of the copied `shadows.jsonl` (1,456 rows; 714 with policy `all` and screen `pass` on 335
+distinct coins over about 2.3 days; none open; 148 of the 714 without an entry liquidity figure; 16 without `buy_ratio_m5`) and its field names.
+No return, exit reason, feature value, veto count or outcome of any shadow was looked at.
+
+**Population (the forward window).** Shadows in `data/accounts/meme/shadows.jsonl` with `policy == "all"` and `screen == "pass"` whose entry
+time `ts` is **after the author time of the commit that adds this section** (read from git by `d1.py --since`) and before that time plus
+**7 days**. Every such shadow is one signal; a coin may give several. The read-out waits until 4 hours and 150 seconds after the window ends so
+shadows can close; a signal still open then is unresolved, excluded and counted, and more than 2 % unresolved makes the result inconclusive.
+The desk source for P0, the screen and the shadow exits and costs (sections 2 and 3) is frozen for the window: a change logged in
+docs/CHANGES.md during it marks the window incomplete (inconclusive). Shadows use the desk's section 3 exits (stop -15 %, target +30 %, 4 h time
+stop) and the section 2 cost as recorded in `net_pct`; D1 does not re-price anything.
+
+**Vetoes, each tested on its own (fixed, not tuned).** Fields are those the desk writes: `f.r1h` (percent change over the last hour at entry) and
+`f.buy_ratio_m5` (buys / (buys + sells) over 5 minutes at entry).
+- **V1 run-up:** skip the signal if `f.r1h` >= **+5**.
+- **V2 sell pressure:** skip the signal if `f.buy_ratio_m5` < **0.50**.
+- A missing (null or absent) feature means **no veto**.
+
+**Outcomes.**
+- (a) **Net return per original signal:** a kept signal contributes its shadow's `net_pct`; a vetoed signal contributes **0**. The mean is over all
+  original signals.
+- (b) **Severe-loss rate:** a signal is severe when its shadow exited with `why == "stop"` within 60 minutes of `ts` (`exit_ts - ts` <= 3600), or
+  `net_pct` <= -15. The rate is severe kept signals over all original signals (a vetoed signal cannot lose).
+
+**Control: a random veto, same skip count in every stratum.** Strata = chain x entry-liquidity tercile x 6-hour UTC entry block
+(`floor(ts / 21600)`). Entry liquidity is the shadow's own `f.liq`; the terciles are the 33rd and 67th percentile of `f.liq` over the window's
+signals with a liquidity figure; a signal with a missing or zero figure goes to its own "unknown" liquidity stratum. In each stratum the random veto
+skips exactly as many signals as the real veto skipped there, chosen at random. **1,000 draws, fixed seed 17.** The random veto's severe-loss rate
+and its spread of gains come from the 1,000 draws. For the bootstrap the random veto's expected return is computed exactly (the average over all
+possible draws within each stratum is the stratum's mean return times its kept count), which equals the limit of infinite draws.
+
+**Gain.** Per-signal gain of a veto = (mean return per original signal with the real veto) - (the random veto's expected mean return per original
+signal). It measures what the veto adds beyond skipping the same number of signals at random in the same strata.
+
+**Pass bar, per veto (V1 and V2 are two separate tests, no correction; a pass is a lead only).** All of:
+1. at least **300 signals** on at least **100 distinct coins** (`key`) in the window;
+2. the **95 % lower bound** of the per-signal gain is above 0, by a bootstrap that resamples **whole coins** (all signals of a `key` together),
+   1,000 resamples, seed 17, percentile interval;
+3. the gain is positive in at least **3 of 4** equal slices of the window by entry time;
+4. the severe-loss rate with the veto is **below** the random veto's mean severe-loss rate.
+If the floor in 1 is not met the veto is **inconclusive**, not failed. **The forward window is read once**: `d1.py forward` writes
+`research/downside/out/forward.lock` and refuses a second run; deleting the lock restarts the count and is logged in docs/CHANGES.md.
+
+**Earlier shadows (before this section).** Reported as **description only, labelled exploratory**: per veto, the skip share, the kept mean against the
+skipped mean, the gain against random with its 95 % range, and the severe-loss rates. They are never used to change a number here, and they do not count
+toward the pass bar (one coin can repeat across days and both windows).
+
+**Limits.** Shadows use the desk's section 3 exits and section 2 cost. The population is P0 entries that passed the safety screen, on the desk's
+discovery feeds (section 1 survivorship applies). One regime, one week. A pass earns only a further forward test and a separate pre-registration;
+it changes no live rule.
+
+**Changes.** Changing any number in this section after a result is seen restarts the count and is logged in docs/CHANGES.md.
