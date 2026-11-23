@@ -1,11 +1,11 @@
-PASS 960x503@1.75 a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live  {"status":"live","samples":4,"gaps":[2016,2023,2022]}
-PASS 960x503@1.75 the status dot is green and the label says price only, live since  "live · price only · delayed · live since 15:52:30"
-PASS 960x503@1.75 5s: candles from the polled prices grow live, price only (no volume)  {"bars":[2,3],"readout":"O 0.001062H 0.001072L 0.001062C 0.001072V –"}
+PASS 960x503@1.75 a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live  {"status":"live","samples":4,"gaps":[2004,2005,2005]}
+PASS 960x503@1.75 the status dot is green and the label says price only, live since  "live · price only · delayed · live since 16:13:27"
+PASS 960x503@1.75 5s: candles from the polled prices grow live, price only (no volume)  {"bars":[2,3],"readout":"O 0.001051H 0.001072L 0.001051C 0.001072V –"}
 PASS 960x503@1.75 15s: fewer, wider candles from the same prices
 PASS 960x503@1.75 5m keeps its history (and the live price extends its last candle)
-PASS 960x503@1.75 another coin: the old pool stops, the new pool is polled, live since restarts  {"oldAfter":0,"newAfter":3,"since":[1795467150,1795467165]}
-PASS 960x503@1.75 a response for another mint is dropped: no new price, status reconnecting  {"status":"reconnecting","mode":"poll","why":"","key":"solana:1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JH8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795467165,"samples":3,"ticks":3,"volume":0,"polls":4,"dropped":1,"notes":0,"subs":0,"opened":0,"unsubs":0,"wsOpen":false,"solUsd":0,"last":0.001115668346665317,"polling":true}
-PASS 960x503@1.75 invalid JSON is dropped and the retries back off  {"backoff":[2652],"samples":3}
+PASS 960x503@1.75 another coin: the old pool stops, the new pool is polled, live since restarts  {"oldAfter":0,"newAfter":3,"since":[1795468407,1795468422]}
+PASS 960x503@1.75 a response for another mint is dropped: no new price, status reconnecting  {"status":"reconnecting","mode":"poll","why":"","key":"solana:1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JH8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795468422,"samples":3,"ticks":3,"volume":0,"polls":4,"dropped":1,"solUsd":0,"last":0.001115668346665317,"polling":true}
+PASS 960x503@1.75 invalid JSON is dropped and the retries back off  {"backoff":[2627],"samples":3}
 PASS 960x503@1.75 after the backoff it is live again  {"status":"live","samples":[3,11]}
 PASS 960x503@1.75 page hidden: no requests, status stopped  {"whileHidden":0,"status":"stopped"}
 PASS 960x503@1.75 visible again: polling resumes for the same coin
@@ -18,14 +18,14 @@ PASS 960x503@1.75 click expands the full list of every failed check  ["Safety: R
 PASS 960x503@1.75 a refresh keeps the list expanded
 PASS 960x503@1.75 a blocked coin: the block, no widget, no line  {"text":"Blocked: you may not be able to sell this tokenreported as a honeypot: buys work, sells may not\n        The page cannot change this. To open the swap anyway, set meme_terminal_allow_unsellable to true in the desk's settings.json by hand.","line":false,"swapHidden":true,"widget":"","closed":2}
 PASS 960x503@1.75 nothing from GeckoTerminal in the page, no console errors  {"gecko":[],"errors":[]}
-PASS 1280x720@1 a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live  {"status":"live","samples":4,"gaps":[2013,2010,2007]}
-PASS 1280x720@1 the status dot is green and the label says price only, live since  "live · price only · delayed · live since 15:53:35"
-PASS 1280x720@1 5s: candles from the polled prices grow live, price only (no volume)  {"bars":[2,3],"readout":"O 0.001062H 0.001072L 0.001062C 0.001072V –"}
+PASS 1280x720@1 a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live  {"status":"live","samples":4,"gaps":[2014,2008,2005]}
+PASS 1280x720@1 the status dot is green and the label says price only, live since  "live · price only · delayed · live since 16:14:32"
+PASS 1280x720@1 5s: candles from the polled prices grow live, price only (no volume)  {"bars":[2,3],"readout":"O 0.001051H 0.001072L 0.001051C 0.001072V –"}
 PASS 1280x720@1 15s: fewer, wider candles from the same prices
 PASS 1280x720@1 5m keeps its history (and the live price extends its last candle)
-PASS 1280x720@1 another coin: the old pool stops, the new pool is polled, live since restarts  {"oldAfter":0,"newAfter":3,"since":[1795467215,1795467230]}
-PASS 1280x720@1 a response for another mint is dropped: no new price, status reconnecting  {"status":"reconnecting","mode":"poll","why":"","key":"solana:1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JH8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795467230,"samples":3,"ticks":3,"volume":0,"polls":4,"dropped":1,"notes":0,"subs":0,"opened":0,"unsubs":0,"wsOpen":false,"solUsd":0,"last":0.001115668346665317,"polling":true}
-PASS 1280x720@1 invalid JSON is dropped and the retries back off  {"backoff":[2657],"samples":3}
+PASS 1280x720@1 another coin: the old pool stops, the new pool is polled, live since restarts  {"oldAfter":0,"newAfter":3,"since":[1795468472,1795468487]}
+PASS 1280x720@1 a response for another mint is dropped: no new price, status reconnecting  {"status":"reconnecting","mode":"poll","why":"","key":"solana:1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JH8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795468487,"samples":3,"ticks":3,"volume":0,"polls":4,"dropped":1,"solUsd":0,"last":0.001115668346665317,"polling":true}
+PASS 1280x720@1 invalid JSON is dropped and the retries back off  {"backoff":[2636],"samples":3}
 PASS 1280x720@1 after the backoff it is live again  {"status":"live","samples":[3,11]}
 PASS 1280x720@1 page hidden: no requests, status stopped  {"whileHidden":0,"status":"stopped"}
 PASS 1280x720@1 visible again: polling resumes for the same coin
@@ -38,14 +38,14 @@ PASS 1280x720@1 click expands the full list of every failed check  ["Safety: Rug
 PASS 1280x720@1 a refresh keeps the list expanded
 PASS 1280x720@1 a blocked coin: the block, no widget, no line  {"text":"Blocked: you may not be able to sell this tokenreported as a honeypot: buys work, sells may not\n        The page cannot change this. To open the swap anyway, set meme_terminal_allow_unsellable to true in the desk's settings.json by hand.","line":false,"swapHidden":true,"widget":"","closed":2}
 PASS 1280x720@1 nothing from GeckoTerminal in the page, no console errors  {"gecko":[],"errors":[]}
-PASS 390x844@2 a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live  {"status":"live","samples":4,"gaps":[2015,2013,2010]}
-PASS 390x844@2 the status dot is green and the label says price only, live since  "live · price only · delayed · live since 15:54:41"
-PASS 390x844@2 5s: candles from the polled prices grow live, price only (no volume)  {"bars":[2,3],"readout":"O 0.001062H 0.001072L 0.001062C 0.001072V –"}
+PASS 390x844@2 a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live  {"status":"live","samples":4,"gaps":[2005,2004,2006]}
+PASS 390x844@2 the status dot is green and the label says price only, live since  "live · price only · delayed · live since 16:15:37"
+PASS 390x844@2 5s: candles from the polled prices grow live, price only (no volume)  {"bars":[2,3],"readout":"O 0.001051H 0.001072L 0.001051C 0.001072V –"}
 PASS 390x844@2 15s: fewer, wider candles from the same prices
 PASS 390x844@2 5m keeps its history (and the live price extends its last candle)
-PASS 390x844@2 another coin: the old pool stops, the new pool is polled, live since restarts  {"oldAfter":0,"newAfter":3,"since":[1795467281,1795467296]}
-PASS 390x844@2 a response for another mint is dropped: no new price, status reconnecting  {"status":"reconnecting","mode":"poll","why":"","key":"solana:1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JH8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795467296,"samples":3,"ticks":3,"volume":0,"polls":4,"dropped":1,"notes":0,"subs":0,"opened":0,"unsubs":0,"wsOpen":false,"solUsd":0,"last":0.001115668346665317,"polling":true}
-PASS 390x844@2 invalid JSON is dropped and the retries back off  {"backoff":[2643],"samples":3}
+PASS 390x844@2 another coin: the old pool stops, the new pool is polled, live since restarts  {"oldAfter":0,"newAfter":3,"since":[1795468537,1795468552]}
+PASS 390x844@2 a response for another mint is dropped: no new price, status reconnecting  {"status":"reconnecting","mode":"poll","why":"","key":"solana:1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JH8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795468552,"samples":3,"ticks":3,"volume":0,"polls":4,"dropped":1,"solUsd":0,"last":0.001115668346665317,"polling":true}
+PASS 390x844@2 invalid JSON is dropped and the retries back off  {"backoff":[2638],"samples":3}
 PASS 390x844@2 after the backoff it is live again  {"status":"live","samples":[3,11]}
 PASS 390x844@2 page hidden: no requests, status stopped  {"whileHidden":0,"status":"stopped"}
 PASS 390x844@2 visible again: polling resumes for the same coin

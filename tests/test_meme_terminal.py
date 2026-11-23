@@ -438,6 +438,61 @@ class ManualLog(DeskCase):
         self.assertFalse(self.path.exists())
 
 
+class ChainProxy(DeskCase):
+    """/api/meme/chain: the desk reads one tracked pump.fun or PumpSwap coin's accounts for the page (Solana's public RPC
+    refuses browser pages). The page names a coin, never an address; one RPC call; vaults read once; answers reused."""
+
+    def setUp(self):
+        super().setUp()
+        f = json.loads(FIXTURE.read_text())
+        self.f = f
+        self.pk, self.ck = "solana:" + f["pool"]["mint"], "solana:" + f["curve"]["mint"]
+        write_json(meme.folder() / "model.json", {"tracked": {
+            self.pk: coin(f["pool"]["mint"], pool=f["pool"]["account"]["address"], dex="pumpswap"),
+            self.ck: coin(f["curve"]["mint"], pool=f["curve"]["account"]["address"], dex="pumpfun"),
+            "solana:" + GOOD: coin(GOOD, dex="raydium")}})
+        acc = {a["address"]: {"owner": a["owner"], "data": [a["data"], "base64"]} for a in (
+            f["curve"]["account"], f["curve"]["mint_account"], f["pool"]["account"], f["pool"]["base_vault"], f["pool"]["quote_vault"], f["pool"]["mint_account"])}
+        self.calls = []
+
+        def post(body):
+            req = json.loads(body)
+            self.calls.append(req["params"][0])
+            self.assertEqual((req["method"], req["params"][1]), ("getMultipleAccounts", {"encoding": "base64", "commitment": "confirmed"}))
+            return {"result": {"value": [acc.get(a) for a in req["params"][0]]}}
+        self.post = post
+        MT._chain_cache.clear(); MT._chain_vaults.clear(); MT._chain_last[0] = 0.0
+
+    def test_a_pumpswap_coin_gets_its_pool_mint_and_both_vaults(self):
+        out = MT.chain(self.pk, self.post, now=1000)
+        self.assertEqual(out["kind"], "pool")
+        self.assertEqual(out["addrs"], {"pool": self.f["pool"]["account"]["address"], "mint": self.f["pool"]["mint"],
+                                        "base_vault": self.f["pool"]["base_vault"]["address"], "quote_vault": self.f["pool"]["quote_vault"]["address"]})
+        self.assertEqual(out["accounts"][self.f["pool"]["quote_vault"]["address"]]["data"][0], self.f["pool"]["quote_vault"]["data"])
+        self.assertEqual([len(c) for c in self.calls], [2, 4])                 # the first time: the pool, then all four
+        MT.chain(self.pk, self.post, now=1000.5)
+        self.assertEqual(len(self.calls), 2)                                    # reused for 0.8 s
+        MT.chain(self.pk, self.post, now=1002)
+        self.assertEqual([len(c) for c in self.calls], [2, 4, 4])               # vaults known: one call of four
+
+    def test_a_curve_coin_gets_its_curve_and_mint(self):
+        out = MT.chain(self.ck, self.post, now=1000)
+        self.assertEqual((out["kind"], list(out["addrs"])), ("curve", ["pool", "mint"]))
+        self.assertEqual(out["accounts"][self.f["curve"]["account"]["address"]]["owner"], "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
+
+    def test_only_tracked_pump_coins_never_an_address(self):
+        for key in ("solana:" + GOOD, "solana:" + POOL, self.f["pool"]["account"]["address"], "", None, "solana:" + EVIL):
+            with self.subTest(key), self.assertRaises(MT.ChainError):
+                MT.chain(key, self.post, now=1000)
+        self.assertEqual(self.calls, [])
+
+    def test_a_bad_rpc_answer_is_an_error_and_bad_accounts_are_none(self):
+        with self.assertRaises(MT.ChainError):
+            MT.chain(self.ck, lambda body: {"result": {"value": [None]}}, now=1000)
+        out = MT.chain(self.ck, lambda body: {"result": {"value": [{"owner": "x", "data": ["AA", "base58"]}, "junk"]}}, now=2000)
+        self.assertEqual(list(out["accounts"].values()), [None, None])
+
+
 class Route(DemoCase):
     def setUp(self):
         super().setUp()
@@ -464,6 +519,11 @@ class Route(DemoCase):
         self.assertEqual(directives["script-src"], ["'self'", "https://plugin.jup.ag"])
         self.assertNotIn("geckoterminal", CSP)
         self.assertNotIn("pumpportal", CSP)
+
+    def test_chain_route_refuses_what_is_not_a_tracked_pump_coin(self):
+        code, _, b = self.call("/api/meme/chain?key=solana:" + GOOD)
+        self.assertEqual(code, 400)
+        self.assertIn("pump.fun and PumpSwap", json.loads(b)["error"])
 
     def test_bound_to_this_computer_only(self):
         self.assertEqual(self.httpd.server_address[0], "127.0.0.1")

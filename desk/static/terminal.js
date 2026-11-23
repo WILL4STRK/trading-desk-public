@@ -126,19 +126,18 @@ const TERMINAL = (() => {
   const precision = px => { if (!px || !isFinite(px)) return 4; return Math.min(12, Math.max(2, Math.ceil(-Math.log10(px)) + 3)); };
 
   // ---- live prices for the selected coin.
-  // pump.fun bonding curves and PumpSwap pools: on-chain reserves from Solana's public RPC (one websocket,
-  // accountSubscribe, commitment confirmed, at most 3 subscriptions). Every reserve change is a trade tick with real
-  // price and volume. Layouts: pump-fun/pump-public-docs idl/pump.json (BondingCurve) and idl/pump_amm.json (Pool);
+  // pump.fun bonding curves and PumpSwap pools: on-chain reserves, read every second through the desk
+  // (/api/meme/chain; Solana's public RPC refuses browser pages). Every reserve change is a trade tick with real price
+  // and volume; trades inside the same second merge into one tick. Layouts: pump-fun/pump-public-docs idl/pump.json (BondingCurve) and idl/pump_amm.json (Pool);
   // PumpSwap prices use effective quote reserves = quote vault + Pool.virtual_quote_reserves (docs/PUMP_SWAP_README.md).
   // Other venues: DexScreener's pair endpoint every 2 s, price only and delayed. Never GeckoTerminal for live data.
-  const RPC_HTTP = "https://api.mainnet-beta.solana.com", RPC_WS = "wss://api.mainnet-beta.solana.com";
   const PUMP = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", PUMP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA";
   const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", TOKEN22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
   const WSOL = "So11111111111111111111111111111111111111112", JUP_PRICE = "https://lite-api.jup.ag/price/v3?ids=" + WSOL;
   const DISC_CURVE = [23, 183, 248, 55, 96, 216, 172, 96], DISC_POOL = [241, 154, 109, 4, 17, 177, 109, 188];
   const DS_PAIR = "https://api.dexscreener.com/latest/dex/pairs/solana/";
   const LIVE_IVL = {"1s": 1, "5s": 5, "15s": 15}, SERVER_IVL = {"5m": 300, "15m": 900, "1h": 3600};
-  const LIVE_EVERY = 2000, LIVE_KEEP = 7200, LIVE_BACKOFF_MAX = 30000, MAX_SUBS = 3, MAX_JUMP = 50, FLUSH_MS = 250, SOL_EVERY = 60000;
+  const LIVE_EVERY = 2000, CHAIN_EVERY = 1000, LIVE_KEEP = 7200, LIVE_BACKOFF_MAX = 30000, MAX_JUMP = 50, SOL_EVERY = 60000;
 
   // base58 and base64 to bytes, and back
   const ALPHA = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -255,9 +254,8 @@ const TERMINAL = (() => {
   let ROWS = new Map(), BYKEY = new Map(), SEQ = 0, IVL = "5m", CH = null, CHD = null, CHKEY = "", BOTTOM = "swaps";
   const $ = s => document.querySelector(s);
   // LIVE: one coin, one source. status: live (green), reconnecting (amber), stopped (gray)
-  const fresh = () => ({key: null, mint: null, pool: null, mode: null, why: "", since: 0, ticks: [], timer: 0, ctrl: null, fails: 0,
-    status: "stopped", polls: 0, dropped: 0, ws: null, gen: 0, subs: new Map(), pending: new Map(), acc: null, st: null, last: null,
-    flushT: 0, tickT: 0, solUsd: 0, solAt: 0, unsubs: 0, opened: 0, notes: 0});
+  const fresh = () => ({key: null, mint: null, pool: null, mode: null, kind: null, why: "", since: 0, ticks: [], timer: 0, ctrl: null, fails: 0,
+    status: "stopped", polls: 0, dropped: 0, gen: 0, busy: false, st: null, last: null, prevQuote: null, tickT: 0, solUsd: 0, solAt: 0});
   let LIVE = fresh();
   const hhmmss = s => new Date(s * 1000).toTimeString().slice(0, 8);
   function liveShow() {
@@ -269,21 +267,11 @@ const TERMINAL = (() => {
     lbl.title = LIVE.why || "";
   }
   const liveAllowed = () => typeof document !== "undefined" && document.visibilityState === "visible" && $("#v-terminal").classList.contains("on");
-  function chainClose() {
-    clearTimeout(LIVE.flushT); LIVE.flushT = 0;
-    const ws = LIVE.ws; LIVE.ws = null; LIVE.gen++;
-    if (ws) {
-      try { if (ws.readyState === 1) for (const id of LIVE.subs.keys()) { ws.send(JSON.stringify({jsonrpc: "2.0", id: 9000 + LIVE.unsubs, method: "accountUnsubscribe", params: [id]})); LIVE.unsubs++; } } catch (e) {}
-      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
-      try { ws.close(); } catch (e) {}
-    }
-    LIVE.subs.clear(); LIVE.pending.clear();
-  }
   function liveStop(keepCoin) {
     clearTimeout(LIVE.timer); LIVE.timer = 0; clearInterval(LIVE.tickT); LIVE.tickT = 0;
     if (LIVE.ctrl) { LIVE.ctrl.abort(); LIVE.ctrl = null; }
     chainClose();
-    if (!keepCoin) { const k = {unsubs: LIVE.unsubs, opened: LIVE.opened}; LIVE = Object.assign(fresh(), k); }
+    if (!keepCoin) LIVE = fresh();
     LIVE.status = "stopped"; liveShow();
   }
   function liveStart(c) {                              // a new coin: the seconds candles start empty
@@ -291,7 +279,7 @@ const TERMINAL = (() => {
     const pool = poolOf(c);
     if (!c || !validMint(c.mint) || !pool) { liveShow(); return; }
     Object.assign(LIVE, {key: c.key, mint: c.mint, pool, mode: chainKind(c) ? "chain" : "poll", kind: chainKind(c), since: Math.floor(Date.now() / 1000),
-                         ticks: [], fails: 0, polls: 0, dropped: 0, acc: null, st: null, last: null});
+                         ticks: [], fails: 0, polls: 0, dropped: 0, st: null, last: null});
     liveResume();
   }
   function liveResume() {                              // the same coin again after the tab or page was hidden
@@ -299,7 +287,7 @@ const TERMINAL = (() => {
     if (!liveAllowed()) return liveStop(true);
     if (!LIVE.tickT) LIVE.tickT = setInterval(() => { if (LIVE_IVL[IVL] && SEL === LIVE.key) liveDraw(false); }, 1000);
     if (LIVE.mode === "poll") { if (!LIVE.timer && !LIVE.ctrl) { LIVE.status = LIVE.fails ? "reconnecting" : "live"; liveShow(); livePoll(); } return; }
-    if (!LIVE.ws && !LIVE.timer) chainOpen();
+    if (!LIVE.timer && !LIVE.busy) { LIVE.status = LIVE.fails ? "reconnecting" : LIVE.st ? "live" : "reconnecting"; liveShow(); chainOpen(); }
   }
   function liveTick(p, v) {                            // one trade (or the price at open, with no volume)
     const t = Date.now() / 1000;
@@ -340,100 +328,79 @@ const TERMINAL = (() => {
   function liveFallback(why) {                         // not a pump.fun curve or PumpSwap pool we can read: DexScreener
     chainClose(); Object.assign(LIVE, {mode: "poll", why, fails: 0}); LIVE.status = "live"; liveShow(); livePoll();
   }
-  async function rpc(method, params) {
-    const r = await fetch(RPC_HTTP, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({jsonrpc: "2.0", id: 1, method, params}),
-                                     cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer"});
-    const d = await r.json(); if (!r.ok || !d || d.error || !d.result) throw new Error("RPC " + method + " failed");
-    return d.result;
-  }
-  async function accounts(addrs) {                     // [{owner, bytes} | null] in order
-    const res = await rpc("getMultipleAccounts", [addrs, {encoding: "base64", commitment: "confirmed"}]);
-    if (!Array.isArray(res.value) || res.value.length !== addrs.length) throw new Error("RPC answer has the wrong shape");
-    return res.value.map(v => v && typeof v.owner === "string" && Array.isArray(v.data) ? {owner: v.owner, bytes: b64bytes(v.data[0])} : null);
-  }
   async function solRefresh() {
     if (LIVE.solUsd && Date.now() - LIVE.solAt < SOL_EVERY) return true;
     try { const r = await fetch(JUP_PRICE, {cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer"}); const v = r.ok ? solPrice(await r.json()) : null;
       if (v) { LIVE.solUsd = v; LIVE.solAt = Date.now(); } } catch (e) {}
     return !!LIVE.solUsd;
   }
-  // read the accounts once, check owners, layouts and links, then subscribe to them over one websocket
-  async function chainOpen() {
-    const gen = ++LIVE.gen, key = LIVE.key, mint = LIVE.mint, addr = LIVE.pool;
-    const alive = () => gen === LIVE.gen && key === LIVE.key && liveAllowed();
-    LIVE.status = LIVE.fails ? "reconnecting" : LIVE.status === "live" ? "live" : "reconnecting"; liveShow();
+  // The desk reads the coin's accounts for us (Solana's public RPC refuses requests from a browser page). The page
+  // names the coin; every answer is checked here: the right coin, the owner each account must have, a layout that
+  // decodes, the links between pool, vaults and mint, and (first read) the bonding-curve address. Anything else is dropped.
+  async function chainRead() {
+    const r = await fetch("/api/meme/chain?key=" + encodeURIComponent(LIVE.key), {cache: "no-store"});
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || typeof d !== "object" || !d.addrs || typeof d.addrs !== "object" || !d.accounts || typeof d.accounts !== "object") throw new Error((d && d.error) || "the desk gave no accounts");
+    if (d.addrs.pool !== LIVE.pool || d.addrs.mint !== LIVE.mint) throw new Error("an answer for another coin");
+    const get = a => { const x = typeof a === "string" ? d.accounts[a] : null;
+      return x && typeof x === "object" && typeof x.owner === "string" && Array.isArray(x.data) && x.data[1] === "base64" ? {owner: x.owner, bytes: b64bytes(x.data[0])} : null; };
+    return {addrs: d.addrs, get};
+  }
+  const tokenProgram = o => o === TOKEN || o === TOKEN22;
+  async function chainCheck(r, first) {               // {st} or {why} (not a coin we can price on-chain)
+    const mnt = r.get(r.addrs.mint), dec = mnt && tokenProgram(mnt.owner) ? decodeMintDecimals(mnt.bytes) : null;
+    if (dec == null) return {why: "the coin's mint is unreadable"};
+    if (LIVE.kind === "curve") {
+      const cur = r.get(r.addrs.pool);
+      if (!cur || cur.owner !== PUMP) return {why: "the pool is not a pump.fun bonding curve"};
+      const c = decodeCurve(cur.bytes);
+      if (!c) return {why: "the bonding curve is unreadable"};
+      if (c.complete) return {why: "the bonding curve is complete (migrated)"};
+      if (c.quoteMint !== WSOL) return {why: "the bonding curve is not quoted in SOL"};
+      if (first && (await curveAddress(LIVE.mint)) !== LIVE.pool) return {why: "the pool is not this coin's bonding curve"};
+      return {st: {curve: c, dec}};
+    }
+    const pl = r.get(r.addrs.pool);
+    if (!pl || pl.owner !== PUMP_AMM) return {why: "the pool is not a PumpSwap pool"};
+    const p = decodePool(pl.bytes);
+    if (!p) return {why: "the PumpSwap pool is unreadable"};
+    if (p.baseMint !== LIVE.mint || p.quoteMint !== WSOL) return {why: "the pool is not this coin against SOL"};
+    if (r.addrs.base_vault !== p.baseVault || r.addrs.quote_vault !== p.quoteVault) return {why: "the vaults are not the pool's"};
+    const bv = r.get(p.baseVault), qv = r.get(p.quoteVault);
+    const b = bv && tokenProgram(bv.owner) && decodeTokenAccount(bv.bytes), q = qv && qv.owner === TOKEN && decodeTokenAccount(qv.bytes);
+    if (!b || !q || b.mint !== LIVE.mint || q.mint !== WSOL) return {why: "the pool's vaults do not match the pool"};
+    return {st: {pool: p, base: b.amount, quote: q.amount, dec}};
+  }
+  function chainClose() { clearTimeout(LIVE.timer); LIVE.timer = 0; LIVE.gen++; LIVE.busy = false; }
+  // one read: the first one checks everything (and the curve's address) and gives the price at open; later ones are ticks
+  async function chainOpen() { return chainPoll(true); }
+  async function chainPoll(first) {
+    LIVE.timer = 0;
+    const gen = ++LIVE.gen, key = LIVE.key;
+    const alive = () => gen === LIVE.gen && key === LIVE.key && LIVE.mode === "chain";
+    if (!key || !liveAllowed() || key !== SEL) return liveStop(key === SEL);
+    first = first || !LIVE.st;
+    LIVE.busy = true; LIVE.polls++;
     try {
       if (!(await solRefresh())) throw new Error("no SOL price");
       if (!alive()) return;
-      if (LIVE.kind === "curve") {
-        const [cur, mnt] = await accounts([addr, mint]); if (!alive()) return;
-        if (!cur || cur.owner !== PUMP) return liveFallback("the pool is not a pump.fun bonding curve");
-        const c = decodeCurve(cur.bytes), dec = mnt && (mnt.owner === TOKEN || mnt.owner === TOKEN22) ? decodeMintDecimals(mnt.bytes) : null;
-        if (!c || dec == null) return liveFallback("bonding curve or mint unreadable");
-        if (c.complete) return liveFallback("the bonding curve is complete (migrated)");
-        if (c.quoteMint !== WSOL) return liveFallback("the bonding curve is not quoted in SOL");
-        if ((await curveAddress(mint)) !== addr) return liveFallback("the pool is not this coin's bonding curve");
-        if (!alive()) return;
-        LIVE.acc = [{addr, kind: "curve", owner: PUMP}]; LIVE.st = {curve: c, dec};
-      } else {
-        const [pl, mnt] = await accounts([addr, mint]); if (!alive()) return;
-        if (!pl || pl.owner !== PUMP_AMM) return liveFallback("the pool is not a PumpSwap pool");
-        const p = decodePool(pl.bytes), dec = mnt && (mnt.owner === TOKEN || mnt.owner === TOKEN22) ? decodeMintDecimals(mnt.bytes) : null;
-        if (!p || dec == null) return liveFallback("PumpSwap pool or mint unreadable");
-        if (p.baseMint !== mint || p.quoteMint !== WSOL) return liveFallback("the pool is not this coin against SOL");
-        const [bv, qv] = await accounts([p.baseVault, p.quoteVault]); if (!alive()) return;
-        const b = bv && (bv.owner === TOKEN || bv.owner === TOKEN22) && decodeTokenAccount(bv.bytes), q = qv && qv.owner === TOKEN && decodeTokenAccount(qv.bytes);
-        if (!b || !q || b.mint !== mint || q.mint !== WSOL) return liveFallback("the pool's vaults do not match the pool");
-        LIVE.acc = [{addr, kind: "pool", owner: PUMP_AMM}, {addr: p.baseVault, kind: "base", owner: bv.owner}, {addr: p.quoteVault, kind: "quote", owner: TOKEN}];
-        LIVE.st = {pool: p, base: b.amount, quote: b && q.amount, dec};
-      }
-      LIVE.prevQuote = null; chainFlush(true);        // the price at open (or after a reconnect), no volume
-      chainSocket(gen);
+      const r = await chainRead(); if (!alive()) return;
+      const res = await chainCheck(r, first); if (!alive()) return;
+      if (res.why) { LIVE.busy = false; if (first || !LIVE.st) return liveFallback(res.why); return liveFallback(res.why + " (switched to DexScreener)"); }
+      LIVE.st = res.st;
+      if (first) LIVE.prevQuote = null;
+      chainFlush(first);
+      LIVE.fails = 0; LIVE.status = "live";
     } catch (e) {
       if (!alive()) return;
-      LIVE.fails++; LIVE.status = "reconnecting"; liveShow();
-      LIVE.timer = setTimeout(() => { LIVE.timer = 0; if (LIVE.key === key && LIVE.mode === "chain") liveResume(); }, Math.min(LIVE_BACKOFF_MAX, 2000 * 2 ** LIVE.fails));
+      LIVE.fails++; LIVE.dropped++; LIVE.status = "reconnecting";
     }
-  }
-  function chainSocket(gen) {
-    if (LIVE.acc.length > MAX_SUBS) return liveFallback("too many accounts");
-    const ws = new WebSocket(RPC_WS); LIVE.ws = ws; LIVE.opened++;
-    ws.onopen = () => { if (gen !== LIVE.gen) return; LIVE.acc.forEach((a, i) => { LIVE.pending.set(i + 1, a);
-      ws.send(JSON.stringify({jsonrpc: "2.0", id: i + 1, method: "accountSubscribe", params: [a.addr, {encoding: "base64", commitment: "confirmed"}]})); }); };
-    ws.onmessage = e => { if (gen === LIVE.gen) chainMessage(e.data); };
-    ws.onclose = ws.onerror = () => {
-      if (gen !== LIVE.gen) return;
-      chainClose(); LIVE.fails++; LIVE.status = "reconnecting"; liveShow();
-      const key = LIVE.key;
-      if (liveAllowed()) LIVE.timer = setTimeout(() => { LIVE.timer = 0; if (LIVE.key === key) liveResume(); }, Math.min(LIVE_BACKOFF_MAX, 2000 * 2 ** LIVE.fails));
-    };
-  }
-  // every message is checked: our request ids and subscriptions only, the owner each account must have, a layout that
-  // decodes, finite numbers; anything else is dropped
-  function chainMessage(raw) {
-    let m; try { m = typeof raw === "string" && raw.length < 50000 ? JSON.parse(raw) : null; } catch (e) { m = null; }
-    if (!m || typeof m !== "object") { LIVE.dropped++; return; }
-    if (m.id != null && LIVE.pending.has(m.id)) {
-      const a = LIVE.pending.get(m.id); LIVE.pending.delete(m.id);
-      if (!Number.isInteger(m.result) || LIVE.subs.size >= MAX_SUBS) { LIVE.dropped++; return; }
-      LIVE.subs.set(m.result, a);
-      if (LIVE.subs.size === LIVE.acc.length) { LIVE.fails = 0; LIVE.status = "live"; liveShow(); }
-      return;
-    }
-    if (m.method !== "accountNotification") { if (m.id == null || m.id < 9000) LIVE.dropped++; return; }
-    const sub = m.params && m.params.subscription, a = LIVE.subs.get(sub), v = m.params && m.params.result && m.params.result.value;
-    if (!a || !v || v.owner !== a.owner || !Array.isArray(v.data) || v.data[1] !== "base64") { LIVE.dropped++; return; }
-    const b = b64bytes(v.data[0]); if (!b) { LIVE.dropped++; return; }
-    const st = LIVE.st;
-    if (a.kind === "curve") { const c = decodeCurve(b); if (!c) { LIVE.dropped++; return; } st.curve = c; }
-    else if (a.kind === "pool") { const p = decodePool(b); if (!p || p.baseVault !== st.pool.baseVault || p.quoteVault !== st.pool.quoteVault) { LIVE.dropped++; return; } st.pool = p; }
-    else { const t = decodeTokenAccount(b); if (!t || t.mint !== (a.kind === "base" ? LIVE.mint : WSOL)) { LIVE.dropped++; return; } st[a.kind] = t.amount; }
-    LIVE.notes++;
-    // the pool and its two vaults change in the same transaction: one tick once they have all arrived
-    clearTimeout(LIVE.flushT); LIVE.flushT = setTimeout(() => chainFlush(false), FLUSH_MS);
+    LIVE.busy = false; liveShow();
+    const wait = LIVE.fails ? Math.min(LIVE_BACKOFF_MAX, CHAIN_EVERY * 2 ** LIVE.fails) : CHAIN_EVERY;
+    if (alive() && liveAllowed()) LIVE.timer = setTimeout(() => chainPoll(false), wait); else if (alive()) liveStop(true);
   }
   function chainFlush(atOpen) {
-    LIVE.flushT = 0; const st = LIVE.st; if (!st) return;
+    const st = LIVE.st; if (!st) return;
     const sol = LIVE.kind === "curve" ? curvePriceSol(st.curve, st.dec) : poolPriceSol(st.base, st.quote, st.pool.vQuote, st.dec);
     const quote = LIVE.kind === "curve" ? st.curve.vQuote : st.quote + st.pool.vQuote;
     const p = sol * LIVE.solUsd;
@@ -442,7 +409,6 @@ const TERMINAL = (() => {
     LIVE.prevQuote = quote;
     if (!atOpen && dq === 0 && p === LIVE.last) return;   // nothing traded
     liveTick(p, atOpen ? 0 : dq * LIVE.solUsd);
-    if (Date.now() - LIVE.solAt > SOL_EVERY) solRefresh();
   }
   function liveDraw(first) {
     if (!makeChart()) return;
@@ -694,8 +660,8 @@ const TERMINAL = (() => {
   const inspect = () => ({sel: SEL, active: ACTIVE, ivl: IVL, pill: PILL, pane: PANE, bars: CHD ? CHD.bars.length : 0,
     markers: CH ? CH.cs.markers().length : 0, lines: CH ? CH.lines.length : 0, range: CH ? CH.chart.timeScale().getVisibleLogicalRange() : null,
     live: {status: LIVE.status, mode: LIVE.mode, why: LIVE.why, key: LIVE.key, pool: LIVE.pool, since: LIVE.since, samples: LIVE.ticks.length, ticks: LIVE.ticks.length,
-           volume: LIVE.ticks.reduce((s, k) => s + (k.v || 0), 0), polls: LIVE.polls, dropped: LIVE.dropped, notes: LIVE.notes, subs: LIVE.subs.size,
-           opened: LIVE.opened, unsubs: LIVE.unsubs, wsOpen: !!LIVE.ws, solUsd: LIVE.solUsd, last: LIVE.last, polling: !!(LIVE.timer || LIVE.ctrl || LIVE.ws)},
+           volume: LIVE.ticks.reduce((s, k) => s + (k.v || 0), 0), polls: LIVE.polls, dropped: LIVE.dropped, solUsd: LIVE.solUsd, last: LIVE.last,
+           polling: !!(LIVE.timer || LIVE.ctrl || LIVE.busy)},
     lastBar: CHD && CHD.bars.length ? Object.assign({}, CHD.bars.at(-1)) : null});
   return {load, inspect, price, livePrice, priceCandles, tickCandles, tickOk, solPrice, decodeCurve, decodePool, decodeTokenAccount, decodeMintDecimals,
           curvePriceSol, poolPriceSol, curveAddress, findPda, b58decode, b58encode, b64bytes, checkItems, shortCheck, esc, validMint, validTxid, gate, manualRow, tradeFrom, ago, rowHtml, tokenPanel, botRow, sortCoins, matches, diff, sparkPath, sparkPoints, badge, precision};

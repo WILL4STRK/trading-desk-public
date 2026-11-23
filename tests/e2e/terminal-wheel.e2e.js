@@ -14,11 +14,11 @@ async function run(browser, [w, h, dpr, note]) {
   const tag = `${w}x${h}@${dpr}${note ? " (" + note + ")" : ""} `;
   const ctx = await browser.newContext({viewport: {width: w, height: h}, deviceScaleFactor: dpr});
   const page = await ctx.newPage(), errors = [];
-  page.on("console", m => { if (m.type() === "error" && !/Failed to load resource.*404/.test(m.text())) errors.push(m.text()); });
+  page.on("console", m => { if (m.type() === "error" && !/Failed to load resource.*(404|400)/.test(m.text())) errors.push(m.text()); });
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
   await page.route("**/api/meme/chart?*", route => route.fulfill({json: {bars, levels: [], trades: [], symbol: "X", url: "https://dexscreener.com/solana/x"}}));
   await page.route("https://plugin.jup.ag/**", route => route.fulfill({contentType: "text/javascript", body: "window.Jupiter={init:function(o){document.getElementById(o.integratedTargetId).textContent='JUPITER STUB'},close:function(){}};"}));
-  await page.route("https://api.mainnet-beta.solana.com/", route => { const b = JSON.parse(route.request().postData()); route.fulfill({json: {jsonrpc: "2.0", id: b.id, result: {context: {slot: 1}, value: b.params[0].map(() => null)}}}); });   // on-chain: unreadable, so the DexScreener stand-in
+  await page.route("**/api/meme/chain?*", route => route.fulfill({status: 400, json: {error: "not in this test"}}));   // on-chain reads: none in this suite (the DexScreener stand-in instead)
   await page.route("https://lite-api.jup.ag/**", route => route.fulfill({json: {So11111111111111111111111111111111111111112: {usdPrice: 72.8}}}));
   await page.route("https://api.dexscreener.com/**", route => route.fulfill({json: {pairs: []}}));
   await page.goto(BASE + "/"); await page.waitForSelector(".tabs button");

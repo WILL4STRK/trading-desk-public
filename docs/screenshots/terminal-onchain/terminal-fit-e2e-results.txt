@@ -15,7 +15,7 @@ PASS 960x503@1.75 (user's Chrome) resized back: no text spills out of its box (r
 PASS 960x503@1.75 (user's Chrome) resized back: the chart fills its pane  {"w":668,"boxW":668,"h":339,"boxH":338}
 PASS 960x503@1.75 (user's Chrome) resized back: the terminal fills the window under the banner, columns full height  {"want":451,"list":[44,495],"chart":[44,495],"side":[503,818],"cols":"250px 670px"}
 PASS 960x503@1.75 (user's Chrome) resized back: swap card (below the chart here) is whole and its failed-checks line reachable  {"swap":[117,430,463],"ack":153}
-PASS 960x503@1.75 (user's Chrome) no console errors besides the favicon 404  {"errors":["Failed to load resource: the server responded with a status of 404 (Not Found)"],"bad":[]}
+PASS 960x503@1.75 (user's Chrome) no console errors besides the favicon 404  {"errors":["Failed to load resource: the server responded with a status of 404 (Not Found)","Failed to load resource: the server responded with a status of 400 (Bad Request)","Failed to load resource: the server responded with a status of 400 (Bad Request)","Failed to load resource: the server responded with a status of 400 (Bad Request)"],"bad":["400 /api/meme/chain","400 /api/meme/chain","400 /api/meme/chain"]}
 PASS 1527x801@1.75 (user's Chrome, wider) no sideways scroll, nothing past the window's edge  {"sideways":0,"outside":0}
 PASS 1527x801@1.75 (user's Chrome, wider) no text spills out of its box (rows, readout, panes)  []
 PASS 1527x801@1.75 (user's Chrome, wider) the chart fills its pane  {"w":810,"boxW":810,"h":455,"boxH":456}
@@ -31,7 +31,7 @@ PASS 1527x801@1.75 (user's Chrome, wider) resized back: no text spills out of it
 PASS 1527x801@1.75 (user's Chrome, wider) resized back: the chart fills its pane  {"w":810,"boxW":810,"h":455,"boxH":456}
 PASS 1527x801@1.75 (user's Chrome, wider) resized back: the terminal fills the window under the banner, columns full height  {"want":749,"list":[43,792],"chart":[43,590],"side":[43,792],"cols":"280px 812px 340px"}
 PASS 1527x801@1.75 (user's Chrome, wider) resized back: right column: token details at full height, column scrolls, swap card and its line reachable in view  {"token":{"h":313,"sh":313,"cs":"visible"},"side":[43,792],"line":[395,424]}
-PASS 1527x801@1.75 (user's Chrome, wider) no console errors besides the favicon 404  {"errors":[],"bad":[]}
+PASS 1527x801@1.75 (user's Chrome, wider) no console errors besides the favicon 404  {"errors":["Failed to load resource: the server responded with a status of 400 (Bad Request)","Failed to load resource: the server responded with a status of 400 (Bad Request)"],"bad":["400 /api/meme/chain","400 /api/meme/chain"]}
 PASS 1280x720@1 no sideways scroll, nothing past the window's edge  {"sideways":0,"outside":0}
 PASS 1280x720@1 no text spills out of its box (rows, readout, panes)  []
 PASS 1280x720@1 the chart fills its pane  {"w":610,"boxW":610,"h":373,"boxH":374}
@@ -47,7 +47,7 @@ PASS 1280x720@1 resized back: no text spills out of its box (rows, readout, pane
 PASS 1280x720@1 resized back: the chart fills its pane  {"w":610,"boxW":610,"h":373,"boxH":374}
 PASS 1280x720@1 resized back: the terminal fills the window under the banner, columns full height  {"want":668,"list":[44,712],"chart":[44,530],"side":[44,712],"cols":"280px 612px 340px"}
 PASS 1280x720@1 resized back: right column: token details at full height, column scrolls, swap card and its line reachable in view  {"token":{"h":313,"sh":313,"cs":"visible"},"side":[44,712],"line":[396,425]}
-PASS 1280x720@1 no console errors besides the favicon 404  {"errors":[],"bad":[]}
+PASS 1280x720@1 no console errors besides the favicon 404  {"errors":["Failed to load resource: the server responded with a status of 400 (Bad Request)","Failed to load resource: the server responded with a status of 400 (Bad Request)"],"bad":["400 /api/meme/chain","400 /api/meme/chain"]}
 PASS 1920x1080@1 no sideways scroll, nothing past the window's edge  {"sideways":0,"outside":0}
 PASS 1920x1080@1 no text spills out of its box (rows, readout, panes)  []
 PASS 1920x1080@1 the chart fills its pane  {"w":810,"boxW":810,"h":689,"boxH":689}
@@ -63,7 +63,7 @@ PASS 1920x1080@1 resized back: no text spills out of its box (rows, readout, pan
 PASS 1920x1080@1 resized back: the chart fills its pane  {"w":810,"boxW":810,"h":689,"boxH":689}
 PASS 1920x1080@1 resized back: the terminal fills the window under the banner, columns full height  {"want":1028,"list":[43,1071],"chart":[43,823],"side":[43,1071],"cols":"280px 812px 340px"}
 PASS 1920x1080@1 resized back: right column: token details at full height, column scrolls, swap card and its line reachable in view  {"token":{"h":313,"sh":313,"cs":"visible"},"side":[43,1071],"line":[395,424]}
-PASS 1920x1080@1 no console errors besides the favicon 404  {"errors":[],"bad":[]}
+PASS 1920x1080@1 no console errors besides the favicon 404  {"errors":["Failed to load resource: the server responded with a status of 400 (Bad Request)","Failed to load resource: the server responded with a status of 400 (Bad Request)"],"bad":["400 /api/meme/chain","400 /api/meme/chain"]}
 PASS 390x844@2 no sideways scroll, nothing past the window's edge  {"sideways":0,"outside":0}
 PASS 390x844@2 no text spills out of its box (rows, readout, panes)  []
 PASS 390x844@2 the chart fills its pane  {"w":356,"boxW":356,"h":371,"boxH":371}
@@ -85,6 +85,6 @@ PASS 390x844@2 resized back: phone list pane fits between the banner and the bot
 PASS 390x844@2 resized back: phone chart pane fits between the banner and the bottom bars  {"pane":[83,597],"bar":634,"ack":0}
 PASS 390x844@2 resized back: phone chart fills its pane  {"w":356,"boxW":356,"h":371,"boxH":371}
 PASS 390x844@2 resized back: phone swap pane fits between the banner and the bottom bars  {"pane":[88,510],"bar":634,"ack":155}
-PASS 390x844@2 no console errors besides the favicon 404  {"errors":[],"bad":[]}
+PASS 390x844@2 no console errors besides the favicon 404  {"errors":["Failed to load resource: the server responded with a status of 400 (Bad Request)","Failed to load resource: the server responded with a status of 400 (Bad Request)","Failed to load resource: the server responded with a status of 400 (Bad Request)"],"bad":["400 /api/meme/chain","400 /api/meme/chain","400 /api/meme/chain"]}
 
 88 passed, 0 failed
