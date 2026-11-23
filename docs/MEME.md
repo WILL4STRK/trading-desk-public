@@ -526,3 +526,26 @@ requests beyond the data the desk already fetches or one daily call. Its entry a
 count. The forward record, not the backtest, is what can confirm R2. Pass bar: 14.7 on at least 40 trades on 15 coins.
 
 **Changes.** Changing any number in this section after a result is seen restarts the count and is logged in docs/CHANGES.md.
+
+### 14.10 Amendment, 2026-11-22 (data-shape clarifications, before any backtest code and before any return)
+
+Written after counting the shape of the cached series (no price move, signal or return looked at): 240 daily series; 62 have interior
+missing days; 196 carry a second, partial point on the last date; 25 end more than 2 days before 2026-11-21. No number of 14.1 to 14.7
+changes; this fixes what the section left open.
+
+1. **Clean series.** One point per UTC date (the last one on that date), dates up to 2026-11-21 only. A coin is *present* on a date if it
+   has a point. A moving average or return needs every day of its window present; otherwise there is no signal that day (hold = false).
+   Membership (14.1) needs the market cap on d present and at least 5 of the 7 volume days present, as written.
+2. **Entry** needs the coin's point on d+1; if it is missing there is no trade. **Exit executes** at the coin's next present point within 7
+   days after the day it triggers. If the coin has no point at all in those 7 days and its series ends at least 3 days before 2026-11-21,
+   the position is a **total loss (-100 %)**, as in section 2 for a dead coin; if the series simply ends within 3 days of the data end,
+   the trade stays open at the end (excluded from the statistics, counted). The count of -100 % events is reported, with a sensitivity that
+   sells them at the last price instead (reported, not counted).
+3. **Slots.** At most 10 positions; when more than 10 signals are open, the 10 with the largest market cap on the signal day are taken
+   (this tie-break only shapes the account curve; trade statistics, the pass bar's per-trade tests, take every signal).
+4. **Account and control returns (the "beats buy-and-hold" test).** R2 account: start $100; on an entry date size = 10 % of the day's
+   marked equity (or the cash if less), costs as 14.4, marked to market daily at each coin's point. Buy-and-hold control: the equal-weight
+   average of the daily simple returns of the coins that were universe members the previous day (price(t+1)/price(t) - 1), less 0.625 %
+   of a coin's weight on each day it enters or leaves the set. Both are compared by compounded return over the holdout days; cash is 0.
+5. **Mechanics.** Entry price is the day d+1 point, exit price the execution point; costs are half of 1.25 % on each side
+   (the section 2 `net_pct` formula with a 1.25 % cost); the -25 % stop is tested at every present point after entry against the entry price.
