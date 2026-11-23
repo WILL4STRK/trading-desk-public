@@ -90,6 +90,11 @@ def make_handler(desk, scheduler=None):
                         return self._send(400, {"error": str(e)})
                 if u.path == "/api/meme/terminal":          # read-only: coins that failed a check, the ticker, your log
                     return self._send(200, memeterminal.view())
+                if u.path == "/api/meme/chain":             # read-only: one tracked coin's on-chain accounts, for live prices
+                    try:
+                        return self._send(200, memeterminal.chain((parse_qs(u.query).get("key") or [""])[0]))
+                    except memeterminal.ChainError as e:
+                        return self._send(400, {"error": str(e)})
                 if u.path == "/api/memebot":                # read-only: the separate memebot paper loop's files
                     return self._send(200, memebot.status())
                 if u.path == "/api/export":                 # read-only: text for TradingView and thinkorswim

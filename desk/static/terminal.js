@@ -125,11 +125,93 @@ const TERMINAL = (() => {
   // price scale precision for coins worth fractions of a cent
   const precision = px => { if (!px || !isFinite(px)) return 4; return Math.min(12, Math.max(2, Math.ceil(-Math.log10(px)) + 3)); };
 
-  // ---- live seconds candles: DexScreener's pair endpoint for the selected coin, every 2 s. Price only (no volume),
-  // never GeckoTerminal (its per-IP limit is shared with the desk's scanner and P7). Every response is checked.
+  // ---- live prices for the selected coin.
+  // pump.fun bonding curves and PumpSwap pools: on-chain reserves, read every second through the desk
+  // (/api/meme/chain; Solana's public RPC refuses browser pages). Every reserve change is a trade tick with real price
+  // and volume; trades inside the same second merge into one tick. Layouts: pump-fun/pump-public-docs idl/pump.json (BondingCurve) and idl/pump_amm.json (Pool);
+  // PumpSwap prices use effective quote reserves = quote vault + Pool.virtual_quote_reserves (docs/PUMP_SWAP_README.md).
+  // Other venues: DexScreener's pair endpoint every 2 s, price only and delayed. Never GeckoTerminal for live data.
+  const PUMP = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", PUMP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA";
+  const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", TOKEN22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+  const WSOL = "So11111111111111111111111111111111111111112", JUP_PRICE = "https://lite-api.jup.ag/price/v3?ids=" + WSOL;
+  const DISC_CURVE = [23, 183, 248, 55, 96, 216, 172, 96], DISC_POOL = [241, 154, 109, 4, 17, 177, 109, 188];
   const DS_PAIR = "https://api.dexscreener.com/latest/dex/pairs/solana/";
-  const LIVE_IVL = {"5s": 5, "15s": 15}, LIVE_EVERY = 2000, LIVE_KEEP = 3600, LIVE_BACKOFF_MAX = 30000;
-  // the validated USD price for this mint and pool from one response, or null (anything else is dropped)
+  const LIVE_IVL = {"1s": 1, "5s": 5, "15s": 15}, SERVER_IVL = {"5m": 300, "15m": 900, "1h": 3600};
+  const LIVE_EVERY = 2000, CHAIN_EVERY = 1000, LIVE_KEEP = 7200, LIVE_BACKOFF_MAX = 30000, MAX_JUMP = 50, SOL_EVERY = 60000;
+
+  // base58 and base64 to bytes, and back
+  const ALPHA = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  function b58decode(s) {
+    if (typeof s !== "string" || !s) return null;
+    let n = 0n; for (const ch of s) { const i = ALPHA.indexOf(ch); if (i < 0) return null; n = n * 58n + BigInt(i); }
+    const out = []; while (n > 0n) { out.unshift(Number(n % 256n)); n /= 256n; }
+    for (const ch of s) { if (ch === "1") out.unshift(0); else break; }
+    return Uint8Array.from(out);
+  }
+  function b58encode(b) {
+    let n = 0n; for (const x of b) n = n * 256n + BigInt(x);
+    let s = ""; while (n > 0n) { s = ALPHA[Number(n % 58n)] + s; n /= 58n; }
+    for (const x of b) { if (x === 0) s = "1" + s; else break; }
+    return s;
+  }
+  function b64bytes(s) {
+    if (typeof s !== "string" || s.length > 20000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(s)) return null;
+    try { const bin = atob(s), out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; } catch (e) { return null; }
+  }
+  const u64 = (b, o) => new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(o, true);
+  const i128 = (b, o) => { const v = new DataView(b.buffer, b.byteOffset, b.byteLength); return (v.getBigInt64(o + 8, true) << 64n) + v.getBigUint64(o, true); };
+  const key32 = (b, o) => b58encode(b.subarray(o, o + 32));
+  const isZero = (b, o, n) => { for (let i = o; i < o + n; i++) if (b[i]) return false; return true; };
+  const startsWith = (b, d) => b && b.length >= d.length && d.every((x, i) => b[i] === x);
+
+  // pump.fun BondingCurve (idl/pump.json): disc 8 | virtual_token_reserves u64 @8 | virtual_quote_reserves u64 @16 |
+  // real_token_reserves u64 @24 | real_quote_reserves u64 @32 | token_total_supply u64 @40 | complete bool @48 |
+  // creator pubkey @49 | is_mayhem_mode @81 | is_cashback_coin @82 | quote_mint pubkey @83 (newer curves only)
+  function decodeCurve(b) {
+    if (!startsWith(b, DISC_CURVE) || b.length < 49) return null;
+    const quoteMint = b.length >= 115 && !isZero(b, 83, 32) ? key32(b, 83) : WSOL;   // shorter (older) curves are SOL-quoted
+    return {vToken: u64(b, 8), vQuote: u64(b, 16), complete: b[48] === 1, quoteMint};
+  }
+  // PumpSwap Pool (idl/pump_amm.json): disc 8 | pool_bump u8 @8 | index u16 @9 | creator @11 | base_mint @43 |
+  // quote_mint @75 | lp_mint @107 | pool_base_token_account @139 | pool_quote_token_account @171 | lp_supply u64 @203 |
+  // coin_creator @211 | is_mayhem_mode @243 | is_cashback_coin @244 | virtual_quote_reserves i128 @245 (0 if absent)
+  function decodePool(b) {
+    if (!startsWith(b, DISC_POOL) || b.length < 211) return null;
+    return {baseMint: key32(b, 43), quoteMint: key32(b, 75), baseVault: key32(b, 139), quoteVault: key32(b, 171),
+            vQuote: b.length >= 261 ? i128(b, 245) : 0n};
+  }
+  // SPL token account: mint @0, owner @32, amount u64 @64; SPL mint: decimals u8 @44 (Token and Token-2022 alike)
+  const decodeTokenAccount = b => b && b.length >= 72 ? {mint: key32(b, 0), amount: u64(b, 64)} : null;
+  const decodeMintDecimals = b => b && b.length >= 45 && b[44] <= 18 ? b[44] : null;
+  // prices in SOL per token
+  const curvePriceSol = (c, dec) => c.vToken > 0n ? (Number(c.vQuote) / 1e9) / (Number(c.vToken) / 10 ** dec) : NaN;
+  const poolPriceSol = (base, quote, vq, dec) => base > 0n && quote + vq > 0n ? (Number(quote + vq) / 1e9) / (Number(base) / 10 ** dec) : NaN;
+
+  // program-derived address: sha256(seeds | bump | program | "ProgramDerivedAddress"), the first bump off the curve
+  const P25519 = 2n ** 255n - 19n;
+  const modp = x => ((x % P25519) + P25519) % P25519;
+  const powp = (b, e) => { let r = 1n; b = modp(b); while (e > 0n) { if (e & 1n) r = r * b % P25519; b = b * b % P25519; e >>= 1n; } return r; };
+  const D25519 = modp(-121665n * powp(121666n, P25519 - 2n));
+  function onCurve(h) {                                // ed25519: is there an x for this compressed y
+    let y = 0n; for (let i = 31; i >= 0; i--) y = (y << 8n) + BigInt(i === 31 ? h[i] & 0x7f : h[i]);
+    if (y >= P25519) return false;
+    const y2 = y * y % P25519, u = modp(y2 - 1n), v = modp(D25519 * y2 + 1n);
+    const x2 = u * powp(v, P25519 - 2n) % P25519;
+    return x2 === 0n || powp(x2, (P25519 - 1n) / 2n) === 1n;
+  }
+  async function findPda(seeds, program) {
+    const prog = b58decode(program), tail = new TextEncoder().encode("ProgramDerivedAddress");
+    for (let bump = 255; bump >= 0; bump--) {
+      const parts = [...seeds, Uint8Array.of(bump), prog, tail], buf = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+      let o = 0; for (const p of parts) { buf.set(p, o); o += p.length; }
+      const h = new Uint8Array(await crypto.subtle.digest("SHA-256", buf));
+      if (!onCurve(h)) return b58encode(h);
+    }
+    return null;
+  }
+  const curveAddress = mint => findPda([new TextEncoder().encode("bonding-curve"), b58decode(mint)], PUMP);
+
+  // DexScreener fallback: the validated USD price for this mint and pool from one response, or null
   function livePrice(d, mint, pool) {
     if (!d || typeof d !== "object" || Array.isArray(d)) return null;
     const pairs = Array.isArray(d.pairs) ? d.pairs : d.pair && typeof d.pair === "object" ? [d.pair] : [];
@@ -140,52 +222,92 @@ const TERMINAL = (() => {
     const v = Number(p.priceUsd);
     return Number.isFinite(v) && v > 0 && v < 1e9 ? v : null;
   }
-  // candles from price samples [{t: seconds, p}], oldest first: one per sec-long bucket
-  function priceCandles(samples, sec) {
-    const out = [];
-    for (const s of samples) {
-      if (!Number.isFinite(s.t) || !Number.isFinite(s.p)) continue;
-      const time = Math.floor(s.t / sec) * sec, last = out[out.length - 1];
-      if (last && last.time === time) { last.high = Math.max(last.high, s.p); last.low = Math.min(last.low, s.p); last.close = s.p; }
-      else if (!last || time > last.time) out.push({time, open: s.p, high: s.p, low: s.p, close: s.p});
+  const solPrice = d => { const v = d && typeof d === "object" && d[WSOL] && Number(d[WSOL].usdPrice); return Number.isFinite(v) && v > 1 && v < 100000 ? v : null; };
+  // a tick is kept only if its price is finite, positive and within 50x of the previous one
+  const tickOk = (prev, p) => Number.isFinite(p) && p > 0 && (!prev || (p / prev <= MAX_JUMP && prev / p <= MAX_JUMP));
+
+  // candles from ticks [{t: seconds, p, v}], oldest first. A bucket with no trade carries the last close as a flat
+  // doji with no volume (no trade, no move), up to now.
+  function tickCandles(ticks, sec, now, max = 3600) {
+    const out = []; let last = null;
+    const fill = upto => { if (!last) return; const from = Math.max(last.time + sec, upto - (max + 1) * sec);
+      for (let t = from; t < upto; t += sec) out.push(last = {time: t, open: last.close, high: last.close, low: last.close, close: last.close, volume: 0}); };
+    for (const k of ticks) {
+      if (!Number.isFinite(k.t) || !Number.isFinite(k.p) || k.p <= 0) continue;
+      const time = Math.floor(k.t / sec) * sec, v = Number.isFinite(k.v) && k.v > 0 ? k.v : 0;
+      if (last && time < last.time) continue;
+      if (last && time === last.time) { last.high = Math.max(last.high, k.p); last.low = Math.min(last.low, k.p); last.close = k.p; last.volume += v; continue; }
+      fill(time);
+      out.push(last = {time, open: k.p, high: k.p, low: k.p, close: k.p, volume: v});
     }
-    return out;
+    if (last && Number.isFinite(now)) fill(Math.floor(now / sec) * sec + sec);
+    return out.length > max ? out.slice(out.length - max) : out;
   }
+  // the old name stays for the price-only samples [{t, p}]: same buckets, no volume
+  const priceCandles = (samples, sec) => tickCandles(samples, sec, NaN).map(({volume, ...c}) => c);
   const poolOf = c => { const u = (c.links || {}).dexscreener, pre = "https://dexscreener.com/solana/";
     return typeof u === "string" && u.startsWith(pre) && validMint(u.slice(pre.length)) ? u.slice(pre.length) : null; };
+  const chainKind = c => c && (c.dex === "pumpfun" ? "curve" : c.dex === "pumpswap" ? "pool" : null);
 
   // ---- in the browser only
   let D = null, SEL = null, ACTIVE = null, JUP = null, TIMER = 0, SORT = "newest", QUERY = "", PILL = 0, PANE = "list";
   let ROWS = new Map(), BYKEY = new Map(), SEQ = 0, IVL = "5m", CH = null, CHD = null, CHKEY = "", BOTTOM = "swaps";
   const $ = s => document.querySelector(s);
-  // LIVE: the one poller. status: live (green), reconnecting (amber), stopped (gray)
-  let LIVE = {key: null, mint: null, pool: null, since: 0, samples: [], timer: 0, ctrl: null, fails: 0, status: "stopped", polls: 0, dropped: 0};
+  // LIVE: one coin, one source. status: live (green), reconnecting (amber), stopped (gray)
+  const fresh = () => ({key: null, mint: null, pool: null, mode: null, kind: null, why: "", since: 0, ticks: [], timer: 0, ctrl: null, fails: 0,
+    status: "stopped", polls: 0, dropped: 0, gen: 0, busy: false, st: null, last: null, prevQuote: null, tickT: 0, solUsd: 0, solAt: 0});
+  let LIVE = fresh();
   const hhmmss = s => new Date(s * 1000).toTimeString().slice(0, 8);
   function liveShow() {
     const dot = $("#t-live"), lbl = $("#t-livelbl"); if (!dot) return;
     const word = {live: "live", reconnecting: "reconnecting", stopped: "stopped"}[LIVE.status];
     dot.dataset.s = LIVE.status; dot.title = "Live prices: " + word; dot.setAttribute("aria-label", "Live prices: " + word);
-    lbl.textContent = LIVE.key && LIVE.since ? `${word} · price only · live since ${hhmmss(LIVE.since)}` : word;
+    const what = LIVE.mode === "chain" ? "on-chain" : "price only · delayed";
+    lbl.textContent = LIVE.key && LIVE.since ? `${word} · ${what} · live since ${hhmmss(LIVE.since)}` : word;
+    lbl.title = LIVE.why || "";
   }
   const liveAllowed = () => typeof document !== "undefined" && document.visibilityState === "visible" && $("#v-terminal").classList.contains("on");
   function liveStop(keepCoin) {
-    clearTimeout(LIVE.timer); LIVE.timer = 0;
+    clearTimeout(LIVE.timer); LIVE.timer = 0; clearInterval(LIVE.tickT); LIVE.tickT = 0;
     if (LIVE.ctrl) { LIVE.ctrl.abort(); LIVE.ctrl = null; }
-    if (!keepCoin) LIVE = Object.assign(LIVE, {key: null, mint: null, pool: null, since: 0, samples: [], fails: 0});
+    chainClose();
+    if (!keepCoin) LIVE = fresh();
     LIVE.status = "stopped"; liveShow();
   }
   function liveStart(c) {                              // a new coin: the seconds candles start empty
     liveStop(false);
     const pool = poolOf(c);
     if (!c || !validMint(c.mint) || !pool) { liveShow(); return; }
-    Object.assign(LIVE, {key: c.key, mint: c.mint, pool, since: Math.floor(Date.now() / 1000), samples: [], fails: 0, polls: 0, dropped: 0});
+    Object.assign(LIVE, {key: c.key, mint: c.mint, pool, mode: chainKind(c) ? "chain" : "poll", kind: chainKind(c), since: Math.floor(Date.now() / 1000),
+                         ticks: [], fails: 0, polls: 0, dropped: 0, st: null, last: null});
     liveResume();
   }
   function liveResume() {                              // the same coin again after the tab or page was hidden
-    if (!LIVE.key || LIVE.timer || LIVE.ctrl || !liveAllowed()) { if (LIVE.key && !liveAllowed()) liveStop(true); return; }
-    LIVE.status = LIVE.fails ? "reconnecting" : "live"; liveShow(); livePoll();
+    if (!LIVE.key) return;
+    if (!liveAllowed()) return liveStop(true);
+    if (!LIVE.tickT) LIVE.tickT = setInterval(() => { if (LIVE_IVL[IVL] && SEL === LIVE.key) liveDraw(false); }, 1000);
+    if (LIVE.mode === "poll") { if (!LIVE.timer && !LIVE.ctrl) { LIVE.status = LIVE.fails ? "reconnecting" : "live"; liveShow(); livePoll(); } return; }
+    if (!LIVE.timer && !LIVE.busy) { LIVE.status = LIVE.fails ? "reconnecting" : LIVE.st ? "live" : "reconnecting"; liveShow(); chainOpen(); }
   }
-  async function livePoll() {
+  function liveTick(p, v) {                            // one trade (or the price at open, with no volume)
+    const t = Date.now() / 1000;
+    LIVE.ticks.push({t, p, v}); LIVE.last = p;
+    if (LIVE.ticks.length > LIVE_KEEP) LIVE.ticks.splice(0, LIVE.ticks.length - LIVE_KEEP);
+    if (SEL !== LIVE.key) return;
+    if (LIVE_IVL[IVL]) liveDraw(false); else serverBarTick(t, p, v);
+  }
+  // 5m / 15m / 1h: the last candle keeps moving with the live ticks between the desk's own refreshes
+  function serverBarTick(t, p, v) {
+    const sec = SERVER_IVL[IVL]; if (!sec || !CH || !CHD || CHD.live || CHD.key !== SEL || CHD.ivl !== IVL || !CHD.bars.length) return;
+    const time = Math.floor(t / sec) * sec, last = CHD.bars.at(-1); if (time < last.time) return;
+    if (time === last.time) { last.high = Math.max(last.high, p); last.low = Math.min(last.low, p); last.close = p; last.volume = (last.volume || 0) + (v || 0); }
+    else CHD.bars.push({time, open: last.close, high: Math.max(last.close, p), low: Math.min(last.close, p), close: p, volume: v || 0});
+    const b = CHD.bars.at(-1);
+    CH.cs.update({time: b.time, open: b.open, high: b.high, low: b.low, close: b.close});
+    CH.vol.update({time: b.time, value: b.volume || 0, color: b.close >= b.open ? "rgba(38,166,154,.35)" : "rgba(239,83,80,.35)"});
+    readout(null);
+  }
+  async function livePoll() {                          // DexScreener fallback: price only, delayed
     LIVE.timer = 0;
     const key = LIVE.key; if (!key) return;
     if (!liveAllowed() || key !== SEL) return liveStop(key === SEL);
@@ -195,28 +317,117 @@ const TERMINAL = (() => {
       const r = await fetch(DS_PAIR + encodeURIComponent(LIVE.pool), {signal: ctrl.signal, cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer"});
       price = r.ok ? livePrice(await r.json(), LIVE.mint, LIVE.pool) : null;
     } catch (e) { if (ctrl.signal.aborted) return; }
-    if (LIVE.ctrl !== ctrl || LIVE.key !== key) return;       // stopped or another coin while this one was in flight
+    if (LIVE.ctrl !== ctrl || LIVE.key !== key) return;
     LIVE.ctrl = null;
-    if (price == null) { LIVE.dropped++; LIVE.fails++; LIVE.status = "reconnecting"; }
-    else { LIVE.fails = 0; LIVE.status = "live"; LIVE.samples.push({t: Date.now() / 1000, p: price});
-      if (LIVE.samples.length > LIVE_KEEP) LIVE.samples.splice(0, LIVE.samples.length - LIVE_KEEP);
-      if (LIVE_IVL[IVL] && SEL === key) liveDraw(false); }
+    if (price == null || !tickOk(LIVE.last, price)) { LIVE.dropped++; LIVE.fails++; LIVE.status = "reconnecting"; }
+    else { LIVE.fails = 0; LIVE.status = "live"; liveTick(price, 0); }
     liveShow();
     const wait = LIVE.fails ? Math.min(LIVE_BACKOFF_MAX, LIVE_EVERY * 2 ** LIVE.fails) : LIVE_EVERY;
-    if (liveAllowed() && LIVE.key === key) LIVE.timer = setTimeout(livePoll, wait); else liveStop(true);
+    if (liveAllowed() && LIVE.key === key && LIVE.mode === "poll") LIVE.timer = setTimeout(livePoll, wait); else if (LIVE.mode === "poll") liveStop(true);
   }
-  function liveDraw(fresh) {
+  function liveFallback(why) {                         // not a pump.fun curve or PumpSwap pool we can read: DexScreener
+    chainClose(); Object.assign(LIVE, {mode: "poll", why, fails: 0}); LIVE.status = "live"; liveShow(); livePoll();
+  }
+  async function solRefresh() {
+    if (LIVE.solUsd && Date.now() - LIVE.solAt < SOL_EVERY) return true;
+    try { const r = await fetch(JUP_PRICE, {cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer"}); const v = r.ok ? solPrice(await r.json()) : null;
+      if (v) { LIVE.solUsd = v; LIVE.solAt = Date.now(); } } catch (e) {}
+    return !!LIVE.solUsd;
+  }
+  // The desk reads the coin's accounts for us (Solana's public RPC refuses requests from a browser page). The page
+  // names the coin; every answer is checked here: the right coin, the owner each account must have, a layout that
+  // decodes, the links between pool, vaults and mint, and (first read) the bonding-curve address. Anything else is dropped.
+  async function chainRead() {
+    const r = await fetch("/api/meme/chain?key=" + encodeURIComponent(LIVE.key), {cache: "no-store"});
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || typeof d !== "object" || !d.addrs || typeof d.addrs !== "object" || !d.accounts || typeof d.accounts !== "object") throw new Error((d && d.error) || "the desk gave no accounts");
+    if (d.addrs.pool !== LIVE.pool || d.addrs.mint !== LIVE.mint) throw new Error("an answer for another coin");
+    const get = a => { const x = typeof a === "string" ? d.accounts[a] : null;
+      return x && typeof x === "object" && typeof x.owner === "string" && Array.isArray(x.data) && x.data[1] === "base64" ? {owner: x.owner, bytes: b64bytes(x.data[0])} : null; };
+    return {addrs: d.addrs, get};
+  }
+  const tokenProgram = o => o === TOKEN || o === TOKEN22;
+  async function chainCheck(r, first) {               // {st} or {why} (not a coin we can price on-chain)
+    const mnt = r.get(r.addrs.mint), dec = mnt && tokenProgram(mnt.owner) ? decodeMintDecimals(mnt.bytes) : null;
+    if (dec == null) return {why: "the coin's mint is unreadable"};
+    if (LIVE.kind === "curve") {
+      const cur = r.get(r.addrs.pool);
+      if (!cur || cur.owner !== PUMP) return {why: "the pool is not a pump.fun bonding curve"};
+      const c = decodeCurve(cur.bytes);
+      if (!c) return {why: "the bonding curve is unreadable"};
+      if (c.complete) return {why: "the bonding curve is complete (migrated)"};
+      if (c.quoteMint !== WSOL) return {why: "the bonding curve is not quoted in SOL"};
+      if (first && (await curveAddress(LIVE.mint)) !== LIVE.pool) return {why: "the pool is not this coin's bonding curve"};
+      return {st: {curve: c, dec}};
+    }
+    const pl = r.get(r.addrs.pool);
+    if (!pl || pl.owner !== PUMP_AMM) return {why: "the pool is not a PumpSwap pool"};
+    const p = decodePool(pl.bytes);
+    if (!p) return {why: "the PumpSwap pool is unreadable"};
+    if (p.baseMint !== LIVE.mint || p.quoteMint !== WSOL) return {why: "the pool is not this coin against SOL"};
+    if (r.addrs.base_vault !== p.baseVault || r.addrs.quote_vault !== p.quoteVault) return {why: "the vaults are not the pool's"};
+    const bv = r.get(p.baseVault), qv = r.get(p.quoteVault);
+    const b = bv && tokenProgram(bv.owner) && decodeTokenAccount(bv.bytes), q = qv && qv.owner === TOKEN && decodeTokenAccount(qv.bytes);
+    if (!b || !q || b.mint !== LIVE.mint || q.mint !== WSOL) return {why: "the pool's vaults do not match the pool"};
+    return {st: {pool: p, base: b.amount, quote: q.amount, dec}};
+  }
+  function chainClose() { clearTimeout(LIVE.timer); LIVE.timer = 0; LIVE.gen++; LIVE.busy = false; }
+  // one read: the first one checks everything (and the curve's address) and gives the price at open; later ones are ticks
+  async function chainOpen() { return chainPoll(true); }
+  async function chainPoll(first) {
+    LIVE.timer = 0;
+    const gen = ++LIVE.gen, key = LIVE.key;
+    const alive = () => gen === LIVE.gen && key === LIVE.key && LIVE.mode === "chain";
+    if (!key || !liveAllowed() || key !== SEL) return liveStop(key === SEL);
+    first = first || !LIVE.st;
+    LIVE.busy = true; LIVE.polls++;
+    try {
+      if (!(await solRefresh())) throw new Error("no SOL price");
+      if (!alive()) return;
+      const r = await chainRead(); if (!alive()) return;
+      const res = await chainCheck(r, first); if (!alive()) return;
+      if (res.why) { LIVE.busy = false; if (first || !LIVE.st) return liveFallback(res.why); return liveFallback(res.why + " (switched to DexScreener)"); }
+      LIVE.st = res.st;
+      if (first) LIVE.prevQuote = null;
+      chainFlush(first);
+      LIVE.fails = 0; LIVE.status = "live";
+    } catch (e) {
+      if (!alive()) return;
+      LIVE.fails++; LIVE.dropped++; LIVE.status = "reconnecting";
+    }
+    LIVE.busy = false; liveShow();
+    const wait = LIVE.fails ? Math.min(LIVE_BACKOFF_MAX, CHAIN_EVERY * 2 ** LIVE.fails) : CHAIN_EVERY;
+    if (alive() && liveAllowed()) LIVE.timer = setTimeout(() => chainPoll(false), wait); else if (alive()) liveStop(true);
+  }
+  function chainFlush(atOpen) {
+    const st = LIVE.st; if (!st) return;
+    const sol = LIVE.kind === "curve" ? curvePriceSol(st.curve, st.dec) : poolPriceSol(st.base, st.quote, st.pool.vQuote, st.dec);
+    const quote = LIVE.kind === "curve" ? st.curve.vQuote : st.quote + st.pool.vQuote;
+    const p = sol * LIVE.solUsd;
+    if (!tickOk(LIVE.last, p)) { LIVE.dropped++; return; }
+    const dq = LIVE.prevQuote == null ? 0 : Math.abs(Number(quote - LIVE.prevQuote)) / 1e9;
+    LIVE.prevQuote = quote;
+    if (!atOpen && dq === 0 && p === LIVE.last) return;   // nothing traded
+    liveTick(p, atOpen ? 0 : dq * LIVE.solUsd);
+  }
+  function liveDraw(first) {
     if (!makeChart()) return;
-    const sec = LIVE_IVL[IVL], bars = LIVE.key === SEL ? priceCandles(LIVE.samples, sec) : [];
-    const last = CHD && CHD.live && CHD.key === SEL && CHD.ivl === IVL && CHD.bars.length;
-    CHD = {bars, key: SEL, ivl: IVL, live: true};
-    if (fresh || !last || !bars.length) {
+    const sec = LIVE_IVL[IVL], bars = LIVE.key === SEL ? tickCandles(LIVE.ticks, sec, Date.now() / 1000) : [];
+    const prev = CHD && CHD.live && CHD.key === SEL && CHD.ivl === IVL ? CHD.bars : null;
+    const chain0 = LIVE.mode === "chain";
+    CHD = {bars: chain0 ? bars : bars.map(({volume, ...b}) => b), key: SEL, ivl: IVL, live: true};   // price only: no volume to show
+    const volOf = b => ({time: b.time, value: b.volume, color: b.close >= b.open ? "rgba(38,166,154,.35)" : "rgba(239,83,80,.35)"});
+    const chain = LIVE.mode === "chain";
+    if (first || !prev || !prev.length || !bars.length || bars[0].time !== prev[0].time) {
       const c = BYKEY.get(SEL) || {}, p = precision(bars.length ? bars.at(-1).close : c.px);
       CH.cs.applyOptions({priceFormat: {type: "price", precision: p, minMove: Math.pow(10, -p)}});
-      CH.cs.setData(bars); CH.vol.setData([]); CH.cs.setMarkers([]);
+      CH.cs.setData(bars.map(({volume, ...b}) => b)); CH.vol.setData(chain ? bars.map(volOf) : []); CH.cs.setMarkers([]);
       CH.lines.forEach(l => CH.cs.removePriceLine(l)); CH.lines = [];
-      if (fresh) requestAnimationFrame(() => CH.chart.timeScale().fitContent());
-    } else CH.cs.update(bars.at(-1));                         // only the last candle changes
+      if (first) requestAnimationFrame(() => CH.chart.timeScale().fitContent());
+    } else {                                                 // only the newest candles change
+      const from = prev.at(-1).time;
+      for (const b of bars) if (b.time >= from) { const {volume, ...c} = b; CH.cs.update(c); if (chain) CH.vol.update(volOf(b)); }
+    }
     $("#t-cmsg").hidden = !!bars.length; if (!bars.length) $("#t-cmsg").textContent = LIVE.key ? "Waiting for the first live price…" : "No live prices for this coin.";
     readout(null);
   }
@@ -448,7 +659,11 @@ const TERMINAL = (() => {
   // read-only state for the browser tests: what the chart shows, never the data itself
   const inspect = () => ({sel: SEL, active: ACTIVE, ivl: IVL, pill: PILL, pane: PANE, bars: CHD ? CHD.bars.length : 0,
     markers: CH ? CH.cs.markers().length : 0, lines: CH ? CH.lines.length : 0, range: CH ? CH.chart.timeScale().getVisibleLogicalRange() : null,
-    live: {status: LIVE.status, key: LIVE.key, pool: LIVE.pool, since: LIVE.since, samples: LIVE.samples.length, polls: LIVE.polls, dropped: LIVE.dropped, polling: !!(LIVE.timer || LIVE.ctrl)}});
-  return {load, inspect, price, livePrice, priceCandles, checkItems, shortCheck, esc, validMint, validTxid, gate, manualRow, tradeFrom, ago, rowHtml, tokenPanel, botRow, sortCoins, matches, diff, sparkPath, sparkPoints, badge, precision};
+    live: {status: LIVE.status, mode: LIVE.mode, why: LIVE.why, key: LIVE.key, pool: LIVE.pool, since: LIVE.since, samples: LIVE.ticks.length, ticks: LIVE.ticks.length,
+           volume: LIVE.ticks.reduce((s, k) => s + (k.v || 0), 0), polls: LIVE.polls, dropped: LIVE.dropped, solUsd: LIVE.solUsd, last: LIVE.last,
+           polling: !!(LIVE.timer || LIVE.ctrl || LIVE.busy)},
+    lastBar: CHD && CHD.bars.length ? Object.assign({}, CHD.bars.at(-1)) : null});
+  return {load, inspect, price, livePrice, priceCandles, tickCandles, tickOk, solPrice, decodeCurve, decodePool, decodeTokenAccount, decodeMintDecimals,
+          curvePriceSol, poolPriceSol, curveAddress, findPda, b58decode, b58encode, b64bytes, checkItems, shortCheck, esc, validMint, validTxid, gate, manualRow, tradeFrom, ago, rowHtml, tokenPanel, botRow, sortCoins, matches, diff, sparkPath, sparkPoints, badge, precision};
 })();
 if (typeof module !== "undefined") module.exports = TERMINAL;

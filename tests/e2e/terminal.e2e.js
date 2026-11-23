@@ -42,6 +42,8 @@ async function session(browser, vp, opts = {}) {
   });
   await page.route("**/api/meme/chart?*", route => { const u = new URL(route.request().url()); S.chartCalls.push([u.searchParams.get("key"), u.searchParams.get("ivl")]);
     route.fulfill({json: chartFixture(u.searchParams.get("ivl"))}); });
+  await page.route("**/api/meme/chain?*", route => route.fulfill({status: 400, json: {error: "not in this test"}}));   // on-chain reads: none in this suite (the DexScreener stand-in instead)
+  await page.route("https://lite-api.jup.ag/**", route => route.fulfill({json: {So11111111111111111111111111111111111111112: {usdPrice: 72.8}}}));
   await page.route("https://api.dexscreener.com/**", route => route.fulfill({json: {pairs: []}}));     // live prices: a stand-in, no network
   await page.route("https://plugin.jup.ag/**", route => route.fulfill({contentType: "text/javascript",
     body: "window.Jupiter={init:function(o){window.__jupInit=JSON.parse(JSON.stringify(o));document.getElementById(o.integratedTargetId).textContent='JUPITER STUB'},close:function(){window.__jupClosed=(window.__jupClosed||0)+1}};"}));
@@ -61,8 +63,8 @@ async function run(browser, vp) {
   for (const v of ["desk", "account", "journal", "research", "graph", "market", "meme", "settings", "terminal"]) { await s.page.click(`[data-v="${v}"]`); await sleep(1200); }
   const realRows = await s.page.$$eval("#t-list .wl-row", r => r.length);
   check(tag + "real data: the watchlist lists every coin", realRows === s.S.real.coins.length && realRows > 0, {rows: realRows});
-  const otherBad = s.bad.filter(x => !x.endsWith("/favicon.ico"));
-  check(tag + "all tabs load: no console errors besides the favicon 404", s.errors.filter(e => !/Failed to load resource.*404/.test(e)).length === 0 && otherBad.length === 0, {errors: s.errors, bad: s.bad});
+  const otherBad = s.bad.filter(x => !x.endsWith("/favicon.ico") && x !== "400 /api/meme/chain");
+  check(tag + "all tabs load: no console errors besides the favicon 404", s.errors.filter(e => !/Failed to load resource.*(404|400)/.test(e)).length === 0 && otherBad.length === 0, {errors: s.errors, bad: s.bad});
   await s.page.unrouteAll({behavior: "ignoreErrors"}); await s.ctx.close();
 
   // ---- a fixed set of 60 coins from here on
@@ -217,7 +219,7 @@ async function run(browser, vp) {
   const small = await scrollAll();
   check(tag + "500 coins: full scroll, frames no slower than the 40-coin baseline (p95 within 1.25x)", perf.rows >= 500 && perf.p95 <= Math.max(small.p95 * 1.25, 20), {perf, baseline40: small});
 
-  check(tag + "Terminal checks: no console errors", s.errors.filter(e => !/Failed to load resource.*404/.test(e)).length === 0 && s.bad.filter(x => !x.endsWith("/favicon.ico")).length === 0, {errors: s.errors, bad: s.bad});
+  check(tag + "Terminal checks: no console errors", s.errors.filter(e => !/Failed to load resource.*(404|400)/.test(e)).length === 0 && s.bad.filter(x => !x.endsWith("/favicon.ico") && x !== "400 /api/meme/chain").length === 0, {errors: s.errors, bad: s.bad});
   await s.page.unrouteAll({behavior: "ignoreErrors"}); await s.ctx.close();
 
   // reduced motion: a new coin at the top does not animate

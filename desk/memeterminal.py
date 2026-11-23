@@ -223,3 +223,115 @@ def append_atomic(row):
             os.fsync(fh.fileno())
         os.replace(tmp, path)
     return True
+
+
+# ---- live prices: the selected coin's on-chain accounts, read by the desk for the Terminal page
+# Solana's public RPC refuses requests from a browser page (HTTP 403 for an Origin header; the websocket closes with
+# 1006), so the page asks the desk. The page names a tracked coin, never an address: the desk works out the accounts
+# itself (the coin's pump.fun curve or PumpSwap pool, its mint, and the pool's two vaults) and returns their raw bytes
+# from one getMultipleAccounts. The page checks owners, layouts and links and decodes them (desk/static/terminal.js).
+RPC = "https://api.mainnet-beta.solana.com"
+PUMP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
+POOL_DISC = bytes([241, 154, 109, 4, 17, 177, 109, 188])     # PumpSwap Pool (pump-fun/pump-public-docs idl/pump_amm.json)
+CHAIN_DEX = ("pumpfun", "pumpswap")
+CHAIN_EVERY = 0.5          # seconds between RPC calls from the desk, at most
+CHAIN_CACHE = 0.8          # seconds an answer for one coin is reused (two open tabs make one call)
+_chain_lock = threading.Lock()
+_chain_last = [0.0]
+_chain_cache = {}
+_chain_vaults = {}
+# key -> (dex, mint, pool) for tracked pump.fun / PumpSwap coins, so a poll never opens model.json: on Windows an open
+# model.json can make the scanner's save fail (WinError 5 on replace). Refreshed from model.json at most once a minute;
+# a key not in the map reloads it at most once every 5 s.
+COINS_EVERY, COINS_MISS_EVERY = 60.0, 5.0
+_coins = {"at": -1e18, "miss_at": -1e18, "map": {}}
+
+
+class ChainError(Exception):
+    pass
+
+
+def _b58(b):
+    n, s = int.from_bytes(b, "big"), ""
+    while n:
+        n, r = divmod(n, 58)
+        s = B58[r] + s
+    return "1" * (len(b) - len(b.lstrip(b"\0"))) + s
+
+
+def _rpc_accounts(addrs, post=None):
+    """[{owner, data: [base64, "base64"]} | None] for addrs, from the public RPC (read-only)."""
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "getMultipleAccounts",
+                       "params": [addrs, {"encoding": "base64", "commitment": "confirmed"}]}).encode()
+    if post is None:
+        import urllib.request
+        req = urllib.request.Request(RPC, body, {"Content-Type": "application/json", "User-Agent": meme.UA})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                d = json.loads(r.read().decode("utf-8"))
+        except (OSError, ValueError) as e:
+            raise ChainError("Solana RPC did not answer (%s)" % type(e).__name__)
+    else:
+        d = post(body)
+    v = ((d or {}).get("result") or {}).get("value")
+    if not isinstance(v, list) or len(v) != len(addrs):
+        raise ChainError("Solana RPC gave no accounts")
+    out = []
+    for a in v:
+        ok = isinstance(a, dict) and isinstance(a.get("owner"), str) and isinstance(a.get("data"), list) and len(a["data"]) == 2 \
+            and isinstance(a["data"][0], str) and a["data"][1] == "base64" and len(a["data"][0]) < 20000
+        out.append({"owner": a["owner"], "data": a["data"]} if ok else None)
+    return out
+
+
+def _coin(key, now):
+    """(dex, mint, pool) for a tracked pump.fun or PumpSwap coin, or None; reads model.json only as described above."""
+    c = _coins
+    if now - c["at"] >= COINS_EVERY or (key not in c["map"] and now - c["miss_at"] >= COINS_MISS_EVERY):
+        if key not in c["map"]:
+            c["miss_at"] = now
+        tracked = meme.load().get("tracked") or {}
+        c["map"] = {k: (t["dex"], t["addr"], t["pool"]) for k, t in tracked.items()
+                    if isinstance(t, dict) and t.get("chain") == "solana" and t.get("dex") in CHAIN_DEX
+                    and valid_mint(t.get("addr")) and valid_mint(t.get("pool"))}
+        c["at"] = now
+    return c["map"].get(key)
+
+
+def chain(key, post=None, now=None):
+    """The raw accounts for one tracked pump.fun or PumpSwap coin: {kind, addrs: {role: address}, accounts: {address:
+    {owner, data} | None}}. Raises ChainError for anything else. At most one RPC call every 0.5 s, answers reused 0.8 s.
+    No file is read for a cached answer, and model.json at most once a minute (see _coin)."""
+    import base64
+    now = time.time() if now is None else now
+    if not isinstance(key, str):
+        raise ChainError("on-chain prices are for tracked pump.fun and PumpSwap coins only")
+    hit = _chain_cache.get(key)
+    if hit and now - hit[0] < CHAIN_CACHE:
+        return hit[1]
+    coin = _coin(key, now)
+    if not coin:
+        raise ChainError("on-chain prices are for tracked pump.fun and PumpSwap coins only")
+    t = {"dex": coin[0], "addr": coin[1], "pool": coin[2]}
+    with _chain_lock:
+        wait = _chain_last[0] + CHAIN_EVERY - time.time()
+        if wait > 0:
+            time.sleep(wait)
+        addrs = {"pool": t["pool"], "mint": t["addr"]}
+        vaults = _chain_vaults.get((t["pool"], t["addr"]))       # a pool's vaults never change: read them once
+        if vaults:
+            addrs.update(vaults)
+        accts = _rpc_accounts(list(addrs.values()), post)
+        if t["dex"] == "pumpswap" and not vaults:
+            pool = accts[0]
+            raw = base64.b64decode(pool["data"][0]) if pool and pool["owner"] == PUMP_AMM else b""
+            if raw[:8] == POOL_DISC and len(raw) >= 203:
+                vaults = {"base_vault": _b58(raw[139:171]), "quote_vault": _b58(raw[171:203])}
+                _chain_vaults[(t["pool"], t["addr"])] = vaults
+                addrs.update(vaults)
+                accts = _rpc_accounts(list(addrs.values()), post)
+        _chain_last[0] = time.time()
+    out = {"kind": "curve" if t["dex"] == "pumpfun" else "pool", "addrs": addrs, "at": now,
+           "accounts": {a: x for a, x in zip(list(addrs.values()), accts)}}
+    _chain_cache[key] = (now, out)
+    return out

@@ -37,6 +37,8 @@ async function run(browser, [w, h, dpr, note]) {
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
   page.on("response", r => { if (r.status() >= 400) bad.push(r.status() + " " + new URL(r.url()).pathname); });
   await page.route("https://plugin.jup.ag/**", route => route.fulfill({contentType: "text/javascript", body: "window.Jupiter={init:function(o){document.getElementById(o.integratedTargetId).textContent='JUPITER STUB'},close:function(){}};"}));
+  await page.route("**/api/meme/chain?*", route => route.fulfill({status: 400, json: {error: "not in this test"}}));   // on-chain reads: none in this suite (the DexScreener stand-in instead)
+  await page.route("https://lite-api.jup.ag/**", route => route.fulfill({json: {So11111111111111111111111111111111111111112: {usdPrice: 72.8}}}));
   await page.route("https://api.dexscreener.com/**", route => route.fulfill({json: {pairs: []}}));
   await page.route("**/api/meme/chart?*", route => route.fulfill({json: {bars, levels: [], trades: [], symbol: "X", url: "https://dexscreener.com/solana/x"}}));
   await page.goto(BASE + "/"); await page.waitForSelector(".tabs button");
@@ -92,7 +94,7 @@ async function run(browser, [w, h, dpr, note]) {
   await verify("resized smaller: ");
   await page.setViewportSize({width: w, height: h}); await sleep(700);
   await verify("resized back: ");
-  check(tag + "no console errors besides the favicon 404", errors.filter(e => !/Failed to load resource.*404/.test(e)).length === 0 && bad.filter(x => !x.endsWith("/favicon.ico")).length === 0, {errors, bad});
+  check(tag + "no console errors besides the favicon 404", errors.filter(e => !/Failed to load resource.*(404|400)/.test(e)).length === 0 && bad.filter(x => !x.endsWith("/favicon.ico") && x !== "400 /api/meme/chain").length === 0, {errors, bad});
   await page.screenshot({path: (process.env.SHOTS || ".") + `/fit-${w}x${h}.png`});
   await page.unrouteAll({behavior: "ignoreErrors"}); await ctx.close();
 }
