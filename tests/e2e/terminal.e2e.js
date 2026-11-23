@@ -155,7 +155,7 @@ async function run(browser, vp) {
   const lastReadout = await page.$eval("#t-ohlc", e => e.textContent);
   await page.mouse.move(box.x + box.w * 0.3, box.y + box.h * 0.4); await sleep(200);
   const hoverReadout = await page.$eval("#t-ohlc", e => e.textContent);
-  check(tag + "chart: crosshair readout shows the hovered candle's OHLC and volume", /^O .+ H .+ L .+ C .+ V .+/.test(hoverReadout) && hoverReadout !== lastReadout, {lastReadout, hoverReadout});
+  check(tag + "chart: crosshair readout shows the hovered candle's OHLC and volume", /^O .+H .+L .+C .+V .+/.test(hoverReadout) && hoverReadout !== lastReadout, {lastReadout, hoverReadout});
   check(tag + "chart: buy/sell markers and the three level lines", st.markers === 2 && st.lines === 3 && st.bars === 80, st);
   S.chartCalls = []; await page.click('[data-tivl="15m"]'); await sleep(400);
   st = await page.evaluate(() => TERMINAL.inspect());
