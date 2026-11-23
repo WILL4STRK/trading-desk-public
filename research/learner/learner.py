@@ -257,9 +257,11 @@ class Learner:
     def poll(self):
         s, m = self.state, self.state["model"]
         mj = self._read_model_json()
-        tracked = (mj or {}).get("tracked") or {}
+        if mj is None:                       # mid-replace or missing: skip the whole poll, closes included (offset unchanged)
+            return s["counts"]
+        tracked = mj.get("tracked") or {}
         # 1. opens: a population shadow seen open for the first time is predicted at once
-        for sh in (mj or {}).get("shadows") or []:
+        for sh in mj.get("shadows") or []:
             if not isinstance(sh, dict) or not population(sh):
                 continue
             i = sid(sh)

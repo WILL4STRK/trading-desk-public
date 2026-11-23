@@ -295,6 +295,17 @@ class Restart(Base):
         lr.poll()
         self.assertEqual(len(self.closes()), 1)
 
+    def test_unreadable_model_json_skips_the_poll(self):
+        lr = self.learner()
+        self.desk.close(shadow(key="z"), T0 + 9, 1.0)
+        (self.desk.dir / "model.json").write_text('{"shadows": [')
+        lr.poll()
+        self.assertEqual(lr.state["offset"], 0)
+        self.assertEqual(self.closes(), [])
+        self.desk.write()
+        lr.poll()
+        self.assertEqual(len(self.closes()), 1)
+
     def test_shadows_file_is_never_written(self):
         lr = self.learner()
         self.desk.add_open(shadow(key="a"))
