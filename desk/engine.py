@@ -765,7 +765,7 @@ class Desk:
                 raise DeskError("Settings must be a set of names and values.")
             for k in changes.RESERVED:
                 if k in wanted:
-                    raise DeskError("%s has its own switch. It cannot be changed from the settings form." % k)
+                    raise DeskError(changes.RESERVED_WHY[k])
             old = S.load()
             new = S.update(wanted)
             now = self.src.now()

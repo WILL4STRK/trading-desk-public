@@ -20,6 +20,10 @@ B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _MINT = re.compile(r"[%s]{32,44}" % B58)
 _TXID = re.compile(r"[%s]{64,90}" % B58)       # a Solana signature: 64 bytes, 86 to 88 base58 characters
 MAX_SELL_TAX = 10.0                             # % ; above this the swap panel stays shut
+# Token-2022 extensions that can stop a sale or take the tokens back, matched in the screen's risk names and reasons
+TOKEN_2022 = ((("permanent delegate",), "permanent delegate: another account can move or burn your tokens at any time"),
+              (("transfer hook",), "transfer hook: the token's own program runs on every transfer and can refuse a sale"),
+              (("non-transferable", "non transferable"), "non-transferable: the token cannot be sent, so it cannot be sold"))
 MANUAL = "manual.jsonl"
 TICKER_MAX = 60
 _lock = threading.Lock()
@@ -66,8 +70,9 @@ _PCT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 
 
 def cant_sell(sc):
-    """Reasons you may not be able to sell, from what the screen saved: freeze authority enabled, a honeypot, or a
-    sell tax (or Token-2022 transfer fee) above 10%. A tax risk with no readable size counts as above 10%."""
+    """Reasons you may not be able to sell, from what the screen saved: freeze authority enabled, a honeypot, a
+    Token-2022 permanent delegate, transfer hook or non-transferable mint, or a sell tax (or transfer fee) above 10%.
+    A tax risk with no readable size counts as above 10%."""
     sc = sc or {}
     rep = sc.get("report") or {}
     texts = [str(r.get("name") or "") for r in rep.get("risks") or [] if isinstance(r, dict)]
@@ -77,6 +82,9 @@ def cant_sell(sc):
         why.append("freeze authority is enabled: the creator can freeze your tokens")
     if any("honeypot" in t.lower() for t in texts) or str(rep.get("is_honeypot")) == "1":
         why.append("reported as a honeypot: buys work, sells may not")
+    for words, reason in TOKEN_2022:
+        if any(w in t.lower() for t in texts for w in words):
+            why.append(reason)
     taxes = []
     for t in texts:
         if _TAX.search(t):

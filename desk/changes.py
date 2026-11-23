@@ -7,8 +7,12 @@ made on the dashboard is logged with the old and the new value.
 
 # Values that may hold a name, an email or an account id are logged as "changed" only.
 PRIVATE = ("sec_user_agent", "ntfy_topic", "meme_ntfy_topic")
-# Changed through their own switch with its own check, never through the settings form.
-RESERVED = ("mode",)
+# Never changed through /api/settings. mode has its own switch with its own check. meme_terminal_allow_unsellable
+# changes only by editing settings.json: Jupiter's unpinned script runs in the desk's own page and could call the API.
+RESERVED = ("mode", "meme_terminal_allow_unsellable")
+RESERVED_WHY = {"mode": "mode has its own switch. It cannot be changed from the settings form.",
+                "meme_terminal_allow_unsellable": "meme_terminal_allow_unsellable changes only by editing the desk's "
+                                                  "settings.json, never from the page."}
 
 
 def _show(v):

@@ -90,6 +90,18 @@ class CantSell(DeskCase):
         self.assertIn("honeypot", MT.cant_sell({"verdict": "fail", "report": {"is_honeypot": "1"}})[0])
         self.assertIn("sell tax 15%", MT.cant_sell({"verdict": "fail", "report": {"sell_tax": "0.15"}})[0])
 
+    def test_permanent_delegate_blocks(self):
+        self.assertEqual(MT.cant_sell(scr(risks=["Permanent Delegate"])),
+                         ["permanent delegate: another account can move or burn your tokens at any time"])
+
+    def test_transfer_hook_blocks(self):
+        self.assertEqual(MT.cant_sell(scr(why=["danger: Transfer Hook enabled"])),
+                         ["transfer hook: the token's own program runs on every transfer and can refuse a sale"])
+
+    def test_non_transferable_blocks(self):
+        self.assertEqual(MT.cant_sell(scr(strict_why=["Non-Transferable token"])),
+                         ["non-transferable: the token cannot be sent, so it cannot be sold"])
+
     def test_a_sell_tax_of_10_pct_or_less_and_ordinary_risks_do_not_block(self):
         self.assertEqual(MT.cant_sell(scr(risks=["Transfer fee 10%", "Low Liquidity", "Mint Authority still enabled"])), [])
         self.assertEqual(MT.cant_sell(None), [])
@@ -263,6 +275,20 @@ class Route(DemoCase):
         code, _, b = self.call("/api/meme/manual", body, h)
         self.assertEqual((code, json.loads(b)["logged"]), (200, True))
         self.assertEqual(json.loads(self.call("/api/meme/terminal")[2])["manual"][0]["txid"], TX)
+
+    def test_the_page_cannot_turn_on_the_unsellable_switch(self):
+        h = {"Content-Type": "application/json", "X-Desk": "1"}
+        for changes in ({"meme_terminal_allow_unsellable": True}, {"meme_paused": True, "meme_terminal_allow_unsellable": True}):
+            code, _, b = self.call("/api/settings", {"changes": changes}, h)
+            self.assertEqual(code, 400)
+            self.assertIn("settings.json", json.loads(b)["error"])
+            self.assertIs(S.load()["meme_terminal_allow_unsellable"], False)
+            self.assertIs(S.load()["meme_paused"], False)                 # nothing in the refused request is saved
+        self.assertEqual(self.call("/api/settings", {"changes": {"meme_paused": True}}, h)[0], 200)   # the rest still saves
+        S.save({"meme_terminal_allow_unsellable": True})                        # editing the file is the only way
+        code, _, b = self.call("/api/settings", {"changes": {"meme_terminal_allow_unsellable": False}}, h)
+        self.assertEqual(code, 400)
+        self.assertIs(S.load()["meme_terminal_allow_unsellable"], True)
 
     def test_csp_allows_scripts_only_from_the_desk_and_jupiter(self):
         code, headers, page = self.call("/")

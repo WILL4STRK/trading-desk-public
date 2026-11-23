@@ -634,7 +634,6 @@ const MEME_FIELDS = [
   ["meme_ntfy","Phone alerts for paper trades","One ntfy push per practice buy and sell. off, main (the main account only) or all (every practice account). Never for shadows. Paper only, not advice. Test it from Settings with Send test meme alert.","select",["off","main","all"]],
   ["meme_ntfy_topic","Memecoin ntfy topic","Empty = the ntfy topic in Settings. Letters, digits, - and _ only. Anyone who knows the topic can read the alerts."],
   ["meme_ntfy_max_per_hour","Most alerts an hour","Over this, alerts are dropped and one \"N alerts skipped\" push follows at the next free slot."],
-  ["meme_terminal_allow_unsellable","Open the swap for can't-sell coins","Terminal tab. Off (the default) keeps Jupiter's swap shut for a coin the check says you may not be able to sell: freeze authority on, a honeypot, or a sell tax over 10%. Real money.","select",["false","true"]],
 ];
 const RULE_NAME = {careful:"Careful: strict check, no research filter", learn:"Learning: any of the six rules", auto:"The backtest's pick"};
 const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative", migration:"After migration, steady flow (P7)", migration_base:"After migration, any (P7 control)", moonshot:"Moonshot: young coin taking off (P8)", moonshot_base:"Young coin, any (P8 control)", quick:"Quick: +10% / -5% / 30 min (P9)"};

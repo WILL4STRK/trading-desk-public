@@ -41,7 +41,7 @@ const TERMINAL = (() => {
       return `<div class="callout bad"><b>Swap off:</b> this coin's address is not a valid Solana address.</div>`;
     if (c.swap === "blocked")
       return `<div class="callout bad t-block" role="alert"><b>Blocked: you may not be able to sell this token</b><ul>${c.cant_sell.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
-        <p class="t-small">To open the swap anyway, turn on "Open the swap for can't-sell coins" in the Memecoins tab's settings.</p></div>`;
+        <p class="t-small">The page cannot change this. To open the swap anyway, set meme_terminal_allow_unsellable to true in the desk's settings.json by hand.</p></div>`;
     const all = (c.cant_sell || []).map(w => "Can't sell: " + w).concat((c.failed || []).map(f => (f.check === "strict" ? "Strict: " : "Safety: ") + f.reason));
     return `<div class="callout bad t-warn" role="alert"><b>This coin failed ${all.length} check${all.length === 1 ? "" : "s"}</b><ul>${all.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
       <label class="t-ack"><input type="checkbox" id="t-ack"${confirmed ? " checked" : ""}> I understand this coin failed these checks</label></div>`;
