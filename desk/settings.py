@@ -80,9 +80,13 @@ DEFAULTS = {
     "meme_chains": ["solana", "base", "bsc", "ethereum"],
     "meme_search_new": True,         # also search DexScreener for pools under a day old (more new coins, same rules)
     "meme_news_words": [],           # news you are watching, e.g. "GTA 6 launch": coins named after it count as news
+    "meme_ntfy": "off",              # phone alerts for memecoin paper buys and sells: off | main (main account) | all (every account)
+    "meme_ntfy_topic": "",           # empty = the ntfy_topic above
+    "meme_ntfy_max_per_hour": 20,    # over this, alerts are dropped and one "N alerts skipped" follows at the next free slot
 }
 
 MEME_CHAINS = ("solana", "base", "bsc", "ethereum")
+MEME_NTFY = ("off", "main", "all")
 MEME_POLICIES = ("careful", "learn", "auto", "hype", "breakout", "calm_aged", "dip_aged", "aged_liquid", "news")
 
 _RANGES = {
@@ -96,6 +100,7 @@ _RANGES = {
     "monitor_every_seconds": (20, 3600), "news_hours": (1, 240), "auto_watchlist_movers": (0, 40),
     "breaking_news_minutes": (5, 120),
     "meme_starting_balance": (10, 1e7), "meme_position_pct": (1, 100), "meme_max_open": (1, 20), "meme_cost_pct": (0, 20),
+    "meme_ntfy_max_per_hour": (1, 600),
 }
 
 
@@ -180,6 +185,11 @@ def validate(raw):
     s["ntfy_topic"] = str(s["ntfy_topic"]).strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{0,64}", s["ntfy_topic"]):
         raise SettingsError("ntfy_topic may only use letters, digits, - and _, at most 64")
+    s["meme_ntfy_topic"] = str(s["meme_ntfy_topic"]).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{0,64}", s["meme_ntfy_topic"]):
+        raise SettingsError("meme_ntfy_topic may only use letters, digits, - and _, at most 64")
+    if s["meme_ntfy"] not in MEME_NTFY:
+        raise SettingsError("meme_ntfy must be one of %s" % ", ".join(MEME_NTFY))
     s["ntfy_server"] = str(s["ntfy_server"]).strip()
     if not re.fullmatch(r"https://[^\s/]+(/\S*)?", s["ntfy_server"]):
         raise SettingsError("ntfy_server must start with https://")

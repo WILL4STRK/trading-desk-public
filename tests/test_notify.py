@@ -48,10 +48,12 @@ class Notify(DeskCase):
         self.assertIn("• Tesla three (Yahoo)\nhttps://example.com/3", b["message"])
         self.assertNotIn("Tesla four", b["message"])                     # three headlines at most
 
-    def test_live_title_and_no_links_falls_back_to_the_dashboard(self):
+    def test_live_title_and_no_links_has_no_click_never_a_localhost_link(self):
         b = sent(self.send(dict(SIG, news=[]), mode="live"))[0]
         self.assertTrue(b["title"].startswith("[LIVE] "))
-        self.assertEqual(b["click"], "http://127.0.0.1:8787")
+        self.assertNotIn("click", b)                                     # a phone cannot open the desk on this PC
+        self.assertNotIn("127.0.0.1", json.dumps(b))
+        self.assertEqual(notify.DASHBOARD, "http://127.0.0.1:8790")
         self.assertEqual([a["label"] for a in b["actions"]], ["Chart"])
 
     def test_a_short_says_sell_short_not_buy(self):

@@ -31,6 +31,7 @@ from . import memoon as MN
 from . import memoonpilot as MP
 from . import memereentry as MR
 from . import memequick as QK
+from . import notify
 from . import settings as S
 from .paths import ROOT, data_dir
 from .skills import read_json, write_json
@@ -541,17 +542,50 @@ def _exit_rule(entry_px, entry_ts, px, liq, now, entry_liq=None):
 
 # ---- one run -----------------------------------------------------------------------------------------------------
 
-def run(now=None, fetch=None):
-    """One pass. Returns a short summary dict. Never raises for a network problem; the error is kept on the card."""
+def run(now=None, fetch=None, demo=False):
+    """One pass. Returns a short summary dict. Never raises for a network problem; the error is kept on the card.
+    demo: no phone alerts (the scheduler never runs this model in the demo anyway)."""
     if not _running.acquire(blocking=False):
         return {"skipped": "already running"}
     try:
-        return _run(time.time() if now is None else now, fetch or get)
+        return _run(time.time() if now is None else now, fetch or get, demo)
     finally:
         _running.release()
 
 
-def _run(now, fetch):
+def _trade_alerts(st, accts, before, tracked, screens):
+    """Phone-alert events (desk/notify.py) for this run's practice-account buys and sells. Reads only: it never
+    changes an account, a shadow, an exit or a cost. Shadows never alert."""
+    out = []
+    for bn, ba in accts:
+        held, n_closed = before[bn]
+        for c in ba["closed"][n_closed:]:
+            t = tracked.get(c["key"]) or {}
+            out.append({"kind": "sell", "account": bn, "symbol": c.get("symbol"), "chain": c["chain"],
+                        "token": c["key"].split(":", 1)[1], "pool": t.get("pool"), "why": c.get("why"),
+                        "entry_px": c["px"], "exit_px": c.get("exit_px"), "held_min": (c["exit_ts"] - c["ts"]) / 60,
+                        "pnl": c["pnl"], "ret_pct": c["ret_pct"], "balance": round(equity(st, ba, tracked), 2)})
+        for p in ba["positions"]:
+            if (p["key"], p["ts"]) in held:
+                continue
+            t, sc, pol = tracked.get(p["key"]) or {}, screens.get(p["key"]) or {}, p.get("policy")
+            f = t.get("f") or {}
+            if pol in MN.POLICIES:
+                stop, target = MN.stop_level(p["px"], p["px"]), None
+            elif pol in QK.POLICIES:
+                stop, target = p["px"] * (1 + QK.STOP_PCT / 100), p["px"] * (1 + QK.TARGET_PCT / 100)
+            else:
+                stop, target = p["px"] * (1 + R.STOP_PCT / 100), p["px"] * (1 + R.TARGET_PCT / 100)
+            out.append({"kind": "buy", "account": bn, "symbol": p.get("symbol"), "chain": p["chain"],
+                        "token": p["key"].split(":", 1)[1], "pool": t.get("pool"), "dex": p.get("dex") or t.get("dex"),
+                        "rule": pol, "px": p["px"], "fill": p.get("fill"), "size": p["cost"], "stop": stop,
+                        "target": target, "liq": p.get("liq"), "v1h": f.get("v1h"), "age_h": f.get("age_h"),
+                        "r1h": f.get("r1h"), "screen": sc.get("verdict"), "strict": sc.get("strict"),
+                        "warning": (sc.get("why") or [None])[0]})
+    return out
+
+
+def _run(now, fetch, demo=False):
     st = S.load()
     s = load()
     pol, why_pol = policy(st)
@@ -566,6 +600,7 @@ def _run(now, fetch):
             books[name] = _new_account(st["meme_starting_balance"])
         books[name]["started"] = books[name].get("started") or _iso(now)
     accts = [("main", acct)] + [(n, books[n]) for n, _, _ in BOOKS]
+    before = {bn: ({(p["key"], p["ts"]) for p in ba["positions"]}, len(ba["closed"])) for bn, ba in accts}
     careful = books["careful"]
     first_careful_close = len(careful["closed"])
     tracked, shadows = s.get("tracked") or {}, s.get("shadows") or []
@@ -914,6 +949,13 @@ def _run(now, fetch):
         if study.get("incomplete") is None:
             study["incomplete"] = {"ts": now, "reason": "observer error"}
 
+    # phone alerts for this run's practice buys and sells, built before the prune (it may drop a sold coin's pool)
+    try:
+        alerts = _trade_alerts(st, accts, before, tracked, screens)
+    except Exception as err:                      # like N1 and P9: a push never decides anything in the scan
+        alerts = []
+        log.warning("memecoin phone alerts not built: %s", err)
+
     # prune: old or dead tokens with nothing open
     busy = set().union(*held.values()) | {sh["key"] for sh in shadows} | {pe["key"] for pe in pending}
     for k in [k for k, t in tracked.items() if k not in busy and (now - t["first_seen"] > TRACK_DAYS * 86400
@@ -934,6 +976,10 @@ def _run(now, fetch):
     s.update(account=acct, books=books, tracked=tracked, shadows=shadows, last_run=now, checked=_iso(now), error=None,
              policy=pol, policy_why=why_pol)
     _save(s)
+    try:                                          # after the buys and sells are recorded; never raises into the scan
+        notify.send_meme(alerts, st, demo)
+    except Exception as err:
+        log.warning("memecoin phone alerts not sent: %s", err)
     out.update(tracked=len(tracked), open_shadows=len(shadows), equity=round(eq, 2))
     _prefetch_pilot(pilot_pairs, gt_budget, now, fetch)
     return out
