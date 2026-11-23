@@ -20,3 +20,9 @@ site/shots/
 research/forecast/input/
 research/downside/input/
 research/downside/out/
+
+# C1 copy study: secrets and run data never in the repo
+*.key
+kol-map.json
+research/copy/input/
+research/copy/cache/
