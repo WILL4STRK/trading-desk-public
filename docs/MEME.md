@@ -534,6 +534,16 @@ it changes no live rule.
 
 **Changes.** Changing any number in this section after a result is seen restarts the count and is logged in docs/CHANGES.md.
 
+### 17.1 Amendment, 2026-11-23 (before the forward window was read: no D1 forward result has been seen)
+
+**Duplicate closes.** When a desk save of model.json fails after a shadow's close was already appended to shadows.jsonl,
+the next run can close the same shadow again, so shadows.jsonl holds two lines for one entry. A duplicate is the same
+`key`, `policy` and entry `ts`. Before any scoring, the D1 read keeps only the **first** close of each (the earliest
+`exit_ts`, the one the paper logic took) and drops the rest. It reports the number of lines removed. One such case is
+known in the window: `solana:8WW5B189mPntQQ85HTPvQNsYxXhQbAhdjXvZ6qaapump`, policy `all`, entry 2026-11-23 21:14:58 UTC,
+closed at 21:20:00 (stop, -17.985 %) and again at 21:21:01 (stop, -26.216 %), around a failed save at 21:20:11; the
+21:20:00 close is kept. This changes no number in section 17. The desk's save now retries the replace (PR #19).
+
 ## 19. C1: copy niche Solana wallets that buy early in runners, and C1-S: side wallets of popular callers (pre-registered 2026-11-23, before any code and before any wallet data)
 
 **Why.** Every rule above decides from price and volume. C1 asks a different question: do a few small Solana wallets that kept buying runners
