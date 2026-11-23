@@ -36,7 +36,10 @@ out["pool"] = {"mint": POOL[0], "account": pool, "base_vault": bva, "quote_vault
 out["sol_usd_jupiter"] = (sol.get("So11111111111111111111111111111111111111112") or {}).get("usdPrice")
 out["curve"]["jupiter_usd"] = (sol.get(CURVE[0]) or {}).get("usdPrice")
 out["pool"]["jupiter_usd"] = (sol.get(POOL[0]) or {}).get("usdPrice")
-json.dump(out, open(sys.argv[1], "w"), indent=1)
+import os
+with open(sys.argv[1] + ".tmp", "w") as fh:       # written whole, then swapped in
+    json.dump(out, fh, indent=1)
+os.replace(sys.argv[1] + ".tmp", sys.argv[1])
 c = base64.b64decode(cur["data"]); vt, vq = struct.unpack_from("<QQ", c, 8)
 dec_c = base64.b64decode(cmint["data"])[44]
 print("curve owner", cur["owner"], "len", len(c), "disc", list(c[:8]), "vt", vt, "vq", vq, "decimals", dec_c,
