@@ -142,6 +142,41 @@ class NoPostT19(TempHome):
         self.assertEqual(fx.sig_count(W1, T - 1000), 1)
         self.assertEqual(calls.count("getTransactionsForAddress"), 1)     # refused once, then never asked again
 
+    def test_429_is_retried_and_never_cached(self):
+        calls = []
+
+        def http(url):
+            calls.append(url)
+            if len(calls) <= 2:
+                raise RuntimeError("HTTP 429 from " + url)
+            return {"data": {"attributes": {"ohlcv_list": [[T - 90000, 1, 1, 1, 1.0, 0]]}}}
+        fx = D.Fetch(None, self.dir / "cache", http=http, sleep=lambda s: None)
+        c = fx.candles(POOL, T - 90000)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(c["bars"]), 1)
+        self.assertEqual(len((self.dir / "fetch_errors.jsonl").read_text(encoding="utf-8").splitlines()), 2)
+
+        def down(url):
+            raise RuntimeError("HTTP 429 from " + url)
+        fx2 = D.Fetch(None, self.dir / "c2", http=down, sleep=lambda s: None)
+        self.assertIn("error", fx2.candles(POOL, T - 90000))
+        self.assertFalse(any((self.dir / "c2").rglob("*.json")))         # the failure is not cached
+        cached_err = self.dir / "c3" / "candles"
+        cached_err.mkdir(parents=True)
+        fx3 = D.Fetch(None, self.dir / "c3", http=http, sleep=lambda s: None)
+        name = __import__("hashlib").sha256(("%s|%d" % (POOL, T - 90000 + 86400)).encode()).hexdigest()[:40]
+        (cached_err / (name + ".json")).write_text('{"error": "old 429"}', encoding="utf-8")
+        self.assertIn("bars", fx3.candles(POOL, T - 90000))              # an old cached error is fetched again
+
+    def test_gt_rate_setting(self):
+        for v, want in (("3", 3), ("9", 5), ("0", 1), ("x", 5), (None, 5)):
+            if v is None:
+                os.environ.pop("COPY_GT_PER_MIN", None)
+            else:
+                os.environ["COPY_GT_PER_MIN"] = v
+            self.assertEqual(D.gt_per_min(), want)
+        os.environ.pop("COPY_GT_PER_MIN", None)
+
     def test_wallet_stats_only_inside_window(self):
         sw = [{"ts": T - 100, "sig": "a", "slot": 1, "mint": MINT, "side": "buy", "tokens": 10, "sol": 1.0},
               {"ts": T - 50, "sig": "b", "slot": 2, "mint": MINT, "side": "sell", "tokens": 10, "sol": 2.0},
