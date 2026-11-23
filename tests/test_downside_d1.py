@@ -1,6 +1,8 @@
 """D1 downside vetoes (docs/MEME.md section 17): random veto strata, vetoed = 0, missing feature, the forward lock. Synthetic data only."""
 import json
+import os
 import random
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -79,6 +81,35 @@ class ForwardLock(unittest.TestCase):
             self.assertTrue((out / "forward.lock").exists())
             with self.assertRaises(SystemExit):
                 d1.forward(f, since, now=since + d1.WINDOW_S + d1.GRACE_S + 2, out=out)
+
+
+class SinceFromGit(unittest.TestCase):
+    """Section 17 was added by MODIFYING docs/MEME.md, so the lookup must not filter on added files."""
+
+    def test_this_repo_returns_the_section_17_commit_time(self):
+        root = Path(d1.__file__).resolve().parents[2]
+        known = subprocess.run(["git", "cat-file", "-e", "92be491^{commit}"], cwd=root, capture_output=True)
+        if known.returncode:
+            self.skipTest("92be491 is not in this checkout's history")
+        self.assertEqual(d1.since_from_git(root), 1795404112)
+
+    def test_fixture_repo_where_the_heading_is_added_to_an_existing_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+
+            def commit(text, when):
+                (Path(d) / "docs").mkdir(exist_ok=True)
+                (Path(d) / "docs" / "MEME.md").write_text(text, encoding="utf8")
+                e = dict(env, GIT_AUTHOR_DATE="%d +0000" % when, GIT_COMMITTER_DATE="%d +0000" % when)
+                subprocess.run(["git", "add", "-A"], cwd=d, check=True, env=e, capture_output=True)
+                subprocess.run(["git", "commit", "-q", "-m", "c"], cwd=d, check=True, env=e, capture_output=True)
+
+            subprocess.run(["git", "init", "-q"], cwd=d, check=True, capture_output=True)
+            nl = chr(10)
+            commit("# doc" + nl, 1700000000)
+            commit("# doc" + nl * 2 + "## 17. D1: downside vetoes" + nl, 1700000500)    # the heading arrives in a modification
+            commit("# doc" + nl * 2 + "## 17. D1: downside vetoes" + nl * 2 + "more" + nl, 1700000900)
+            self.assertEqual(d1.since_from_git(d), 1700000500)
 
 
 if __name__ == "__main__":

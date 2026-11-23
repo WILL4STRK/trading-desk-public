@@ -154,7 +154,7 @@ def evaluate(sigs, name, seed=SEED, draws=DRAWS, boot=BOOT):
 
 def since_from_git(repo):
     """Author time of the commit that added the section 17 heading to docs/MEME.md."""
-    out = subprocess.run(["git", "log", "--diff-filter=A", "-S## 17. D1", "--format=%at", "--", "docs/MEME.md"], cwd=repo,
+    out = subprocess.run(["git", "log", "-S## 17. D1", "--format=%at", "--", "docs/MEME.md"], cwd=repo,
                          capture_output=True, text=True, check=True).stdout.split()
     if not out:
         sys.exit("cannot find the commit that added section 17; pass --since")
