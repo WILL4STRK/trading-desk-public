@@ -399,3 +399,130 @@ The same rule applies to a pass as to every rule here: it earns a fresh forward 
 
 **Changes.** Changing any number in this section after a result is seen restarts the count and is logged in
 docs/CHANGES.md.
+
+## 14. Model 5: large-cap memecoins (pre-registered 2026-11-22, before any return was computed)
+
+**Status when written.** Paper only: no wallet, key or order path. Research (literature, cost audit, measured network costs) and data
+download are done; the data is cached but **no return, equity curve, signal count or trade of any rule has been computed**, and none will
+be before this section is pushed. The only numbers looked at are universe sizes (counts of coins meeting the bar), which the
+justification of the trade floor below needs. Evidence base: `research/nightly/2026-11-21-largecap-literature.md` (time-series trend is
+the best-supported crypto effect, concentrated in bull markets, fragile to costs and universe; no study of large-cap memecoins),
+`2026-11-21-cost-audit.md` (fees by venue), `2026-11-22-swap-costs.md` (measured network cost).
+
+**Goal.** A higher net average return per trade after realistic costs than the micro-cap models. The win rate is shown beside it and is
+never the target.
+
+### 14.1 Data and the point-in-time universe
+
+- **Source.** CoinGecko keyless public API, daily `market_chart` (price, market cap, total volume), 365 days: 2025-11-23 to 2026-11-21 UTC
+  (the final partial day is dropped). One point per day at 00:00 UTC. Cached under `C:\Trading\research\largecap\cache\`. Hourly history
+  for 6 months is not available keyless (CoinGecko gives hourly only for 90 days or less), so the study is **daily**; the literature note
+  also recommends daily because the hourly evidence conflicts and turnover multiplies costs.
+- **Universe on date d** (data dated on or before d only): market cap on d >= **$100M** and the median of the daily volume over d-6..d
+  >= **$2M** (at least 5 of the 7 days present). Membership is re-evaluated every day. Volume is the depth proxy: CoinGecko publishes no
+  historical order-book or pool depth, so "a $1,000 order under 0.5 % impact" cannot be tested directly; a $2M median daily volume is
+  assumed to give that. This proxy is a stated weakness (CoinGecko volume is aggregated across venues and includes wash trading).
+- **Candidate coins (240 histories).** 168 coins in CoinGecko's `meme-token` or `solana-meme-coins` category today with market cap
+  >= $5M, plus 72 recovered coins (14.2). Coins below $5M today are not fetched; a coin that was a $100M coin and is under $5M today is
+  therefore missing (see the bias below).
+- **Size of the universe (counts only, seen before writing this):** 19 to 35 coins meet the bar on any date (2025-12-07 to 2026-11-08, one
+  date per 14 days), and **48 distinct coins** meet it on at least one date in the year.
+
+### 14.2 Dead-coin recovery and the remaining survivorship bias (written before any return)
+
+CoinGecko's category list is today's membership, so dead and delisted coins are mostly missing. Recovery attempts:
+
+| Attempt | Result |
+|---|---|
+| `/coins/list?include_platform=true&status=inactive` keyless | Refused: error 10005, inactive-coin data is Pro-only. |
+| Wayback Machine snapshots of the `meme-token` and `solana-meme-coins` category pages, 2025-11 to 2026-11 | 23 snapshots listed, **3 usable** (the rest returned no coin links). They name 264 coins, 147 already in today's list, **117 not in it**. |
+| Those 117: coins still in CoinGecko's active list but outside today's category list | 75 found, **72 have a usable price history**, 3 do not. |
+| Those 117: coin ids no longer in the active list ("dead") | 42 found, **0 have a price history** (the history call fails for an inactive id; some of the 42 are page-scrape noise such as `bitcoin`, `test-2`, or renamed ids). |
+| Own records (desk and memebot `discoveries` and `snapshots`) with FDV >= $100M | 11 tokens (FDV from DexScreener, not market cap): 5 matched a cached CoinGecko history (PENGU, BONK, WIF, TRUMP, YZY); **6 are not in the cache** (RKNS, GRASS, CARDS, Q, the Binance-life token, PUMP). |
+
+Recovered **72 of 117 (62 %)** with price history; **45 missing** (42 dead, 3 active without history); plus 6 of 11 own-record tokens
+missing. In the final count: no coin that was delisted and removed from CoinGecko's active list has a history here.
+
+**Remaining bias, stated now.** The universe is today's category plus 3 old snapshots of its top rows. Coins that collapsed, were
+delisted or left the category before today and were not in one of the 3 snapshots are absent, and nothing recovers the dead ids. This
+favours any long rule (the losers that were kicked out are missing). Therefore **a backtest on this universe can rule a rule OUT but
+cannot confirm it. Only the forward recorder (14.9) can confirm one.** A backtest pass earns only the forward test.
+
+**Data-handling incident (disclosed).** The keyless CoinGecko public API was to be held to 8 calls a minute or fewer. The first download
+script used one request per 7 s (8.6 a minute nominal; the effective rate was lower because of 429 back-offs) for about its first 10 minutes, before it was corrected to 8 s (7.5 a minute) and
+restarted; and for roughly one minute, two download processes ran together (up to about 15 calls a minute). The Wayback requests went to
+another host (not CoinGecko). Many 429 responses were backed off by the script. No data was lost; the cap was exceeded briefly.
+
+### 14.3 Rules (fixed before any result)
+
+All three act on daily points. A signal read at point d (the day-d 00:00 UTC close) is traded at the **next** daily point d+1 (one-day lag
+for entry and exit; no look-ahead).
+
+| Rule | Hold a coin while |
+|---|---|
+| **R1** trend | the coin is in the universe on d **and** price(d) > the 20-day simple average of price (d-19..d) |
+| **R2** trend + SOL regime | R1 holds **and** SOL price(d) > SOL's own 50-day simple average |
+| **R3** momentum + SOL regime | the coin is in the universe on d, its 30-day return > 0, **and** SOL > its 50-day average |
+
+N = 20, 50 and 30 are fixed here. **R2 is the claim: it is the only rule that can pass or fail.** R1 and R3 are reported beside it on the
+same dev and holdout look, but are not counted (the evidence says trend lives in bull markets, so the filtered version counts; the
+unfiltered R1 shows what the filter adds). R2's SOL series is CoinGecko's `solana`.
+
+**Exits (all rules).** Sell when the hold condition is false on d (executed at point d+1). Also a hard stop: sell if price falls to
+-25 % or lower of the entry price at any daily point (executed at that point's price, so a gap fills at the gap). A coin that leaves the
+universe on d is sold at d+1. No time stop. Daily data cannot see intraday lows, so the stop is crude. One position per coin; re-entry
+allowed the day after an exit.
+
+**Sizing (own $100 practice account).** Equal weight: 10 % of equity per position, at most 10 positions, cash otherwise. The account
+equity curve is a second readout; the pass bar is read on trades.
+
+### 14.4 Costs (measured network + published pool fees + spread)
+
+Round trip, charged half at entry and half at exit on the daily point price: **1.25 %** for every coin and size ($100 account, $10 to
+$100 positions). Parts: network 0.05 % (measured, `2026-11-22-swap-costs.md`: median under 0.1 % round trip at $5 on every venue;
+90th percentile about 0.5 %; tips used by 8 to 25 % of transactions), pool fees 0.6 % (deep Raydium AMM v4 0.5 %, high-cap PumpSwap
+0.6 %, cost audit), spread and price impact 0.6 %. This is inside the cost audit's 1 to 1.5 % for deep pools. Failed transactions
+(12 to 23 %) delay fills; a daily rule ignores that delay. Reported, **not counted**, as sensitivity: 0.5 % (the brief's floor, never
+lower) and 2.0 %. CEX liquidity could make some coins cheaper than 1.25 %; this is conservative for them.
+
+### 14.5 Controls
+
+1. **Equal-weight buy-and-hold of the same point-in-time universe:** each day hold an equal share of every coin in the universe
+   (membership by 14.1), selling a coin the day after it leaves and buying the day after it enters, at the same 1.25 % per round trip on
+   those turnovers only.
+2. **Cash:** zero return.
+R2 must beat both on the holdout: its holdout account return must exceed the buy-and-hold control's return over the same days, and its
+mean trade must be above zero (beats cash).
+
+### 14.6 Test split and lock
+
+Trading window = every date from the first date on which both the 50-day SOL average and a 20-day coin average exist (about 2026-01-12)
+to 2026-11-20. **First 60 % of days = dev, last 40 % = holdout** (looked at once). Four equal time slices of the whole trading window
+for the slice test. A trade belongs to dev or holdout by its entry date. Dev may be run as often as wanted (it may not change any number
+in this section). The holdout is run once by `research/largecap/` `final` mode, which writes `out/results.json` and
+`out/holdout.lock` and refuses a second run, as `research/meme/backtest.py` does; deleting the lock restarts the count and is logged in
+docs/CHANGES.md.
+
+### 14.7 Pass bar (R2, on the holdout)
+
+All of: mean **and** median net return per trade above 0; mean above 0 with the 3 best trades removed; mean above 0 in at least
+**3 of 4** time slices; beats equal-weight buy-and-hold and cash (14.5); and the trade floor below.
+
+**Trade floor, justified before any result.** The section 5 floor (100 trades on 50 tokens) cannot be met: only 48 coins ever qualify
+(14.1), 19 to 35 at a time, and a slow daily trend rule makes about one to two trades per coin in a 4-month holdout. The
+floor for this model is **at least 40 trades on at least 15 distinct coins in the holdout**. Below that the result is reported
+as **inconclusive** (not a pass, and not a failure). The floor is a judgement written from universe counts alone.
+
+### 14.8 Report
+
+`research/largecap/REPORT.md` in meambot: dev and holdout results of R1, R2, R3 against the controls, by trade and by distinct coin,
+the sensitivities, the limits (14.2), and a plain verdict (pass / fail / inconclusive). Nothing here is advice.
+
+### 14.9 Forward recorder (after the backtest, whatever its result)
+
+`desk/memelarge.py` (own module, own practice account of $100, its own `Model 5` card on the Memecoins tab) records R2's universe, signals,
+fills and exits forward from live data with the smallest hooks in `desk/meme.py` and error guards like the N1 observer, no new provider
+requests beyond the data the desk already fetches or one daily call. Its entry and exit rules are R2 exactly; any change restarts the
+count. The forward record, not the backtest, is what can confirm R2. Pass bar: 14.7 on at least 40 trades on 15 coins.
+
+**Changes.** Changing any number in this section after a result is seen restarts the count and is logged in docs/CHANGES.md.
