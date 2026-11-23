@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import guards
@@ -60,12 +61,24 @@ def run(tool, args, cwd, timeout=180):
         return Result(tool, 124, "", "%s took longer than %d seconds" % (tool, timeout))
 
 
+REPLACE_TRIES = 10
+
+
 def write_json(path, obj):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(obj, indent=2) + "\n")
-    tmp.replace(path)
+    # On Windows the replace fails with PermissionError while another process has the file open (even a reader that
+    # shares delete). Try REPLACE_TRIES times, sleeping 0.05 s, 0.1 s, then doubling up to 0.5 s; then raise as before.
+    for i in range(REPLACE_TRIES):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if i == REPLACE_TRIES - 1:
+                raise
+            time.sleep(min(0.05 * 2 ** i, 0.5))
 
 
 def read_json(path, default=None):
