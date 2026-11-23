@@ -533,3 +533,79 @@ discovery feeds (section 1 survivorship applies). One regime, one week. A pass e
 it changes no live rule.
 
 **Changes.** Changing any number in this section after a result is seen restarts the count and is logged in docs/CHANGES.md.
+
+## 18. L1: a continuously learning model on P0's entries (pre-registered 2026-11-23, before any code and before any of its data)
+
+**Why.** Sections 16 and 17 test fixed rules on P0's entries. L1 tests whether a small model that keeps learning from P0's own closed
+shadows can pick the better entries. **Paper only.** L1 has no order path: it never signs, swaps or sends anything. It reads the desk's files
+and never writes them. It changes no running rule. The D1 freeze (section 17) holds: nothing here changes P0, the safety screen, or the
+section 2 cost or section 3 exits.
+
+**What was seen before this section.** The field names that `desk/meme.py` and `memerules.features_from_pair` write; the fact that
+`shadows.jsonl` holds closed shadows only (the desk appends a shadow there when it closes) and that open shadows live in `model.json`
+(`"shadows"`, rewritten atomically about every 60 s); the chain and dex names in `model.json` `"tracked"`. No return, exit reason or feature value
+of any shadow was looked at for this section.
+
+**Start time.** `T18` = the author time of the commit that adds this section's heading to docs/MEME.md (read from git by the learner).
+
+**Population.** Every shadow with `policy == "all"` and `screen == "pass"` whose entry time `ts` is after `T18`. A shadow is identified by
+`(key, ts)`. The learner polls the desk's folder `data/accounts/meme/` **read-only** every **30 s**:
+- `model.json` `"shadows"`: a population shadow seen there (open) for the first time is **predicted** at once.
+- `shadows.jsonl`: only new complete lines are parsed (a byte offset; a line without its final newline waits). Each population line is a close.
+- A population shadow whose first sighting is its closed line in `shadows.jsonl` (for example after an outage, or before the learner first
+  ran) is **missed**: counted, never predicted, never scored.
+
+**Features (fixed).** From the shadow's `f` at entry: `r5`, `r1h`, `r6h`, `r24h`, `v1h`, `vacc`, `rvol`, `tx_m5`, `buy_ratio_m5`, `liq`,
+`age_h` (11 numeric). The dollar fields `v1h`, `liq` and the age `age_h` are transformed to `ln(1 + max(x, 0))`; the others are used as
+written. A missing (null, absent or non-finite) value is set to **0** after standardisation, and its own **missing flag** (1/0) is a feature
+(11 flags). Standardisation: each numeric feature uses a running mean and variance (Welford) over the training data only: a value enters the
+running statistics only when its shadow closes and trains the model; missing values do not enter them. While a feature has fewer than 2 values
+its standardised value is 0. One-hot **chain**: `solana`, `ethereum`, `base`, `bsc`, other (5). One-hot **dex**: `pumpswap`, `raydium`,
+`uniswap`, `pumpfun`, `pancakeswap`, `meteora`, other, missing (8). Policy `all` shadows carry no `dex`, so dex is the token's
+`model.json` `"tracked"[key]["dex"]` read when the shadow is first seen (an entry-time field). Plus a bias term. No other input: a shadow's exit
+fields (`exit_at`, `exit_ts`, `exit_px`, `why`, `net_pct`, `peak`, `checked`) never reach a prediction.
+
+**Model (fixed).** Online linear regression, squared loss, plain SGD. Target `y = clip(net_pct, -30, +30)`. Learning rate **0.01**, L2
+**1e-4** on the weights (not on the bias). Starting weights and bias are 0. The weights change **only when a population shadow closes** (predicted,
+void or missed), one step per close in the order closes are read: first the close's raw features enter the running statistics, then the
+standardised vector `x` is built and `w <- w - 0.01 * ((w.x + b - y) * x + 1e-4 * w)`, `b <- b - 0.01 * (w.x + b - y)`. A predicted shadow trains
+on the features logged with its prediction; a missed shadow on the `f` in its closed line and the tracked dex at that time (missing if gone).
+The model version is the number of steps taken; the weight hash is the first 16 hex of SHA-256 of the canonical JSON of weights, bias and running
+statistics.
+
+**Take rule.** Take if the predicted net is **> 0**. **Warm-up:** the first **300** population closes after `T18` only train. A prediction is
+**scored** only if, when it is made, at least 300 closes have trained the model, and it is not void. Predictions during warm-up are logged and
+never scored.
+
+**Log.** `C:\Trading\research\learner\out\predictions.jsonl`, append-only, one line per prediction: `key`, `entry_ts`, `pred_ts`, `features`
+(raw and the vector used), `pred`, `take`, `warmup`, `model_version`, `weight_hash`, `prev` (SHA-256 of the previous line's bytes; 64 zeros for the
+first). A prediction is written as soon as the shadow is first seen open. A prediction whose `pred_ts` is at or after that shadow's `exit_ts` is
+**void**: counted, trains, never scored. Each close is logged the same way in `out/closes.jsonl` (hash-chained: key, entry ts, exit ts, net_pct,
+predicted / void / missed, model version after the step). The weights are snapshotted once per UTC day to `out/weights/YYYY-MM-DD.json`. The
+learner's own state is in `C:\Trading\research\learner\state\`, written atomically; it resumes after a restart without duplicate lines.
+
+**Controls.** Both on the same scored signals as L1 (below).
+- **P0:** every scored signal (take or not), i.e. what P0 itself did.
+- **Random take:** in each 6-hour UTC entry block (`floor(entry_ts / 21600)`), take exactly as many signals as L1 took in that block, chosen at
+  random. **1,000 draws, seed 18** give its spread; its expected mean (each block's mean net times L1's take count there, over all takes) is
+  computed exactly, as in section 17.
+
+**Formal looks (at most 4).** Only at **150, 300, 600 and 1,200** scored takes. Look `N` uses the first `N` scored takes in prediction order and
+every scored signal predicted at or before the `N`-th take (its "signals"), and runs once all of them have closed. It writes
+`out/look-N.json` and refuses a second run. The alpha (0.05, one-sided) is split 4 ways: each look uses **0.0125**. Anything read between looks
+(a live readout) is descriptive, labelled so, and never a verdict.
+
+**Pass bar at a look (all of):**
+1. at least **100 takes** on at least **50 distinct coins** (`key`);
+2. mean and median `net_pct` of the takes above 0;
+3. mean of the takes above 0 without its best 3 takes;
+4. mean of the takes positive in at least **3 of 4** equal slices of the look's entry-time range (a slice with no take is not positive);
+5. mean of the takes above P0's mean over the look's signals;
+6. gain = (mean of the takes) - (random take's expected mean): the **98.75 % one-sided lower bound** (1.25th percentile, i.e. the 95 % bound at
+   alpha/4) of a bootstrap that resamples **whole coins** (all of a `key`'s signals together, takes and non-takes), **10,000** resamples, seed 18,
+   is above 0.
+L1 passes at the first look that meets all six; it then stops. No pass by the 1,200 look is a fail. A pass is a lead only: it earns a separate
+pre-registration and changes no live rule.
+
+**Changes.** Only the weights (and running statistics) change on their own. Any change to the features, learning rate, L2, clip, take rule or
+warm-up makes a new study, **L2**: a new section, a new log, and the count starts over.
