@@ -609,3 +609,22 @@ pre-registration and changes no live rule.
 
 **Changes.** Only the weights (and running statistics) change on their own. Any change to the features, learning rate, L2, clip, take rule or
 warm-up makes a new study, **L2**: a new section, a new log, and the count starts over.
+
+### 18.1 Amendment, 2026-11-23 (after review, before deploy, before any L1 outcome)
+
+**What was seen before this amendment.** No L1 outcome. The learner has not been deployed and the warm-up (300 closes) has not been reached.
+The only run was a trial on copies of the desk's files in a scratch folder; it looked at counts only (opens predicted, closes missed, the hash
+chains). No `net_pct`, prediction value, take or weight was looked at. Its output has been deleted, so the real `predictions.jsonl` starts empty.
+
+**Why.** Review found that one shadow with an extreme feature (for example `r24h` = 889) gives a standardised value far from 0; with plain SGD
+at learning rate 0.01 a single such step can throw the weights far off. These two changes bound every step. They are made before any data, so
+this stays L1 (not L2); `T18` stays the start.
+
+**Changes (they replace the matching text of section 18).**
+- Each standardised numeric feature is **capped to [-5, +5]** after standardisation (the missing flags and one-hots are 0/1 already). The cap
+  applies to predictions and training alike, and the logged vector is the capped one.
+- The SGD step is **normalised**. With `err = y - (w.x + b)` and `n2 = ||x||^2` (the sum of squares of the 35 features, the bias not included):
+  `w <- w + 0.01 * (err * x / (1 + n2) - 1e-4 * w)` and `b <- b + 0.01 * err / (1 + n2)`. Learning rate 0.01, L2 1e-4 and the clip to [-30, +30]
+  are unchanged.
+
+Everything else in section 18 is unchanged.
