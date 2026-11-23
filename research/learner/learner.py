@@ -37,6 +37,7 @@ LOGGED = ("v1h", "liq", "age_h")
 CHAINS = ("solana", "ethereum", "base", "bsc")                           # + other
 DEXES = ("pumpswap", "raydium", "uniswap", "pumpfun", "pancakeswap", "meteora")   # + other, + missing
 LR, L2, CLIP = 0.01, 1e-4, 30.0
+ZCAP = 5.0                             # 18.1: standardised features capped to [-ZCAP, +ZCAP]; the step is normalised by 1 + ||x||^2
 WARMUP = 300
 LOOKS = (150, 300, 600, 1200)
 ALPHA_LOOK = 0.05 / 4
@@ -77,13 +78,14 @@ def new_model():
 
 
 def vector(raw, stats):
-    """Standardised vector: 11 z-scores (missing = 0), 11 missing flags, 5 chain one-hot, 8 dex one-hot."""
+    """Standardised vector: 11 z-scores capped to [-5, +5] (missing = 0), 11 missing flags, 5 chain one-hot, 8 dex one-hot."""
     z, miss = [], []
     for k in NUMERIC:
         v = raw["num"].get(k)
         n, mean, m2 = stats[k]
         sd = math.sqrt(m2 / (n - 1)) if n >= 2 else 0.0
-        z.append((v - mean) / sd if v is not None and sd > 0 else 0.0)
+        zv = (v - mean) / sd if v is not None and sd > 0 else 0.0
+        z.append(max(-ZCAP, min(ZCAP, zv)))                         # 18.1: capped to [-5, +5]
         miss.append(1.0 if v is None else 0.0)
     ch = [1.0 if raw["chain"] == c else 0.0 for c in CHAINS] + [1.0 if raw["chain"] not in CHAINS else 0.0]
     d = raw["dex"]
@@ -96,7 +98,8 @@ def predict(model, x):
 
 
 def train(model, raw, net_pct):
-    """One SGD step: the close's values enter the running statistics, then x is built, then the step."""
+    """One normalised SGD step (18.1): the close's values enter the running statistics, then x is built, then
+    w <- w + lr * (err * x / (1 + ||x||^2) - l2 * w), b <- b + lr * err / (1 + ||x||^2), with err = y - (w.x + b)."""
     for k in NUMERIC:
         v = raw["num"].get(k)
         if v is None:
@@ -108,9 +111,10 @@ def train(model, raw, net_pct):
         st[2] += d * (v - st[1])
     x = vector(raw, model["stats"])
     y = max(-CLIP, min(CLIP, float(net_pct)))
-    err = predict(model, x) - y
-    model["w"] = [w - LR * (err * xi + L2 * w) for w, xi in zip(model["w"], x)]
-    model["b"] -= LR * err
+    err = y - predict(model, x)
+    g = err / (1.0 + sum(xi * xi for xi in x))
+    model["w"] = [w + LR * (g * xi - L2 * w) for w, xi in zip(model["w"], x)]
+    model["b"] += LR * g
     model["n"] += 1
     if not all(math.isfinite(w) for w in model["w"] + [model["b"]]):
         raise LearnerError("weights are no longer finite after step %d" % model["n"])
@@ -164,6 +168,84 @@ def population(r):
 
 def sid(r):
     return "%s|%r" % (r["key"], float(r["ts"]))
+
+
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+
+    _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _k32.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                                 wintypes.DWORD, wintypes.HANDLE)
+    _k32.CreateFileW.restype = wintypes.HANDLE
+    _k32.GetFileSizeEx.argtypes = (wintypes.HANDLE, ctypes.POINTER(ctypes.c_longlong))
+    _k32.SetFilePointerEx.argtypes = (wintypes.HANDLE, ctypes.c_longlong, ctypes.POINTER(ctypes.c_longlong), wintypes.DWORD)
+    _k32.ReadFile.argtypes = (wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID)
+    _k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _GENERIC_READ, _SHARE_ALL, _OPEN_EXISTING, _NORMAL = 0x80000000, 0x1 | 0x2 | 0x4, 3, 0x80
+    _INVALID = wintypes.HANDLE(-1).value
+
+
+class _SharedHandle:
+    """A read-only handle. On Windows it is opened with FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE (Python's
+    open() does not share delete, so a replace of the file by another process would fail with PermissionError)."""
+
+    def __init__(self, path):
+        self.path = os.fspath(Path(path).absolute())
+        if os.name == "nt":
+            h = _k32.CreateFileW(self.path, _GENERIC_READ, _SHARE_ALL, None, _OPEN_EXISTING, _NORMAL, None)
+            if h in (None, _INVALID):
+                raise ctypes.WinError(ctypes.get_last_error())
+            self.h = h
+        else:
+            self.fh = open(self.path, "rb")
+
+    def size(self):
+        if os.name != "nt":
+            return os.fstat(self.fh.fileno()).st_size
+        n = ctypes.c_longlong()
+        if not _k32.GetFileSizeEx(self.h, ctypes.byref(n)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return n.value
+
+    def read(self, offset, n):
+        if os.name != "nt":
+            self.fh.seek(offset)
+            return self.fh.read(n)
+        if not _k32.SetFilePointerEx(self.h, offset, None, 0):
+            raise ctypes.WinError(ctypes.get_last_error())
+        chunks, left = [], n
+        buf = ctypes.create_string_buffer(1 << 20)
+        got = wintypes.DWORD()
+        while left > 0:
+            if not _k32.ReadFile(self.h, buf, min(left, 1 << 20), ctypes.byref(got), None):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if not got.value:
+                break
+            chunks.append(buf.raw[:got.value])
+            left -= got.value
+        return b"".join(chunks)
+
+    def close(self):
+        if os.name == "nt":
+            if self.h is not None:
+                _k32.CloseHandle(self.h)
+                self.h = None
+        else:
+            self.fh.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+def read_shared(path, offset=0):
+    """(size, bytes from offset to the end), read through a shared handle that is closed at once."""
+    with _SharedHandle(path) as h:
+        size = h.size()
+        return size, (h.read(offset, size - offset) if size > offset else b"")
 
 
 # ---------------------------------------------------------------- the learner
@@ -223,41 +305,37 @@ class Learner:
         self.state["outbox"] = []
         self.save()
 
-    def _read_model_json(self):
+    def _read_inputs(self):
+        """(model.json dict, new complete shadows.jsonl lines, new offset). Both files are read through a handle that shares
+        read, write and delete, and closed at once, so the desk's atomic replace of model.json never fails because of us."""
+        mj = json.loads(read_shared(self.data / "model.json")[1].decode("utf8"))
+        off = self.state["offset"]
         try:
-            with open(self.data / "model.json", "rb") as fh:            # read only
-                return json.loads(fh.read().decode("utf8"))
-        except (OSError, ValueError):
-            return None                                                 # mid-replace or missing: next poll
-
-    def _new_lines(self):
-        path = self.data / "shadows.jsonl"
-        try:
-            with open(path, "rb") as fh:                                # read only
-                size = fh.seek(0, os.SEEK_END)
-                off = self.state["offset"]
-                if size < off:
-                    raise LearnerError("shadows.jsonl shrank (%d < offset %d)" % (size, off))
-                fh.seek(off)
-                buf = fh.read(size - off)
+            size, buf = read_shared(self.data / "shadows.jsonl", off)
         except FileNotFoundError:
-            return []
+            return mj, [], off
+        if size < off:
+            raise LearnerError("shadows.jsonl shrank (%d < offset %d)" % (size, off))
         end = buf.rfind(b"\n")
         if end < 0:
-            return []
-        self.state["offset"] = off + end + 1
+            return mj, [], off
         out = []
         for ln in buf[:end].split(b"\n"):
             try:
                 out.append(json.loads(ln.decode("utf8")))
             except ValueError:
                 continue
-        return out
+        return mj, out, off + end + 1
 
     def poll(self):
         s, m = self.state, self.state["model"]
-        mj = self._read_model_json()
-        if mj is None:                       # mid-replace or missing: skip the whole poll, closes included (offset unchanged)
+        try:
+            mj, lines, new_off = self._read_inputs()
+        except (OSError, ValueError) as e:   # any read error: skip the whole cycle (offset unchanged) and log it
+            s["read_skips"] = s.get("read_skips", 0) + 1
+            print("%s read skipped (%s): %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), type(e).__name__, e), flush=True)
+            return s["counts"]
+        if not isinstance(mj, dict):
             return s["counts"]
         tracked = mj.get("tracked") or {}
         # 1. opens: a population shadow seen open for the first time is predicted at once
@@ -278,7 +356,8 @@ class Learner:
             s["pending"][i] = {"pred_ts": now, "raw": raw, "take": pred > 0, "warmup": warm}
             s["counts"]["predicted"] += 1
         # 2. closes: new complete lines of shadows.jsonl
-        for r in self._new_lines():
+        s["offset"] = new_off
+        for r in lines:
             if not isinstance(r, dict) or not population(r) or "key" not in r:
                 continue
             i = sid(r)

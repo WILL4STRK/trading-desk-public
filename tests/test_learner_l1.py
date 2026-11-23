@@ -1,6 +1,8 @@
 """L1 learner (docs/MEME.md section 18): no exit field reaches a prediction, void, missed, the hash chain, weights move only on
 a close, restart without duplicates, the look's random control and bootstrap. Synthetic data in temp folders only."""
 import json
+import math
+import os
 import random
 import shutil
 import subprocess
@@ -350,6 +352,120 @@ class Look(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(SystemExit):
                 L.look(151, home=d)
+
+
+@unittest.skipUnless(os.name == "nt", "Windows sharing semantics")
+class SharedRead(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.f = Path(self.tmp) / "model.json"
+        self.f.write_bytes(b'{"old": 1}')
+        self.new = Path(self.tmp) / "model.json.tmp"
+        self.new.write_bytes(b'{"new": 2}')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_the_handle_shares_delete(self):
+        with L._SharedHandle(self.f) as h:
+            os.remove(self.f)                            # FILE_SHARE_DELETE is granted: the file can be deleted under us
+            self.assertEqual(h.read(0, h.size()), b'{"old": 1}')
+        self.assertFalse(self.f.exists())
+
+    def test_replace_onto_the_open_file_still_fails(self):
+        """Known limit, the reason L1 is not deployed yet: even with every share flag, MoveFileExW (os.replace, which is
+        what desk/skills.py write_json does) cannot replace a file another handle has open (WinError 5). The fix is
+        desk-side (write_json retries PermissionError), in its own PR after the D1 window. This test documents the limit;
+        the learner keeps every read to one short open-read-close."""
+        with L._SharedHandle(self.f):
+            with self.assertRaises(PermissionError):
+                os.replace(self.new, self.f)
+        os.replace(self.new, self.f)                     # once our handle is closed, the replace works
+        self.assertEqual(self.f.read_bytes(), b'{"new": 2}')
+
+    def test_read_shared_reads_from_offset(self):
+        self.assertEqual(L.read_shared(self.f, 2), (10, b'old": 1}'))
+
+
+class ReadErrors(Base):
+    def test_a_read_error_skips_the_cycle_and_is_logged(self):
+        lr = self.learner()
+        self.desk.add_open(shadow(key="a"))
+        self.desk.close(shadow(key="z"), T0 + 9, 1.0)
+        real = L.read_shared
+
+        def boom(path, offset=0):
+            if Path(path).name == "shadows.jsonl":
+                raise PermissionError(13, "simulated sharing violation")
+            return real(path, offset)
+
+        L.read_shared = boom
+        try:
+            lr.poll()
+        finally:
+            L.read_shared = real
+        self.assertEqual(lr.state["read_skips"], 1)
+        self.assertEqual(lr.state["offset"], 0)
+        self.assertEqual(self.preds(), [])                # the whole cycle is skipped, opens included
+        lr.poll()
+        self.assertEqual((len(self.preds()), len(self.closes())), (1, 1))
+
+
+class Bounded(unittest.TestCase):
+    """18.1: standardised features capped to [-5, +5]; the step is normalised by 1 + ||x||^2."""
+
+    def seeded(self, n=50, seed=4):
+        rng = random.Random(seed)
+        m = L.new_model()
+        for _ in range(n):                                # running statistics only; the weights stay 0
+            sh = shadow(r1h=rng.gauss(0, 5))
+            sh["f"]["r24h"] = rng.gauss(10, 20)
+            for k, v in L.raw_features(sh, "pumpswap")["num"].items():
+                st = m["stats"][k]
+                st[0] += 1
+                d = v - st[1]
+                st[1] += d / st[0]
+                st[2] += d * (v - st[1])
+        return m
+
+    def test_one_r24h_889_sample_moves_no_weight_more_than_the_bound(self):
+        m = self.seeded()
+        sh = shadow()
+        sh["f"]["r24h"] = 889.0
+        raw = L.raw_features(sh, "pumpswap")
+        w0 = list(m["w"])
+        stats_after = json.loads(json.dumps(m["stats"]))
+        L.train(m, raw, 30.0)
+        x = L.vector(raw, m["stats"])                     # the vector the step used (statistics include this sample)
+        self.assertEqual(x[L.NUMERIC.index("r24h")], 5.0)  # capped
+        n2 = sum(v * v for v in x)
+        bound = L.LR * 60 * 5 / (1 + n2)
+        moved = max(abs(a - b) for a, b in zip(m["w"], w0))
+        self.assertGreater(moved, 0)
+        self.assertLessEqual(moved, bound)
+        self.assertNotEqual(stats_after, m["stats"])
+
+    def test_capped_vector(self):
+        m = self.seeded()
+        sh = shadow(r1h=1e9)
+        x = L.vector(L.raw_features(sh, None), m["stats"])
+        self.assertTrue(all(-5.0 <= v <= 5.0 for v in x))
+        self.assertEqual(x[L.NUMERIC.index("r1h")], 5.0)
+
+    def test_weights_stay_finite_over_10000_random_updates(self):
+        rng = random.Random(18)
+        m = L.new_model()
+        for _ in range(10000):
+            sh = shadow(r1h=rng.choice([None, rng.gauss(0, 50), rng.lognormvariate(3, 3)]),
+                        liq=rng.choice([None, 0.0, rng.lognormvariate(10, 3)]))
+            for k in ("r5", "r6h", "r24h", "vacc", "rvol", "tx_m5", "buy_ratio_m5", "age_h", "v1h"):
+                sh["f"][k] = rng.choice([None, rng.gauss(0, 1), rng.lognormvariate(2, 4) * rng.choice([-1, 1])])
+            sh["chain"] = rng.choice(["solana", "bsc", "base", "ethereum", "tron"])
+            raw = L.raw_features(sh, rng.choice([None, "pumpswap", "raydium", "aero"]))
+            L.train(m, raw, rng.choice([rng.gauss(0, 10), rng.uniform(-100, 1000)]))
+        self.assertEqual(m["n"], 10000)
+        self.assertTrue(all(math.isfinite(w) for w in m["w"] + [m["b"]]))
+        self.assertLess(max(abs(w) for w in m["w"] + [m["b"]]), 100)
 
 
 class Frozen(unittest.TestCase):
