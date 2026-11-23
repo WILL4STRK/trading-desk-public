@@ -726,3 +726,10 @@ section 19 left open, as `research/copy/` implements it. It changes no threshold
 9. **Looks.** A control's rows at look N are its closed copies entered at or before the arm's N-th copied buy. The 1.25th percentile is the
    `ceil(0.0125 x B)`-th smallest of the B usable resamples; a resample with an empty side is dropped and counted.
 10. **P0 readout.** The desk's `all` shadows with `chain == "solana"` (no screen filter), net as recorded, entered after C1's start.
+
+### 19.2 Amendment, 2026-11-23 (before discovery ran and before any wallet data)
+
+The section 19.A fallback (if the plan refuses `getTransactionsForAddress`) pages `getSignaturesForAddress` backwards from the newest
+signature, at most **3,000** pages of 1,000 per address and window, keeps successful signatures with block time in the window and before
+T19, and fetches each with `getTransaction`. A window cut by the page cap is counted as truncated. Once refused, the fallback is used for the
+rest of the run. Nothing else changes.
