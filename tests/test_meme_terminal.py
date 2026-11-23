@@ -220,6 +220,83 @@ class Watchlist(unittest.TestCase):
         self.assertEqual(self.run_js("[T.precision(0.000002111), T.precision(0.5), T.precision(42), T.precision(null)]"), [9, 4, 2, 4])
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class LivePrices(unittest.TestCase):
+    """Live 5s/15s candles from DexScreener's pair endpoint: price only, every response checked."""
+    MINT, POOL = GOOD, POOL
+
+    def js(self, code):
+        return json.loads(node("const M = %s, P = %s; process.stdout.write(JSON.stringify(%s))" % (json.dumps(self.MINT), json.dumps(self.POOL), code)))
+
+    def test_candles_from_polled_prices_at_5s_and_15s_boundaries(self):
+        samples = "[{t: 100, p: 1}, {t: 101.9, p: 3}, {t: 104.999, p: 0.5}, {t: 105, p: 2}, {t: 114.9, p: 4}, {t: 115, p: 1.5}, {t: NaN, p: 9}, {t: 116, p: Infinity}]"
+        five, fifteen = self.js("[T.priceCandles(%s, 5), T.priceCandles(%s, 15)]" % (samples, samples))
+        self.assertEqual(five, [{"time": 100, "open": 1, "high": 3, "low": 0.5, "close": 0.5},
+                                {"time": 105, "open": 2, "high": 2, "low": 2, "close": 2},
+                                {"time": 110, "open": 4, "high": 4, "low": 4, "close": 4},
+                                {"time": 115, "open": 1.5, "high": 1.5, "low": 1.5, "close": 1.5}])
+        self.assertEqual(fifteen, [{"time": 90, "open": 1, "high": 3, "low": 0.5, "close": 0.5},      # 90..104.999
+                                   {"time": 105, "open": 2, "high": 4, "low": 1.5, "close": 1.5}])   # 105..119.999
+        self.assertTrue(all("volume" not in c for c in five + fifteen))          # price only
+
+    def test_a_valid_response_gives_the_price(self):
+        ok = "{pairs: [{chainId: 'solana', pairAddress: P, baseToken: {address: M}, priceUsd: '0.0000123'}]}"
+        self.assertEqual(self.js("[T.livePrice(%s, M, P), T.livePrice({pair: {pairAddress: P, baseToken: {address: M}, priceUsd: 2}}, M, P)]" % ok), [0.0000123, 2])
+
+    def test_malformed_or_foreign_responses_are_dropped(self):
+        bad = ["null", "[]", "'x'", "{pairs: 'x'}", "{pairs: [null]}",
+               "{pairs: [{pairAddress: P, baseToken: {address: 'Other111111111111111111111111111111'}, priceUsd: '1'}]}",
+               "{pairs: [{pairAddress: 'OtherPool1111111111111111111111111', baseToken: {address: M}, priceUsd: '1'}]}",
+               "{pairs: [{chainId: 'bsc', pairAddress: P, baseToken: {address: M}, priceUsd: '1'}]}",
+               "{pairs: [{pairAddress: P, baseToken: {address: M}, priceUsd: 'NaN'}]}",
+               "{pairs: [{pairAddress: P, baseToken: {address: M}, priceUsd: '-1'}]}",
+               "{pairs: [{pairAddress: P, baseToken: {address: M}, priceUsd: '0'}]}",
+               "{pairs: [{pairAddress: P, baseToken: {address: M}, priceUsd: 'Infinity'}]}",
+               "{pairs: [{pairAddress: P, baseToken: {address: M}, priceUsd: {}}]}",
+               "{pairs: [{pairAddress: P, baseToken: {address: M}}]}",
+               "{pairs: [{pairAddress: P, baseToken: M, priceUsd: '1'}]}"]
+        self.assertEqual(self.js("[%s].map(d => T.livePrice(d, M, P))" % ", ".join(bad)), [None] * len(bad))
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class FailedChecksLine(unittest.TestCase):
+    """No checkbox: one compact red line above the swap, expandable; danger items bold; blocked and invalid unchanged."""
+    C = {"key": "solana:" + GOOD, "symbol": "C", "mint": GOOD, "swap": "confirm", "cant_sell": [],
+         "failed": [{"check": "safety", "reason": "RugCheck risk 54/100"}, {"check": "safety", "reason": "danger: Creator history of rugged tokens"},
+                    {"check": "safety", "reason": "danger: Single holder ownership"}, {"check": "strict", "reason": "top 10 holders 50%"}]}
+
+    def gate(self, **kw):
+        return json.loads(node("process.stdout.write(JSON.stringify(T.gate(%s)))" % json.dumps(dict(self.C, **kw))))
+
+    def test_a_warned_coin_gets_the_line_and_no_checkbox(self):
+        html = self.gate()
+        self.assertNotIn("checkbox", html)
+        self.assertNotIn("I understand", html)
+        self.assertIn("<summary", html)
+        summary = html[html.index("<summary"):html.index("</summary>")]
+        self.assertIn("4 failed checks", summary)
+        for short in ("RugCheck 54/100", "creator rugged before", "single holder", "top 10 holders 50%"):
+            self.assertIn(short, summary)
+        self.assertIn('<b class="t-danger">creator rugged before</b>', summary)
+        self.assertIn('<b class="t-danger">single holder</b>', summary)
+        self.assertIn("<span>RugCheck 54/100</span>", summary)
+        self.assertLess(summary.index("creator rugged before"), summary.index("RugCheck 54/100"))      # danger first
+
+    def test_expanding_lists_every_failed_check_in_full(self):
+        html = self.gate()
+        full = html[html.index("<ul>"):]
+        for line in ("Safety: RugCheck risk 54/100", "Safety: danger: Creator history of rugged tokens",
+                     "Safety: danger: Single holder ownership", "Strict: top 10 holders 50%"):
+            self.assertIn(line, full)
+        self.assertEqual(full.count("<li>"), 4)
+
+    def test_blocked_and_invalid_are_unchanged(self):
+        blocked = self.gate(swap="blocked", cant_sell=["reported as a honeypot: buys work, sells may not"])
+        self.assertIn("Blocked: you may not be able to sell this token", blocked)
+        self.assertNotIn("<summary", blocked)
+        self.assertIn("Swap off", self.gate(swap="invalid_mint", mint=None))
+
+
 class ManualLog(DeskCase):
     def body(self, txid=TX, **kw):
         b = {"txid": txid, "mint": GOOD, "side": "buy", "in_amount": 1000000, "out_amount": 5, "time": T0}
@@ -300,6 +377,15 @@ class Route(DemoCase):
                 return r.status, r.headers, r.read()
         except urllib.error.HTTPError as e:
             return e.code, e.headers, e.read()
+
+    def test_the_policy_adds_only_api_dexscreener_com_to_connect_src(self):
+        directives = dict((d.strip().split()[0], d.strip().split()[1:]) for d in CSP.split(";") if d.strip())
+        self.assertEqual(directives["connect-src"], ["'self'", "https://*.jup.ag", "https://fonts.googleapis.com",
+                                                     "https://api.mainnet-beta.solana.com", "https://api.dexscreener.com",
+                                                     "wss://api.mainnet-beta.solana.com"])
+        self.assertEqual(directives["script-src"], ["'self'", "https://plugin.jup.ag"])
+        self.assertNotIn("geckoterminal", CSP)
+        self.assertNotIn("pumpportal", CSP)
 
     def test_bound_to_this_computer_only(self):
         self.assertEqual(self.httpd.server_address[0], "127.0.0.1")

@@ -1,0 +1,51 @@
+PASS 1440x900 real data: the watchlist lists every coin  {"rows":104}
+PASS 1440x900 all tabs load: no console errors besides the favicon 404  {"errors":["Failed to load resource: the server responded with a status of 404 (Not Found)"],"bad":[]}
+PASS 1440x900 click selects the coin and loads its chart  {"st":{"sel":"solana:1148Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","active":"solana:1148Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","ivl":"5m","pill":0,"pane":"list","bars":80,"markers":2,"lines":3,"range":{"from":1.4210854715202004e-14,"to":83},"live":{"status":"reconnecting","key":"solana:1148Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JJ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795464931,"samples":0,"polls":1,"dropped":1,"polling":true}},"calls":[["solana:1148Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","5m"]]}
+PASS 1440x900 keyboard: up/down move, Enter opens  {"actKey":"solana:1128Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","row1":"solana:1128Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","sel":"solana:1128Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6"}
+PASS 1440x900 10 refreshes with the same coins: scrollTop and every row unchanged  {"scrollTop":[600,600],"rowsSame":true,"domAddsRemoves":0,"firstPrice":"0.001100"}
+PASS 1440x900 …and the numbers did update in place  {"firstPrice":"0.001100"}
+PASS 1440x900 new coin while scrolled down: the rows in view do not move  {"seenBefore":["solana:11E8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6",-2],"seenAfter":["solana:11E8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6",-2]}
+PASS 1440x900 …and the pill says 1 new  {"pill":[false,"1 new ↑"]}
+PASS 1440x900 pill click scrolls to the top and hides
+PASS 1440x900 new coin at the top: slides in and highlights once  {"anim":{"sym":"TOPNEW","cls":true,"n":2},"animLater":{"cls":false,"n":0},"animAgain":0}
+PASS 1440x900 sorting: newest, 1h, volume, liquidity, last strong  {"r1h":["T12","T25","T38"],"volume":["T10","T21","T32"],"liquidity":["T16","T33","T50"],"strong":["T0","T3","T6"],"newest":["T0","T1","T2"]}
+PASS 1440x900 search by symbol and by mint  {"bySym":11,"byMint":["T7"],"noMatch":[false,"No matchNo coin's symbol or address contains that."]}
+PASS 1440x900 a symbol like <img src=x onerror=alert(1)> renders as text  {"imgs":0,"row":"<img src=x onerror=alert(1)>","token":"<img src=x onerror=alert(1)>","gate":true}
+PASS 1440x900 chart: crosshair readout shows the hovered candle's OHLC and volume  {"lastReadout":"O 0.0001445H 0.0001474L 0.0001411C 0.0001440V $3.9K","hoverReadout":"O 0.0001046H 0.0001067L 0.00009996C 0.0001020V $2.0K"}
+PASS 1440x900 chart: buy/sell markers and the three level lines  {"sel":"solana:1GZ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","active":"solana:1GZ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","ivl":"5m","pill":0,"pane":"list","bars":80,"markers":2,"lines":3,"range":{"from":1.4210854715202004e-14,"to":83},"live":{"status":"reconnecting","key":"solana:1GZ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1Zo8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795464939,"samples":0,"polls":1,"dropped":1,"polling":true}}
+PASS 1440x900 chart: interval switch to 15m  {"calls":[["solana:1GZ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","15m"]]}
+PASS 1440x900 chart: resizes with the window  {"w0":694,"w1":574,"w2":694}
+PASS 1440x900 swap: a warned coin loads the widget at once, no checkbox, with the failed-checks line  {"box":false,"line":"1 failed check · RugCheck 80/100","swapHidden":false,"init":{"initialInputMint":"So11111111111111111111111111111111111111112","initialOutputMint":"1Gb8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","fixedMint":"1Gb8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6"},"target":"JUPITER STUB"}
+PASS 1440x900 swap: a blocked coin shows the block and no widget  {"text":"Blocked: you may not be able to sell this tokenfreeze authority is enabled: the creator can freeze your tokens\n        The page cannot change this. To open the swap anyway, set meme_terminal_allow_unsellable to true in the desk's settings.json by hand.","box":false,"line":false,"swapHidden":true,"target":"","closed":5}
+PASS 1440x900 swap: an invalid mint has no swap and no links  {"text":"Swap off: this coin's address is not a valid Solana address.","box":false,"swapHidden":true,"links":0}
+PASS 1440x900 0 coins: empty state  {"em":[false,"No coinsEvery watched Solana coin passed both checks, or none is tracked yet."]}
+PASS 1440x900 500 coins: full scroll, frames no slower than the 40-coin baseline (p95 within 1.25x)  {"perf":{"rows":500,"px":22244,"ms":11545,"frames":370,"median":31.2,"p95":31.8,"worst":33.5},"baseline40":{"rows":40,"px":1084,"ms":541,"frames":18,"median":31.3,"p95":33,"worst":33}}
+PASS 1440x900 Terminal checks: no console errors  {"errors":[],"bad":[]}
+PASS 1440x900 reduced motion: a new coin is inserted with no animation  {"sym":"CALM","n":0}
+PASS 390x844 real data: the watchlist lists every coin  {"rows":104}
+PASS 390x844 all tabs load: no console errors besides the favicon 404  {"errors":[],"bad":[]}
+PASS 390x844 click selects the coin and loads its chart  {"st":{"sel":"solana:1148Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","active":"solana:1148Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","ivl":"5m","pill":0,"pane":"chart","bars":80,"markers":2,"lines":3,"range":{"from":0,"to":83},"live":{"status":"reconnecting","key":"solana:1148Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JJ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795464970,"samples":0,"polls":1,"dropped":1,"polling":true}},"calls":[["solana:1148Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","5m"]]}
+PASS 390x844 phone: a tap opens the Chart pane
+PASS 390x844 keyboard: up/down move, Enter opens  {"actKey":"solana:1128Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","row1":"solana:1128Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","sel":"solana:1128Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6"}
+PASS 390x844 10 refreshes with the same coins: scrollTop and every row unchanged  {"scrollTop":[600,600],"rowsSame":true,"domAddsRemoves":0,"firstPrice":"0.001100"}
+PASS 390x844 …and the numbers did update in place  {"firstPrice":"0.001100"}
+PASS 390x844 new coin while scrolled down: the rows in view do not move  {"seenBefore":["solana:11E8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6",-2],"seenAfter":["solana:11E8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6",-2]}
+PASS 390x844 …and the pill says 1 new  {"pill":[false,"1 new ↑"]}
+PASS 390x844 pill click scrolls to the top and hides
+PASS 390x844 new coin at the top: slides in and highlights once  {"anim":{"sym":"TOPNEW","cls":true,"n":2},"animLater":{"cls":false,"n":0},"animAgain":0}
+PASS 390x844 sorting: newest, 1h, volume, liquidity, last strong  {"r1h":["T12","T25","T38"],"volume":["T10","T21","T32"],"liquidity":["T16","T33","T50"],"strong":["T0","T3","T6"],"newest":["T0","T1","T2"]}
+PASS 390x844 search by symbol and by mint  {"bySym":11,"byMint":["T7"],"noMatch":[false,"No matchNo coin's symbol or address contains that."]}
+PASS 390x844 a symbol like <img src=x onerror=alert(1)> renders as text  {"imgs":0,"row":"<img src=x onerror=alert(1)>","token":"<img src=x onerror=alert(1)>","gate":true}
+PASS 390x844 chart: crosshair readout shows the hovered candle's OHLC and volume  {"lastReadout":"O 0.0001445H 0.0001474L 0.0001411C 0.0001440V $3.9K","hoverReadout":"O 0.00009865H 0.0001011L 0.00009668C 0.00009911V $2.2K"}
+PASS 390x844 chart: buy/sell markers and the three level lines  {"sel":"solana:1GZ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","active":"solana:1GZ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","ivl":"5m","pill":0,"pane":"chart","bars":80,"markers":2,"lines":3,"range":{"from":0,"to":83},"live":{"status":"reconnecting","key":"solana:1GZ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1Zo8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795464979,"samples":0,"polls":1,"dropped":1,"polling":true}}
+PASS 390x844 chart: interval switch to 15m  {"calls":[["solana:1GZ8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","15m"]]}
+PASS 390x844 chart: resizes with the window  {"w0":280,"w1":220,"w2":280}
+PASS 390x844 swap: a warned coin loads the widget at once, no checkbox, with the failed-checks line  {"box":false,"line":"1 failed check · RugCheck 80/100","swapHidden":false,"init":{"initialInputMint":"So11111111111111111111111111111111111111112","initialOutputMint":"1Gb8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","fixedMint":"1Gb8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6"},"target":"JUPITER STUB"}
+PASS 390x844 swap: a blocked coin shows the block and no widget  {"text":"Blocked: you may not be able to sell this tokenfreeze authority is enabled: the creator can freeze your tokens\n        The page cannot change this. To open the swap anyway, set meme_terminal_allow_unsellable to true in the desk's settings.json by hand.","box":false,"line":false,"swapHidden":true,"target":"","closed":5}
+PASS 390x844 swap: an invalid mint has no swap and no links  {"text":"Swap off: this coin's address is not a valid Solana address.","box":false,"swapHidden":true,"links":0}
+PASS 390x844 0 coins: empty state  {"em":[false,"No coinsEvery watched Solana coin passed both checks, or none is tracked yet."]}
+PASS 390x844 500 coins: full scroll, frames no slower than the 40-coin baseline (p95 within 1.25x)  {"perf":{"rows":500,"px":22578,"ms":11743,"frames":376,"median":31.3,"p95":32,"worst":32.7},"baseline40":{"rows":40,"px":1418,"ms":691,"frames":23,"median":31.2,"p95":31.7,"worst":31.8}}
+PASS 390x844 Terminal checks: no console errors  {"errors":[],"bad":[]}
+PASS 390x844 reduced motion: a new coin is inserted with no animation  {"sym":"CALM","n":0}
+
+49 passed, 0 failed

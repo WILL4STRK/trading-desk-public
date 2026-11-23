@@ -42,6 +42,7 @@ async function session(browser, vp, opts = {}) {
   });
   await page.route("**/api/meme/chart?*", route => { const u = new URL(route.request().url()); S.chartCalls.push([u.searchParams.get("key"), u.searchParams.get("ivl")]);
     route.fulfill({json: chartFixture(u.searchParams.get("ivl"))}); });
+  await page.route("https://api.dexscreener.com/**", route => route.fulfill({json: {pairs: []}}));     // live prices: a stand-in, no network
   await page.route("https://plugin.jup.ag/**", route => route.fulfill({contentType: "text/javascript",
     body: "window.Jupiter={init:function(o){window.__jupInit=JSON.parse(JSON.stringify(o));document.getElementById(o.integratedTargetId).textContent='JUPITER STUB'},close:function(){window.__jupClosed=(window.__jupClosed||0)+1}};"}));
   await page.goto(BASE + "/");
@@ -173,20 +174,22 @@ async function run(browser, vp) {
                    coin(904, {symbol: "WARNED"}), coin(905, {symbol: "BADMINT", swap: "invalid_mint", mint: null, links: {dexscreener: null, solscan: null, rugcheck: null}}));
   await reload(page, S, sw);
   const pick = async sym => { await toList(page, vp); await page.click(`#t-list .wl-row:has(.wl-sym:text-is("${sym}"))`); if (phone(vp)) await page.click('#tx-bar [data-tpane="swap"]'); await sleep(300); };
+  // a warned coin: no checkbox, the compact red line, and the widget at once, prefilled SOL to the coin
+  await pick("WARNED"); await sleep(400);
+  const w = await page.evaluate(() => ({box: !!document.querySelector("#t-ack"), line: (document.querySelector("#t-warnline summary") || {}).textContent,
+    swapHidden: document.querySelector("#t-swap").hidden, init: window.__jupInit && window.__jupInit.formProps, target: document.querySelector("#jup-target").textContent}));
+  check(tag + "swap: a warned coin loads the widget at once, no checkbox, with the failed-checks line", !w.box && /^1 failed check · RugCheck 80\/100$/.test(w.line || "") &&
+        !w.swapHidden && w.target === "JUPITER STUB" && w.init.initialInputMint === SOL && w.init.initialOutputMint === mintFor(904) && w.init.fixedMint === mintFor(904), w);
+  // a blocked coin: the block exactly as before, and the widget closes
+  const closedBefore = await page.evaluate(() => window.__jupClosed || 0);
   await pick("BLOCKD");
-  const b = await page.evaluate(() => ({text: document.querySelector("#t-gate").textContent, box: !!document.querySelector("#t-ack"), swapHidden: document.querySelector("#t-swap").hidden, jup: !!window.__jupInit}));
-  check(tag + "swap: a blocked coin shows the block and no checkbox or widget", b.text.includes("Blocked: you may not be able to sell this token") && b.text.includes("freeze authority") && !b.box && b.swapHidden && !b.jup, b);
+  const b = await page.evaluate(() => ({text: document.querySelector("#t-gate").textContent, box: !!document.querySelector("#t-ack"), line: !!document.querySelector("#t-warnline"),
+    swapHidden: document.querySelector("#t-swap").hidden, target: document.querySelector("#jup-target").textContent, closed: window.__jupClosed || 0}));
+  check(tag + "swap: a blocked coin shows the block and no widget", b.text.includes("Blocked: you may not be able to sell this token") && b.text.includes("freeze authority") &&
+        !b.box && !b.line && b.swapHidden && b.target === "" && b.closed > closedBefore, b);
   await pick("BADMINT");
   const m = await page.evaluate(() => ({text: document.querySelector("#t-gate").textContent, box: !!document.querySelector("#t-ack"), swapHidden: document.querySelector("#t-swap").hidden, links: document.querySelectorAll("#t-token .tx-link").length}));
   check(tag + "swap: an invalid mint has no swap and no links", m.text.includes("Swap off") && !m.box && m.swapHidden && m.links === 0, m);
-  await pick("WARNED");
-  const w = await page.evaluate(() => ({text: document.querySelector("#t-gate").textContent, box: !!document.querySelector("#t-ack"), swapHidden: document.querySelector("#t-swap").hidden, jup: !!window.__jupInit}));
-  await page.check("#t-ack"); await sleep(500);
-  const w2s = await page.evaluate(() => ({swapHidden: document.querySelector("#t-swap").hidden, init: window.__jupInit && window.__jupInit.formProps, target: document.querySelector("#jup-target").textContent}));
-  await page.uncheck("#t-ack"); await sleep(200);
-  const w3 = await page.evaluate(() => ({swapHidden: document.querySelector("#t-swap").hidden, closed: window.__jupClosed || 0}));
-  check(tag + "swap: a warned coin needs the checkbox before the widget, prefilled SOL to the coin", w.text.includes("This coin failed") && w.box && w.swapHidden && !w.jup &&
-        !w2s.swapHidden && w2s.init.initialInputMint === SOL && w2s.init.initialOutputMint === mintFor(904) && w2s.init.fixedMint === mintFor(904) && w3.swapHidden && w3.closed >= 1, {w, w2s, w3});
 
   // 0 coins: an empty state
   await toList(page, vp);

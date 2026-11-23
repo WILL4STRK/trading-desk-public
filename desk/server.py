@@ -21,7 +21,8 @@ from .paths import STATIC
 CSP = ("default-src 'self'; script-src 'self' https://plugin.jup.ag; "
        "style-src 'self' 'unsafe-inline' https://plugin.jup.ag https://fonts.googleapis.com; "
        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; "
-       "connect-src 'self' https://*.jup.ag https://fonts.googleapis.com https://api.mainnet-beta.solana.com "
+       # api.dexscreener.com: the Terminal's live 5s/15s prices for the selected coin (read-only GETs from the page)
+       "connect-src 'self' https://*.jup.ag https://fonts.googleapis.com https://api.mainnet-beta.solana.com https://api.dexscreener.com "
        "wss://api.mainnet-beta.solana.com; "
        "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
        # TradingView charts are cross-origin frames: they cannot read or call this desk

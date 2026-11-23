@@ -567,9 +567,27 @@ details.disc summary:hover{background:oklch(1 0 0 / .04)}
   .tx-swap{flex:0 0 auto}
 }
 @media(min-width:900px) and (max-width:1199px){.tx-side{display:grid}}
+/* 1200 px and up: the right column scrolls as a whole; token details at their natural height, the swap card below */
+@media(min-width:1200px){#t-token{flex:0 0 auto;min-height:0;overflow:visible}.tx-side{overscroll-behavior:auto}}
 .tx-head{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:1px solid var(--sep);font-size:12.5px;flex-wrap:wrap}
 .tx-head b{font-size:13px}
 .tx-head .sp{flex:1}
+.tx-jump{display:none}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--label2);opacity:.6;flex:none}
+.live-dot[data-s=live]{background:var(--go);opacity:1}
+.live-dot[data-s=reconnecting]{background:var(--warn);opacity:1}
+.live-lbl{color:var(--label2);font-size:11.5px;white-space:nowrap}
+/* the failed checks: one compact red line above the swap; click to see them all. "danger" items are bold */
+.t-warnline{margin-top:6px;border-radius:var(--r-inner);background:var(--stopBg);color:var(--stop);font-size:12.5px}
+.t-warnline summary{cursor:pointer;list-style:none;padding:6px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-warnline summary::-webkit-details-marker{display:none}
+.t-warnline summary::before{content:"▸ ";color:var(--stop)}
+.t-warnline[open] summary::before{content:"▾ "}
+.t-warnline ul{margin:0;padding:0 12px 8px 28px}
+.t-warnline .t-danger{font-weight:800;color:var(--stop)}
+.t-warnline span{font-weight:400}
+@media(min-width:900px) and (max-width:1199px){.tx-jump{display:inline-block}}
+.tx-swap{scroll-margin-top:calc(var(--bannerh,36px) + 8px)}
 .tx-in{background:var(--card2);border:0;border-radius:6px;padding:5px 8px;font-size:13px;color:var(--label);min-height:30px}
 .tx-head .tx-in[type=search]{flex:1 1 120px;min-width:0}
 .tx-btn{background:var(--card2);border:0;border-radius:6px;color:var(--label2);font-size:12.5px;font-weight:600;padding:4px 9px;min-height:28px;cursor:pointer}
@@ -577,7 +595,7 @@ details.disc summary:hover{background:oklch(1 0 0 / .04)}
 .tx-btn:focus-visible,.tx-in:focus-visible,#t-list:focus-visible{outline:2px solid var(--tint);outline-offset:-2px}
 /* watchlist */
 .wl-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
-#t-list{flex:1;min-height:0;overflow-y:auto;overflow-anchor:none;overscroll-behavior:contain;outline:none}
+#t-list{flex:1;min-height:0;overflow-y:auto;overflow-anchor:none;overscroll-behavior:auto;outline:none} /* at its top or bottom the wheel moves the page */
 .wl-row{display:grid;grid-template-columns:minmax(0,1fr) 40px minmax(64px,max-content);grid-template-areas:"a spark px" "b spark chg";gap:0 6px;
   padding:5px 9px;border-bottom:1px solid var(--sep);cursor:pointer;font-size:12.5px;line-height:17px;
   height:46px;box-sizing:border-box;overflow:hidden} /* a whole-pixel height: inserting rows above keeps the view exactly in place */
@@ -923,9 +941,9 @@ details.disc summary:hover{background:oklch(1 0 0 / .04)}
           </div>
         </section>
         <section class="tx-pane tx-chart" aria-label="Chart">
-          <div class="tx-head"><b id="t-csym">–</b>
-            <span role="group" aria-label="Candle size"><button class="tx-btn" data-tivl="5m" aria-pressed="true">5m</button> <button class="tx-btn" data-tivl="15m" aria-pressed="false">15m</button> <button class="tx-btn" data-tivl="1h" aria-pressed="false">1h</button></span>
-            <button class="tx-btn" id="t-fit" title="Fit all candles">Fit</button><span id="t-ohlc"></span></div>
+          <div class="tx-head"><b id="t-csym">–</b><button class="tx-btn tx-jump" id="t-jump" type="button" title="Scroll to the swap card">Swap ↓</button>
+            <span role="group" aria-label="Candle size"><button class="tx-btn" data-tivl="5s" aria-pressed="false" title="Live, price only">5s</button> <button class="tx-btn" data-tivl="15s" aria-pressed="false" title="Live, price only">15s</button> <button class="tx-btn" data-tivl="5m" aria-pressed="true">5m</button> <button class="tx-btn" data-tivl="15m" aria-pressed="false">15m</button> <button class="tx-btn" data-tivl="1h" aria-pressed="false">1h</button></span>
+            <button class="tx-btn" id="t-fit" title="Fit all candles">Fit</button><span class="live-dot" id="t-live" data-s="stopped" role="img" aria-label="Live prices: stopped"></span><small class="live-lbl" id="t-livelbl">stopped</small><span id="t-ohlc"></span></div>
           <div class="tx-cbox"><div id="t-chart" role="img" aria-label="Coin candle chart. Scroll to zoom, drag to pan."></div><div id="t-cmsg">Pick a coin</div></div>
           <div class="tx-attr">Chart: <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a>, Apache-2.0</div>
         </section>
