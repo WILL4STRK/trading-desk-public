@@ -2,7 +2,7 @@
 //   DESK_DATA=<a COPY of data/> python -m desk --demo --port 8799 --no-browser
 //   NODE_PATH=<folder with playwright-core> node tests/e2e/terminal-fit.e2e.js [http://127.0.0.1:8799]
 // Read-only: the coin list comes from the desk (a copy of the live data), candles from a fixture (page.route), and
-// the checkbox is never ticked. 960x503 at devicePixelRatio 1.75 is the user's Chrome as measured on 2026-11-23.
+// the failed-checks line is never ticked. 960x503 at devicePixelRatio 1.75 is the user's Chrome as measured on 2026-11-23.
 const { chromium } = require("playwright-core");
 const BASE = process.argv[2] || "http://127.0.0.1:8799";
 const SIZES = [[960, 503, 1.75, "user's Chrome"], [1280, 720, 1], [1920, 1080, 1], [390, 844, 2]];
@@ -15,7 +15,8 @@ const bars = Array.from({length: 80}, (_, i) => ({time: 1795000000 + i * 300, op
 const MEASURE = () => {
   const r = e => { const b = (typeof e === "string" ? document.querySelector(e) : e).getBoundingClientRect(); return {l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height}; };
   const de = document.documentElement, cbox = r(".tx-cbox"), canv = [...document.querySelectorAll("#t-chart canvas")].map(c => c.getBoundingClientRect());
-  const vis = [...document.querySelectorAll("#v-terminal *")].filter(e => e.getClientRects().length && !e.closest(".vh") && !e.classList.contains("vh"));
+  // text inside the failed-checks summary is clipped by its own ellipsis on purpose (the full list is one click away)
+  const vis = [...document.querySelectorAll("#v-terminal *")].filter(e => e.getClientRects().length && !e.closest(".vh") && !e.classList.contains("vh") && !e.closest("#t-warnline summary"));
   return {
     inner: [innerWidth, innerHeight], bannerh: document.querySelector(".real-banner").getBoundingClientRect().height,
     sideways: de.scrollWidth - de.clientWidth,
@@ -25,7 +26,7 @@ const MEASURE = () => {
       .map(e => (e.id || e.className) + " " + e.clientWidth + "<" + e.scrollWidth).slice(0, 5),
     chartFill: canv.length ? {w: Math.round(Math.max(...canv.map(c => c.right)) - cbox.l), boxW: Math.round(cbox.w), h: Math.round(Math.max(...canv.map(c => c.bottom)) - cbox.t), boxH: Math.round(cbox.h)} : null,
     tx: r("#tx"), list: r(".tx-list"), chart: r(".tx-chart"), side: r(".tx-side"), swap: r(".tx-swap"), bar: document.querySelector(".tx-bar").getClientRects().length ? r(".tx-bar") : null,
-    ack: document.querySelector("#t-ack") ? r("#t-ack") : null, cols: getComputedStyle(document.querySelector("#tx")).gridTemplateColumns};
+    ack: document.querySelector("#t-warnline summary") ? r("#t-warnline summary") : document.querySelector("#t-gate .callout") ? r("#t-gate .callout") : null, cols: getComputedStyle(document.querySelector("#tx")).gridTemplateColumns};
 };
 
 async function run(browser, [w, h, dpr, note]) {
@@ -35,10 +36,12 @@ async function run(browser, [w, h, dpr, note]) {
   page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
   page.on("response", r => { if (r.status() >= 400) bad.push(r.status() + " " + new URL(r.url()).pathname); });
+  await page.route("https://plugin.jup.ag/**", route => route.fulfill({contentType: "text/javascript", body: "window.Jupiter={init:function(o){document.getElementById(o.integratedTargetId).textContent='JUPITER STUB'},close:function(){}};"}));
+  await page.route("https://api.dexscreener.com/**", route => route.fulfill({json: {pairs: []}}));
   await page.route("**/api/meme/chart?*", route => route.fulfill({json: {bars, levels: [], trades: [], symbol: "X", url: "https://dexscreener.com/solana/x"}}));
   await page.goto(BASE + "/"); await page.waitForSelector(".tabs button");
   await page.click('[data-v="terminal"]'); await page.waitForSelector("#t-list .wl-row"); await sleep(1500);
-  // open a coin that shows the checkbox (never ticked)
+  // open a coin that shows the failed-checks line (never ticked)
   const key = await page.evaluate(() => { const r = [...document.querySelectorAll("#t-list .wl-row")]; return r.length ? r[0].dataset.tkey : null; });
   await page.evaluate(k => document.querySelector(`#t-list .wl-row[data-tkey="${CSS.escape(k)}"]`).click(), key); await sleep(1200);
   let phone = w < 900, width = w;
@@ -59,10 +62,10 @@ async function run(browser, [w, h, dpr, note]) {
       check(tag + label + "the terminal fills the window under the banner, columns full height", full.every(p => Math.abs(p.h - want) <= 2 && p.t >= m.bannerh - 1 && p.b <= m.inner[1] + 1) &&
             (width >= 1200 ? Math.abs(m.tx.h - want) <= 2 && m.chart.b < m.list.b : Math.abs(m.list.h - m.chart.h) <= 1),
             {want: Math.round(want), list: [Math.round(m.list.t), Math.round(m.list.b)], chart: [Math.round(m.chart.t), Math.round(m.chart.b)], side: [Math.round(m.side.t), Math.round(m.side.b)], cols: m.cols});
-      if (width >= 1200) check(tag + label + "swap card and checkbox fully in view in the right column", m.ack && m.swap.b <= m.side.b + 1 && m.ack.b <= m.inner[1] && m.side.b <= m.inner[1] + 1,
+      if (width >= 1200) check(tag + label + "swap card and failed-checks line fully in view in the right column", m.ack && m.swap.b <= m.side.b + 1 && m.ack.b <= m.inner[1] && m.side.b <= m.inner[1] + 1,
                            {swap: [Math.round(m.swap.t), Math.round(m.swap.b)], side: Math.round(m.side.b), ack: m.ack && Math.round(m.ack.b)});
       else { await page.$eval(".tx-swap", e => e.scrollIntoView({block: "center"})); await sleep(200); const s = await page.evaluate(MEASURE);
-        check(tag + label + "swap card (below the chart here) is whole and its checkbox reachable", s.ack && s.ack.b <= s.inner[1] && s.ack.t >= s.bannerh && s.swap.w >= 260, {swap: [Math.round(s.swap.t), Math.round(s.swap.b), Math.round(s.swap.w)], ack: s.ack && Math.round(s.ack.t)}); }
+        check(tag + label + "swap card (below the chart here) is whole and its failed-checks line reachable", s.ack && s.ack.b <= s.inner[1] && s.ack.t >= s.bannerh && s.swap.w >= 260, {swap: [Math.round(s.swap.t), Math.round(s.swap.b), Math.round(s.swap.w)], ack: s.ack && Math.round(s.ack.t)}); }
     } else {
       for (const p of ["list", "chart", "swap"]) {
         await page.click(`#tx-bar [data-tpane="${p}"]`); await sleep(500);

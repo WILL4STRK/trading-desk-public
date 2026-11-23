@@ -1,0 +1,18 @@
+PASS 960x503@1.75 (user's Chrome) plain wheel over the chart scrolls the page and does not zoom  {"scrollY":[406,646],"visibleBars":[123,123]}
+PASS 960x503@1.75 (user's Chrome) Ctrl+wheel zooms the chart in and out, page and browser zoom unchanged  {"visibleBars":[123,93.49,123],"scrollY":[406,406],"dpr":[1.75,1.75]}
+PASS 960x503@1.75 (user's Chrome) drag still pans the chart  {"from":[0,-16.928327645051198]}
+PASS 960x503@1.75 (user's Chrome) wheel over the list scrolls the list first, not the page  {"listTop":[0,200],"scrollY":[406,406]}
+PASS 960x503@1.75 (user's Chrome) at the bottom of the list the wheel scrolls the page  {"scrollY":[406,646]}
+PASS 960x503@1.75 (user's Chrome) at the top of the list the wheel scrolls the page up  {"scrollY":[526,326]}
+PASS 960x503@1.75 (user's Chrome) Swap ↓ is shown and brings the swap card's failed-checks line into view, focused  {"shown":true,"before":false,"after":{"top":80,"bottom":110,"inView":true,"focused":true,"checked":false}}
+PASS 960x503@1.75 (user's Chrome) no console errors besides the favicon 404  []
+PASS 1280x720@1 plain wheel over the chart scrolls the page and does not zoom  {"scrollY":[360,472],"visibleBars":[123,123]}
+PASS 1280x720@1 Ctrl+wheel zooms the chart in and out, page and browser zoom unchanged  {"visibleBars":[123,76.11,123],"scrollY":[360,360],"dpr":[1,1]}
+PASS 1280x720@1 drag still pans the chart  {"from":[0,-18.787878787878782]}
+PASS 1280x720@1 wheel over the list scrolls the list first, not the page  {"listTop":[0,200],"scrollY":[360,360]}
+PASS 1280x720@1 at the bottom of the list the wheel scrolls the page  {"scrollY":[360,472]}
+PASS 1280x720@1 at the top of the list the wheel scrolls the page up  {"scrollY":[472,272]}
+PASS 1280x720@1 Swap ↓ is hidden here, and the swap card is already in view in the right column  {"shown":false,"inView":true}
+PASS 1280x720@1 no console errors besides the favicon 404  []
+
+16 passed, 0 failed

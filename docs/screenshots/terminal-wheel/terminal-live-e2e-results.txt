@@ -1,0 +1,62 @@
+PASS 960x503@1.75 a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live  {"status":"live","samples":4,"gaps":[2014,2009,2010]}
+PASS 960x503@1.75 the status dot is green and the label says price only, live since  "live · price only · live since 14:46:15"
+PASS 960x503@1.75 5s: candles from the polled prices grow live, price only (no volume)  {"bars":[2,3],"readout":"O 0.001062H 0.001072L 0.001062C 0.001072V –"}
+PASS 960x503@1.75 15s: fewer, wider candles from the same prices
+PASS 960x503@1.75 5m keeps its history
+PASS 960x503@1.75 another coin: the old pool stops, the new pool is polled, live since restarts  {"oldAfter":0,"newAfter":3,"since":[1795463175,1795463190]}
+PASS 960x503@1.75 a response for another mint is dropped: no new price, status reconnecting  {"status":"reconnecting","key":"solana:1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JH8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795463190,"samples":3,"polls":4,"dropped":1,"polling":true}
+PASS 960x503@1.75 invalid JSON is dropped and the retries back off  {"backoff":[2624],"samples":3}
+PASS 960x503@1.75 after the backoff it is live again  {"status":"live","samples":[3,11]}
+PASS 960x503@1.75 page hidden: no requests, status stopped  {"whileHidden":0,"status":"stopped"}
+PASS 960x503@1.75 visible again: polling resumes for the same coin
+PASS 960x503@1.75 another desk tab: polling stops  {"whileAway":0,"status":"stopped"}
+PASS 960x503@1.75 back on the Terminal: polling resumes
+PASS 960x503@1.75 a warned coin: the widget is loaded at once, no checkbox  {"initialInputMint":"So11111111111111111111111111111111111111112","initialOutputMint":"1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","fixedMint":"1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6"}
+PASS 960x503@1.75 one compact red line, danger first: 4 failed checks · creator rugged before · single holder · RugCheck 54/100 · top 10 holders 50%  "4 failed checks · creator rugged before · single holder · RugCheck 54/100 · top 10 holders 50%"
+PASS 960x503@1.75 danger items are bold red, the others are not bold  {"bold":[["creator rugged before",800,"oklch(0.68 0.18 25)"],["single holder",800,"oklch(0.68 0.18 25)"]],"plain":[400,400]}
+PASS 960x503@1.75 click expands the full list of every failed check  ["Safety: RugCheck risk 54/100","Safety: danger: Creator history of rugged tokens","Safety: danger: Single holder ownership","Strict: top 10 holders 50%"]
+PASS 960x503@1.75 a refresh keeps the list expanded
+PASS 960x503@1.75 a blocked coin: the block, no widget, no line  {"text":"Blocked: you may not be able to sell this tokenreported as a honeypot: buys work, sells may not\n        The page cannot change this. To open the swap anyway, set meme_terminal_allow_unsellable to true in the desk's settings.json by hand.","line":false,"swapHidden":true,"widget":"","closed":2}
+PASS 960x503@1.75 nothing from GeckoTerminal in the page, no console errors  {"gecko":[],"errors":[]}
+PASS 1280x720@1 a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live  {"status":"live","samples":4,"gaps":[2009,2008,2021]}
+PASS 1280x720@1 the status dot is green and the label says price only, live since  "live · price only · live since 14:47:21"
+PASS 1280x720@1 5s: candles from the polled prices grow live, price only (no volume)  {"bars":[2,3],"readout":"O 0.001062H 0.001072L 0.001062C 0.001072V –"}
+PASS 1280x720@1 15s: fewer, wider candles from the same prices
+PASS 1280x720@1 5m keeps its history
+PASS 1280x720@1 another coin: the old pool stops, the new pool is polled, live since restarts  {"oldAfter":0,"newAfter":3,"since":[1795463241,1795463256]}
+PASS 1280x720@1 a response for another mint is dropped: no new price, status reconnecting  {"status":"reconnecting","key":"solana:1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JH8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795463256,"samples":3,"polls":4,"dropped":1,"polling":true}
+PASS 1280x720@1 invalid JSON is dropped and the retries back off  {"backoff":[2641],"samples":3}
+PASS 1280x720@1 after the backoff it is live again  {"status":"live","samples":[3,11]}
+PASS 1280x720@1 page hidden: no requests, status stopped  {"whileHidden":0,"status":"stopped"}
+PASS 1280x720@1 visible again: polling resumes for the same coin
+PASS 1280x720@1 another desk tab: polling stops  {"whileAway":0,"status":"stopped"}
+PASS 1280x720@1 back on the Terminal: polling resumes
+PASS 1280x720@1 a warned coin: the widget is loaded at once, no checkbox  {"initialInputMint":"So11111111111111111111111111111111111111112","initialOutputMint":"1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","fixedMint":"1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6"}
+PASS 1280x720@1 one compact red line, danger first: 4 failed checks · creator rugged before · single holder · RugCheck 54/100 · top 10 holders 50%  "4 failed checks · creator rugged before · single holder · RugCheck 54/100 · top 10 holders 50%"
+PASS 1280x720@1 danger items are bold red, the others are not bold  {"bold":[["creator rugged before",800,"oklch(0.68 0.18 25)"],["single holder",800,"oklch(0.68 0.18 25)"]],"plain":[400,400]}
+PASS 1280x720@1 click expands the full list of every failed check  ["Safety: RugCheck risk 54/100","Safety: danger: Creator history of rugged tokens","Safety: danger: Single holder ownership","Strict: top 10 holders 50%"]
+PASS 1280x720@1 a refresh keeps the list expanded
+PASS 1280x720@1 a blocked coin: the block, no widget, no line  {"text":"Blocked: you may not be able to sell this tokenreported as a honeypot: buys work, sells may not\n        The page cannot change this. To open the swap anyway, set meme_terminal_allow_unsellable to true in the desk's settings.json by hand.","line":false,"swapHidden":true,"widget":"","closed":2}
+PASS 1280x720@1 nothing from GeckoTerminal in the page, no console errors  {"gecko":[],"errors":[]}
+PASS 390x844@2 a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live  {"status":"live","samples":4,"gaps":[2010,2012,2019]}
+PASS 390x844@2 the status dot is green and the label says price only, live since  "live · price only · live since 14:48:26"
+PASS 390x844@2 5s: candles from the polled prices grow live, price only (no volume)  {"bars":[2,3],"readout":"O 0.001062H 0.001072L 0.001062C 0.001072V –"}
+PASS 390x844@2 15s: fewer, wider candles from the same prices
+PASS 390x844@2 5m keeps its history
+PASS 390x844@2 another coin: the old pool stops, the new pool is polled, live since restarts  {"oldAfter":0,"newAfter":3,"since":[1795463306,1795463321]}
+PASS 390x844@2 a response for another mint is dropped: no new price, status reconnecting  {"status":"reconnecting","key":"solana:1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","pool":"1JH8Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","since":1795463321,"samples":3,"polls":4,"dropped":1,"polling":true}
+PASS 390x844@2 invalid JSON is dropped and the retries back off  {"backoff":[2618],"samples":3}
+PASS 390x844@2 after the backoff it is live again  {"status":"live","samples":[3,11]}
+PASS 390x844@2 page hidden: no requests, status stopped  {"whileHidden":0,"status":"stopped"}
+PASS 390x844@2 visible again: polling resumes for the same coin
+PASS 390x844@2 another desk tab: polling stops  {"whileAway":0,"status":"stopped"}
+PASS 390x844@2 back on the Terminal: polling resumes
+PASS 390x844@2 a warned coin: the widget is loaded at once, no checkbox  {"initialInputMint":"So11111111111111111111111111111111111111112","initialOutputMint":"1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6","fixedMint":"1138Mao2FUhv9Nbp3GViwAPcq4HWjxBQdr5JXkyCRes6"}
+PASS 390x844@2 one compact red line, danger first: 4 failed checks · creator rugged before · single holder · RugCheck 54/100 · top 10 holders 50%  "4 failed checks · creator rugged before · single holder · RugCheck 54/100 · top 10 holders 50%"
+PASS 390x844@2 danger items are bold red, the others are not bold  {"bold":[["creator rugged before",800,"oklch(0.68 0.18 25)"],["single holder",800,"oklch(0.68 0.18 25)"]],"plain":[400,400]}
+PASS 390x844@2 click expands the full list of every failed check  ["Safety: RugCheck risk 54/100","Safety: danger: Creator history of rugged tokens","Safety: danger: Single holder ownership","Strict: top 10 holders 50%"]
+PASS 390x844@2 a refresh keeps the list expanded
+PASS 390x844@2 a blocked coin: the block, no widget, no line  {"text":"Blocked: you may not be able to sell this tokenreported as a honeypot: buys work, sells may not\n        The page cannot change this. To open the swap anyway, set meme_terminal_allow_unsellable to true in the desk's settings.json by hand.","line":false,"swapHidden":true,"widget":"","closed":2}
+PASS 390x844@2 nothing from GeckoTerminal in the page, no console errors  {"gecko":[],"errors":[]}
+
+60 passed, 0 failed

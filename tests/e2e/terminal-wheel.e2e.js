@@ -17,6 +17,8 @@ async function run(browser, [w, h, dpr, note]) {
   page.on("console", m => { if (m.type() === "error" && !/Failed to load resource.*404/.test(m.text())) errors.push(m.text()); });
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
   await page.route("**/api/meme/chart?*", route => route.fulfill({json: {bars, levels: [], trades: [], symbol: "X", url: "https://dexscreener.com/solana/x"}}));
+  await page.route("https://plugin.jup.ag/**", route => route.fulfill({contentType: "text/javascript", body: "window.Jupiter={init:function(o){document.getElementById(o.integratedTargetId).textContent='JUPITER STUB'},close:function(){}};"}));
+  await page.route("https://api.dexscreener.com/**", route => route.fulfill({json: {pairs: []}}));
   await page.goto(BASE + "/"); await page.waitForSelector(".tabs button");
   await page.click('[data-v="terminal"]'); await page.waitForSelector("#t-list .wl-row"); await sleep(1500);
   const toTerminal = () => page.evaluate(() => { const t = document.querySelector("#tx"), bh = document.querySelector(".real-banner").getBoundingClientRect().height; scrollTo(0, t.getBoundingClientRect().top + scrollY - bh - 8); });
@@ -71,14 +73,14 @@ async function run(browser, [w, h, dpr, note]) {
   await toTerminal(); await sleep(300);
   const shown = await page.$eval("#t-jump", b => getComputedStyle(b).display !== "none" && b.getClientRects().length > 0);
   if (w >= 900 && w < 1200) {
-    const before = await page.evaluate(() => { const a = document.querySelector("#t-ack"); return a && a.getBoundingClientRect().top < innerHeight; });
+    const before = await page.evaluate(() => { const a = document.querySelector("#t-warnline summary"); return a && a.getBoundingClientRect().top < innerHeight; });
     await page.click("#t-jump"); await sleep(1200);
-    const after = await page.evaluate(() => { const a = document.querySelector("#t-ack"), bh = document.querySelector(".real-banner").getBoundingClientRect().height, b = a.getBoundingClientRect();
-      return {top: Math.round(b.top), bottom: Math.round(b.bottom), inView: b.top >= bh && b.bottom <= innerHeight, focused: document.activeElement === a, checked: a.checked}; });
-    check(tag + "Swap ↓ is shown and brings the focused, unticked checkbox into view", shown && before === false && after.inView && after.focused && !after.checked, {shown, before, after});
+    const after = await page.evaluate(() => { const a = document.querySelector("#t-warnline summary"), bh = document.querySelector(".real-banner").getBoundingClientRect().height, b = a.getBoundingClientRect();
+      return {top: Math.round(b.top), bottom: Math.round(b.bottom), inView: b.top >= bh && b.bottom <= innerHeight, focused: document.activeElement === a, checked: false}; });
+    check(tag + "Swap ↓ is shown and brings the swap card's failed-checks line into view, focused", shown && before === false && after.inView && after.focused && !after.checked, {shown, before, after});
   } else {
-    const inView = await page.evaluate(() => { const a = document.querySelector("#t-ack"); return a && a.getBoundingClientRect().bottom <= innerHeight; });
-    check(tag + "Swap ↓ is hidden here, and the checkbox is already in view in the right column", !shown && inView, {shown, inView});
+    const inView = await page.evaluate(() => { const a = document.querySelector("#t-warnline summary"); return a && a.getBoundingClientRect().bottom <= innerHeight; });
+    check(tag + "Swap ↓ is hidden here, and the swap card is already in view in the right column", !shown && inView, {shown, inView});
   }
   check(tag + "no console errors besides the favicon 404", errors.length === 0, errors);
   await page.unrouteAll({behavior: "ignoreErrors"}); await ctx.close();

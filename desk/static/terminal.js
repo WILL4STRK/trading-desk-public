@@ -69,16 +69,27 @@ const TERMINAL = (() => {
       <div class="wl-chg num ${tone(c.r1h)}" data-f="r1h">${pct(c.r1h)}</div></div>`;
   }
 
-  // what the swap panel shows for one coin: blocked, an invalid address, or the warning box and checkbox
-  function gate(c, confirmed) {
+  // short names for the summary line; the full reasons are in the expanded list
+  const SHORT = {"creator history of rugged tokens": "creator rugged before", "single holder ownership": "single holder",
+    "top 10 holders high ownership": "top 10 hold a lot", "large amount of lp unlocked": "LP unlocked", "low liquidity": "low liquidity",
+    "mint authority still enabled": "mint authority on", "freeze authority still enabled": "freeze authority on"};
+  const shortCheck = s => { s = String(s).replace(/^danger:\s*/i, "").replace(/^RugCheck risk /, "RugCheck "); return SHORT[s.toLowerCase()] || s; };
+  const isDanger = s => /danger/i.test(String(s));
+  function checkItems(c) {
+    return (c.cant_sell || []).map(w => ({full: "Can't sell: " + w, short: "can't sell: " + w, danger: true}))
+      .concat((c.failed || []).map(f => ({full: (f.check === "strict" ? "Strict: " : "Safety: ") + f.reason, short: shortCheck(f.reason), danger: isDanger(f.reason)})));
+  }
+  // what the swap panel shows for one coin: blocked, an invalid address, or one compact red line (click to expand).
+  // The line lists danger items first, so a narrow panel's ellipsis never hides them; the expanded list keeps the order.
+  function gate(c) {
     if (c.swap === "invalid_mint" || !validMint(c.mint))
       return `<div class="callout bad"><b>Swap off:</b> this coin's address is not a valid Solana address.</div>`;
     if (c.swap === "blocked")
       return `<div class="callout bad t-block" role="alert"><b>Blocked: you may not be able to sell this token</b><ul>${c.cant_sell.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
         <p class="t-small">The page cannot change this. To open the swap anyway, set meme_terminal_allow_unsellable to true in the desk's settings.json by hand.</p></div>`;
-    const all = (c.cant_sell || []).map(w => "Can't sell: " + w).concat((c.failed || []).map(f => (f.check === "strict" ? "Strict: " : "Safety: ") + f.reason));
-    return `<div class="callout bad t-warn" role="alert"><b>This coin failed ${all.length} check${all.length === 1 ? "" : "s"}</b><ul>${all.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
-      <label class="t-ack"><input type="checkbox" id="t-ack"${confirmed ? " checked" : ""}> I understand this coin failed these checks</label></div>`;
+    const all = checkItems(c), mark = (x, s) => x.danger ? `<b class="t-danger">${esc(s)}</b>` : `<span>${esc(s)}</span>`;
+    return `<details class="t-warnline" id="t-warnline"><summary title="Show every failed check"><b>${all.length} failed check${all.length === 1 ? "" : "s"}</b>${all.filter(x => x.danger).concat(all.filter(x => !x.danger)).map(x => " · " + mark(x, x.short)).join("")}</summary>
+      <ul>${all.map(x => `<li>${mark(x, x.full)}</li>`).join("")}</ul></details>`;
   }
 
   function manualRow(m) {
@@ -114,10 +125,102 @@ const TERMINAL = (() => {
   // price scale precision for coins worth fractions of a cent
   const precision = px => { if (!px || !isFinite(px)) return 4; return Math.min(12, Math.max(2, Math.ceil(-Math.log10(px)) + 3)); };
 
+  // ---- live seconds candles: DexScreener's pair endpoint for the selected coin, every 2 s. Price only (no volume),
+  // never GeckoTerminal (its per-IP limit is shared with the desk's scanner and P7). Every response is checked.
+  const DS_PAIR = "https://api.dexscreener.com/latest/dex/pairs/solana/";
+  const LIVE_IVL = {"5s": 5, "15s": 15}, LIVE_EVERY = 2000, LIVE_KEEP = 3600, LIVE_BACKOFF_MAX = 30000;
+  // the validated USD price for this mint and pool from one response, or null (anything else is dropped)
+  function livePrice(d, mint, pool) {
+    if (!d || typeof d !== "object" || Array.isArray(d)) return null;
+    const pairs = Array.isArray(d.pairs) ? d.pairs : d.pair && typeof d.pair === "object" ? [d.pair] : [];
+    const p = pairs.find(x => x && typeof x === "object" && x.pairAddress === pool);
+    if (!p || !p.baseToken || typeof p.baseToken !== "object" || p.baseToken.address !== mint) return null;
+    if (p.chainId !== undefined && p.chainId !== "solana") return null;
+    if (typeof p.priceUsd !== "string" && typeof p.priceUsd !== "number") return null;
+    const v = Number(p.priceUsd);
+    return Number.isFinite(v) && v > 0 && v < 1e9 ? v : null;
+  }
+  // candles from price samples [{t: seconds, p}], oldest first: one per sec-long bucket
+  function priceCandles(samples, sec) {
+    const out = [];
+    for (const s of samples) {
+      if (!Number.isFinite(s.t) || !Number.isFinite(s.p)) continue;
+      const time = Math.floor(s.t / sec) * sec, last = out[out.length - 1];
+      if (last && last.time === time) { last.high = Math.max(last.high, s.p); last.low = Math.min(last.low, s.p); last.close = s.p; }
+      else if (!last || time > last.time) out.push({time, open: s.p, high: s.p, low: s.p, close: s.p});
+    }
+    return out;
+  }
+  const poolOf = c => { const u = (c.links || {}).dexscreener, pre = "https://dexscreener.com/solana/";
+    return typeof u === "string" && u.startsWith(pre) && validMint(u.slice(pre.length)) ? u.slice(pre.length) : null; };
+
   // ---- in the browser only
-  let D = null, SEL = null, ACTIVE = null, ACK = {}, JUP = null, TIMER = 0, SORT = "newest", QUERY = "", PILL = 0, PANE = "list";
+  let D = null, SEL = null, ACTIVE = null, JUP = null, TIMER = 0, SORT = "newest", QUERY = "", PILL = 0, PANE = "list";
   let ROWS = new Map(), BYKEY = new Map(), SEQ = 0, IVL = "5m", CH = null, CHD = null, CHKEY = "", BOTTOM = "swaps";
   const $ = s => document.querySelector(s);
+  // LIVE: the one poller. status: live (green), reconnecting (amber), stopped (gray)
+  let LIVE = {key: null, mint: null, pool: null, since: 0, samples: [], timer: 0, ctrl: null, fails: 0, status: "stopped", polls: 0, dropped: 0};
+  const hhmmss = s => new Date(s * 1000).toTimeString().slice(0, 8);
+  function liveShow() {
+    const dot = $("#t-live"), lbl = $("#t-livelbl"); if (!dot) return;
+    const word = {live: "live", reconnecting: "reconnecting", stopped: "stopped"}[LIVE.status];
+    dot.dataset.s = LIVE.status; dot.title = "Live prices: " + word; dot.setAttribute("aria-label", "Live prices: " + word);
+    lbl.textContent = LIVE.key && LIVE.since ? `${word} · price only · live since ${hhmmss(LIVE.since)}` : word;
+  }
+  const liveAllowed = () => typeof document !== "undefined" && document.visibilityState === "visible" && $("#v-terminal").classList.contains("on");
+  function liveStop(keepCoin) {
+    clearTimeout(LIVE.timer); LIVE.timer = 0;
+    if (LIVE.ctrl) { LIVE.ctrl.abort(); LIVE.ctrl = null; }
+    if (!keepCoin) LIVE = Object.assign(LIVE, {key: null, mint: null, pool: null, since: 0, samples: [], fails: 0});
+    LIVE.status = "stopped"; liveShow();
+  }
+  function liveStart(c) {                              // a new coin: the seconds candles start empty
+    liveStop(false);
+    const pool = poolOf(c);
+    if (!c || !validMint(c.mint) || !pool) { liveShow(); return; }
+    Object.assign(LIVE, {key: c.key, mint: c.mint, pool, since: Math.floor(Date.now() / 1000), samples: [], fails: 0, polls: 0, dropped: 0});
+    liveResume();
+  }
+  function liveResume() {                              // the same coin again after the tab or page was hidden
+    if (!LIVE.key || LIVE.timer || LIVE.ctrl || !liveAllowed()) { if (LIVE.key && !liveAllowed()) liveStop(true); return; }
+    LIVE.status = LIVE.fails ? "reconnecting" : "live"; liveShow(); livePoll();
+  }
+  async function livePoll() {
+    LIVE.timer = 0;
+    const key = LIVE.key; if (!key) return;
+    if (!liveAllowed() || key !== SEL) return liveStop(key === SEL);
+    const ctrl = new AbortController(); LIVE.ctrl = ctrl; LIVE.polls++;
+    let price = null;
+    try {
+      const r = await fetch(DS_PAIR + encodeURIComponent(LIVE.pool), {signal: ctrl.signal, cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer"});
+      price = r.ok ? livePrice(await r.json(), LIVE.mint, LIVE.pool) : null;
+    } catch (e) { if (ctrl.signal.aborted) return; }
+    if (LIVE.ctrl !== ctrl || LIVE.key !== key) return;       // stopped or another coin while this one was in flight
+    LIVE.ctrl = null;
+    if (price == null) { LIVE.dropped++; LIVE.fails++; LIVE.status = "reconnecting"; }
+    else { LIVE.fails = 0; LIVE.status = "live"; LIVE.samples.push({t: Date.now() / 1000, p: price});
+      if (LIVE.samples.length > LIVE_KEEP) LIVE.samples.splice(0, LIVE.samples.length - LIVE_KEEP);
+      if (LIVE_IVL[IVL] && SEL === key) liveDraw(false); }
+    liveShow();
+    const wait = LIVE.fails ? Math.min(LIVE_BACKOFF_MAX, LIVE_EVERY * 2 ** LIVE.fails) : LIVE_EVERY;
+    if (liveAllowed() && LIVE.key === key) LIVE.timer = setTimeout(livePoll, wait); else liveStop(true);
+  }
+  function liveDraw(fresh) {
+    if (!makeChart()) return;
+    const sec = LIVE_IVL[IVL], bars = LIVE.key === SEL ? priceCandles(LIVE.samples, sec) : [];
+    const last = CHD && CHD.live && CHD.key === SEL && CHD.ivl === IVL && CHD.bars.length;
+    CHD = {bars, key: SEL, ivl: IVL, live: true};
+    if (fresh || !last || !bars.length) {
+      const c = BYKEY.get(SEL) || {}, p = precision(bars.length ? bars.at(-1).close : c.px);
+      CH.cs.applyOptions({priceFormat: {type: "price", precision: p, minMove: Math.pow(10, -p)}});
+      CH.cs.setData(bars); CH.vol.setData([]); CH.cs.setMarkers([]);
+      CH.lines.forEach(l => CH.cs.removePriceLine(l)); CH.lines = [];
+      if (fresh) requestAnimationFrame(() => CH.chart.timeScale().fitContent());
+    } else CH.cs.update(bars.at(-1));                         // only the last candle changes
+    $("#t-cmsg").hidden = !!bars.length; if (!bars.length) $("#t-cmsg").textContent = LIVE.key ? "Waiting for the first live price…" : "No live prices for this coin.";
+    readout(null);
+  }
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") liveResume(); else liveStop(true); });
   const reduced = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   async function load() {
     let d;
@@ -126,6 +229,7 @@ const TERMINAL = (() => {
     D = d; BYKEY = new Map(d.coins.map(c => [c.key, c]));
     renderList();
     renderLog();
+    liveResume();
     if (!SEL && d.coins.length) open(listOrder().find(k => BYKEY.has(k)) || d.coins[0].key, false);
     else if (SEL) detail();
     clearTimeout(TIMER); TIMER = setTimeout(() => { if ($("#v-terminal").classList.contains("on")) load(); }, 30000);
@@ -181,7 +285,9 @@ const TERMINAL = (() => {
   function mark() { ROWS.forEach((r, k) => { const on = k === SEL; r.classList.toggle("sel", on); r.setAttribute("aria-selected", on); r.classList.toggle("act", k === ACTIVE); });
     const a = ROWS.get(ACTIVE); if (a) listEl().setAttribute("aria-activedescendant", a.id); }
   function open(key, toChart = true) {
-    SEL = key; ACTIVE = key; mark(); detail(); loadChart(true);
+    SEL = key; ACTIVE = key; mark(); detail();
+    if (LIVE.key === key) liveResume(); else liveStart(BYKEY.get(key));   // the coin already open keeps its live prices
+    loadChart(true);
     if (toChart && matchMedia("(max-width: 899px)").matches) pane("chart");
   }
   function detail() {
@@ -191,8 +297,10 @@ const TERMINAL = (() => {
       $("#t-gate").innerHTML = ""; closeJup(); return;
     }
     $("#t-token").innerHTML = tokenPanel(c);
-    $("#t-gate").innerHTML = gate(c, !!ACK[c.key]);
-    if (c.swap === "confirm" && ACK[c.key] && validMint(c.mint)) openJup(c); else closeJup();
+    const g = $("#t-gate"), html = gate(c), open = g.querySelector("details[open]") && g.dataset.key === c.key;
+    if (g.dataset.html !== html) { g.innerHTML = html; g.dataset.html = html; if (open) g.querySelector("details").open = true; }   // a refresh keeps it expanded
+    g.dataset.key = c.key;
+    if (c.swap === "confirm" && validMint(c.mint)) openJup(c); else closeJup();   // not blocked: the widget loads at once
   }
   function renderLog() {
     $("#t-log").innerHTML = D.manual.length ? `<table class="tx-table"><tr><th>When (UTC)</th><th>Coin</th><th>Side</th><th>In</th><th>Out</th><th>Price then</th><th>Failed</th><th>Tx</th></tr>${D.manual.map(manualRow).join("")}</table>`
@@ -244,6 +352,8 @@ const TERMINAL = (() => {
     const c = BYKEY.get(key) || {};
     setText($("#t-csym"), c.symbol || "?");
     if (!makeChart()) { $("#t-chart").textContent = "The chart library did not load."; return; }
+    CH.chart.applyOptions({timeScale: {secondsVisible: !!LIVE_IVL[ivl]}});
+    if (LIVE_IVL[ivl]) { renderBots(null); return liveDraw(true); }     // 5s and 15s: from the live prices, no history
     if (fresh) { $("#t-cmsg").hidden = false; $("#t-cmsg").textContent = "Loading candles…"; }
     let d;
     try { d = await api(`/api/meme/chart?key=${encodeURIComponent(key)}&ivl=${ivl}`); }
@@ -307,7 +417,7 @@ const TERMINAL = (() => {
       else if (b.id === "t-fit") { if (CH) CH.chart.timeScale().fitContent(); }
       else if (b.id === "t-jump") {                   // 900 to 1199 px: the swap card is below the chart
         $(".tx-swap").scrollIntoView({behavior: reduced() ? "auto" : "smooth", block: "start"});
-        const f = $("#t-ack") || $("#t-gate .callout"); if (f) { if (!f.matches("input")) f.tabIndex = -1; f.focus({preventScroll: true}); } }
+        const f = $("#t-warnline summary") || $("#t-gate .callout"); if (f) { if (!f.matches("summary")) f.tabIndex = -1; f.focus({preventScroll: true}); } }
       else if (b.dataset.tpane) pane(b.dataset.tpane);
       else if (b.dataset.tbottom) { BOTTOM = b.dataset.tbottom; document.querySelectorAll("[data-tbottom]").forEach(x => x.setAttribute("aria-selected", x === b));
         $("#t-log").hidden = BOTTOM !== "swaps"; $("#t-bots").hidden = BOTTOM !== "bots"; }
@@ -319,8 +429,7 @@ const TERMINAL = (() => {
       else if ((e.key === "Enter" || e.key === " ") && ACTIVE) { e.preventDefault(); open(ACTIVE); }
     });
     document.addEventListener("change", e => {
-      if (e.target.id === "t-ack" && SEL) { ACK[SEL] = e.target.checked; detail(); }
-      else if (e.target.id === "t-sort" && D) { SORT = e.target.value; rebuild(); }
+      if (e.target.id === "t-sort" && D) { SORT = e.target.value; rebuild(); }
     });
     document.addEventListener("input", e => { if (e.target.id === "t-find" && D) { QUERY = e.target.value; rebuild(); } });
     document.addEventListener("scroll", e => { if (e.target.id === "t-list" && e.target.scrollTop <= 2 && PILL) setPill(0); }, true);
@@ -338,7 +447,8 @@ const TERMINAL = (() => {
   }
   // read-only state for the browser tests: what the chart shows, never the data itself
   const inspect = () => ({sel: SEL, active: ACTIVE, ivl: IVL, pill: PILL, pane: PANE, bars: CHD ? CHD.bars.length : 0,
-    markers: CH ? CH.cs.markers().length : 0, lines: CH ? CH.lines.length : 0, range: CH ? CH.chart.timeScale().getVisibleLogicalRange() : null});
-  return {load, inspect, price, esc, validMint, validTxid, gate, manualRow, tradeFrom, ago, rowHtml, tokenPanel, botRow, sortCoins, matches, diff, sparkPath, sparkPoints, badge, precision};
+    markers: CH ? CH.cs.markers().length : 0, lines: CH ? CH.lines.length : 0, range: CH ? CH.chart.timeScale().getVisibleLogicalRange() : null,
+    live: {status: LIVE.status, key: LIVE.key, pool: LIVE.pool, since: LIVE.since, samples: LIVE.samples.length, polls: LIVE.polls, dropped: LIVE.dropped, polling: !!(LIVE.timer || LIVE.ctrl)}});
+  return {load, inspect, price, livePrice, priceCandles, checkItems, shortCheck, esc, validMint, validTxid, gate, manualRow, tradeFrom, ago, rowHtml, tokenPanel, botRow, sortCoins, matches, diff, sparkPath, sparkPoints, badge, precision};
 })();
 if (typeof module !== "undefined") module.exports = TERMINAL;
