@@ -211,12 +211,25 @@ const TERMINAL = (() => {
     const chart = L.createChart(el, {autoSize: true, layout: {background: {color: "transparent"}, textColor: COL.text, fontFamily: "Geist, system-ui, sans-serif", fontSize: 11},
       grid: {vertLines: {color: COL.grid}, horzLines: {color: COL.grid}}, rightPriceScale: {borderVisible: false},
       timeScale: {borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: 4}, crosshair: {mode: L.CrosshairMode.Normal},
-      handleScroll: {vertTouchDrag: false}});
+      // the plain wheel scrolls the page (with both wheel options off the library adds no wheel listener); Ctrl+wheel
+      // zooms (below); drag pans; pinch zooms on touch
+      handleScroll: {mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false},
+      handleScale: {mouseWheel: false, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true}});
     const cs = chart.addCandlestickSeries({upColor: COL.up, downColor: COL.down, borderVisible: false, wickUpColor: COL.up, wickDownColor: COL.down});
     cs.priceScale().applyOptions({scaleMargins: {top: .08, bottom: .24}});
     const vol = chart.addHistogramSeries({priceFormat: {type: "volume"}, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false});
     chart.priceScale("vol").applyOptions({scaleMargins: {top: .8, bottom: 0}});
     chart.subscribeCrosshairMove(p => readout(p && p.time != null ? p.seriesData.get(cs) : null, p && p.time != null ? p.seriesData.get(vol) : null));
+    // Ctrl+wheel (and a trackpad pinch, which the browser sends as Ctrl+wheel) zooms around the pointer
+    el.addEventListener("wheel", e => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();                             // not the browser's page zoom
+      const ts = chart.timeScale(), r = ts.getVisibleLogicalRange(); if (!r) return;
+      const dy = e.deltaY * (e.deltaMode === 1 ? 32 : e.deltaMode === 2 ? 400 : 1);
+      const f = Math.exp(Math.max(-1, Math.min(1, dy / 500))), at = ts.coordinateToLogical(e.clientX - el.getBoundingClientRect().left) ?? (r.from + r.to) / 2;
+      const from = at - (at - r.from) * f, to = at + (r.to - at) * f;
+      if (to - from >= 4) ts.setVisibleLogicalRange({from, to});
+    }, {passive: false});
     CH = {chart, cs, vol, lines: []};
     return true;
   }
@@ -292,6 +305,9 @@ const TERMINAL = (() => {
       if (b.id === "t-pill") { listEl().scrollTo({top: 0, behavior: reduced() ? "auto" : "smooth"}); setPill(0); }
       else if (b.dataset.tivl) { IVL = b.dataset.tivl; document.querySelectorAll("[data-tivl]").forEach(x => x.setAttribute("aria-pressed", x === b)); loadChart(true); }
       else if (b.id === "t-fit") { if (CH) CH.chart.timeScale().fitContent(); }
+      else if (b.id === "t-jump") {                   // 900 to 1199 px: the swap card is below the chart
+        $(".tx-swap").scrollIntoView({behavior: reduced() ? "auto" : "smooth", block: "start"});
+        const f = $("#t-ack") || $("#t-gate .callout"); if (f) { if (!f.matches("input")) f.tabIndex = -1; f.focus({preventScroll: true}); } }
       else if (b.dataset.tpane) pane(b.dataset.tpane);
       else if (b.dataset.tbottom) { BOTTOM = b.dataset.tbottom; document.querySelectorAll("[data-tbottom]").forEach(x => x.setAttribute("aria-selected", x === b));
         $("#t-log").hidden = BOTTOM !== "swaps"; $("#t-bots").hidden = BOTTOM !== "bots"; }
@@ -322,7 +338,7 @@ const TERMINAL = (() => {
   }
   // read-only state for the browser tests: what the chart shows, never the data itself
   const inspect = () => ({sel: SEL, active: ACTIVE, ivl: IVL, pill: PILL, pane: PANE, bars: CHD ? CHD.bars.length : 0,
-    markers: CH ? CH.cs.markers().length : 0, lines: CH ? CH.lines.length : 0});
+    markers: CH ? CH.cs.markers().length : 0, lines: CH ? CH.lines.length : 0, range: CH ? CH.chart.timeScale().getVisibleLogicalRange() : null});
   return {load, inspect, price, esc, validMint, validTxid, gate, manualRow, tradeFrom, ago, rowHtml, tokenPanel, botRow, sortCoins, matches, diff, sparkPath, sparkPoints, badge, precision};
 })();
 if (typeof module !== "undefined") module.exports = TERMINAL;
