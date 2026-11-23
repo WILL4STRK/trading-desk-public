@@ -695,3 +695,34 @@ No pass by the 800 look is a fail. A pass is a lead only: it changes no live rul
 WebSocket data 2 credits per 0.1 MB).** If the month's credits run out, swaps not seen are logged as missed, never filled in later.
 
 **Changes.** Changing any number here after a result is seen restarts the count and is logged in docs/CHANGES.md.
+
+### 19.1 Amendment, 2026-11-23 (written with the code, before discovery ran and before any wallet, swap, candle or caller was fetched)
+
+No Helius, GeckoTerminal, RugCheck or KOL-tracker call has been made, and the desk-data copy for C1 does not exist yet. This fixes what
+section 19 left open, as `research/copy/` implements it. It changes no threshold, cost, exit, control or pass-bar number above.
+
+1. **History window.** A wallet's dev-window swaps (exclusions 2 to 4, score, dev stats, C1-S candidates) are those with block time in
+   `[D0, T19)`, where `D0` is the `ts` of the earliest line of the desk copy (about 2026-11-20 20:24 UTC). Swaps a day = swaps / window days.
+   The runner universe therefore spans about 2 days of first sightings (`ts0 + 24 h <= T19`): a short dev window, stated as a limit.
+2. **Order of exclusions.** 1 (creator and dev), then 5 (top 100 by early SOL, ranked among the early buyers left after 1; it needs no
+   history), then 2 to 4 on fetched histories. A wallet with more than **3,000** transactions in the history window is excluded as
+   **too active to score** (counted on its own). Exclusion 4 counts signatures in the history window, up to 10,000.
+3. **Sandwich pattern.** One wallet's buy and sell of the same mint in the same slot (separate transactions), on 2 or more slots. Whether
+   another wallet's swap sits between them is not checked (it needs every slot's full data).
+4. **Early-window fetch.** Transactions of the runner's mint and of its first-sighting pool, successful only, ascending, the earliest
+   **10,000** per address and window. A truncated window is counted.
+5. **Random control pool.** Early buyers left after exclusions 1 and 5 that are not C1 candidates (fewer than 5 runners), sampled with
+   `random.Random(19)` to **300** (sorted addresses), plus candidates that failed only the P&L test; exclusions 2 to 4 then apply. Quintiles
+   are over that pool. A quintile that runs dry draws from the nearest one (lower first).
+6. **Creator and dev.** RugCheck's full-report `creator`, and the fee payer of the mint's earliest transaction (before T19).
+7. **C1-S.** `M`'s funder and `W`'s first incoming SOL are read from each address's first 20 transactions; `W`'s first swap from those or
+   from its history. Rule (b) candidates are fetched from the mint's transactions in `[t_M - 30 min, t_M - 10 s)`, at most 2,000 per mint,
+   in round-robin order over clusters by mint index. C1-S discovery stops at **300,000** Helius credits; mints not fetched are counted.
+8. **Follower.** On its very first start a wallet's back-fill begins at its newest signature (nothing older is replayed). An unknown
+   can't-sell check is retried after 10 minutes. The open limit counts buys waiting for their fill. A position is checked every 30 s, so the
+   time exit fills at the first such sample at or after 24 h. Alerts are sent at detection (not for missed swaps and not for controls). The
+   copied wallet's own price for its remaining lot uses DexScreener `priceNative` when the pair is quoted in SOL, else `priceUsd` / SOL's USD
+   price from the same request.
+9. **Looks.** A control's rows at look N are its closed copies entered at or before the arm's N-th copied buy. The 1.25th percentile is the
+   `ceil(0.0125 x B)`-th smallest of the B usable resamples; a resample with an empty side is dropped and counted.
+10. **P0 readout.** The desk's `all` shadows with `chain == "solana"` (no screen filter), net as recorded, entered after C1's start.
