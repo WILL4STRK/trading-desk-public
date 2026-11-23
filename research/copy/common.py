@@ -112,8 +112,7 @@ class Log:
             raw = self.path.read_bytes()
             if raw and not raw.endswith(b"\n"):           # a torn last line from a crash: drop it
                 raw = raw[:raw.rfind(b"\n") + 1]
-                with open(self.path, "wb") as f:
-                    f.write(raw)
+                atomic_write(self.path, raw.decode("utf-8"))      # never a half-rewritten log
             for ln in raw.splitlines():
                 try:
                     self.ids.add(json.loads(ln)["id"])
