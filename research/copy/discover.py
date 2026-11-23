@@ -38,6 +38,7 @@ WINDOW_TX_CAP = 10000      # 19.1: per runner, per address and window, the earli
 CREDIT_CAP_C1 = 600000
 CREDIT_CAP_KOL = 300000    # 19.1
 RANDOM_POOL = 300          # 19.1
+FALLBACK_PAGES = 3000      # 19.2: getSignaturesForAddress pages (1,000 signatures each) per address and window
 SEED = 19
 GT = "https://api.geckoterminal.com/api/v2/networks/solana/pools/%s/ohlcv/minute?aggregate=5&before_timestamp=%d&limit=300&currency=usd"
 RUGCHECK = "https://api.rugcheck.xyz/v1/tokens/%s/report"
@@ -291,6 +292,55 @@ class Fetch:
                 return {"error": str(e)}
         return self._cached("rugcheck", mint, go).get("creator")
 
+    def _gtfa(self, address, cfg):
+        """getTransactionsForAddress, or None once the plan has refused it (then the fallback is used for the whole run)."""
+        if self.gtfa_ok is False:
+            return None
+        try:
+            r = self.h.rpc("getTransactionsForAddress", [address, cfg]) or {}
+            self.gtfa_ok = True
+            return r
+        except C.CreditCap:
+            raise
+        except RuntimeError:
+            if self.gtfa_ok:
+                raise
+            self.gtfa_ok = False
+            return None
+
+    def _sigs(self, address, gte, lt, stop=None, max_pages=FALLBACK_PAGES):
+        """Fallback: successful signatures with gte <= blockTime < lt, oldest first, by paging getSignaturesForAddress
+        backwards from the newest (1 credit a page). Returns (sigs, truncated)."""
+        out, before, pages = [], None, 0
+        while pages < max_pages:
+            cfg = {"limit": 1000}
+            if before:
+                cfg["before"] = before
+            page = self.h.rpc("getSignaturesForAddress", [address, cfg]) or []
+            pages += 1
+            if not page:
+                return sorted(out, key=lambda s: (s["blockTime"], s["signature"])), False
+            for s in page:
+                bt = s.get("blockTime")
+                if bt is None or s.get("err") is not None:
+                    continue
+                if bt < lt and (gte is None or bt >= gte):
+                    out.append(s)
+            before = page[-1]["signature"]
+            last = page[-1].get("blockTime")
+            if gte is not None and last is not None and last < gte:
+                return sorted(out, key=lambda s: (s["blockTime"], s["signature"])), False
+        return sorted(out, key=lambda s: (s["blockTime"], s["signature"])), True
+
+    def _fallback_txs(self, address, gte, lt, cap):
+        sigs, trunc = self._sigs(address, gte, lt)
+        out = []
+        for s in sigs[:cap]:
+            t = self.h.rpc("getTransaction", [s["signature"], {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}])
+            if t:
+                out.append(t)
+        return out, trunc or len(sigs) > cap
+
     def txs(self, address, gte=None, lt=None, cap=HIST_CAP, asc=True):
         """Full jsonParsed transactions of address with gte <= blockTime < min(lt, T19), ascending, at most cap.
         Returns (txs, truncated)."""
@@ -298,6 +348,10 @@ class Fetch:
         name = "%s|%s|%s|%d" % (address, gte, lt, cap)
 
         def go():
+            if self.gtfa_ok is False:
+                got, trunc = self._fallback_txs(address, gte, lt, cap)
+                return {"txs": [t for t in got if t.get("blockTime") is not None and t["blockTime"] < self.t19],
+                        "truncated": trunc}
             out, tok = [], None
             while len(out) < cap:
                 bt = {"lt": int(math.ceil(lt))}
@@ -308,7 +362,9 @@ class Fetch:
                        "filters": {"blockTime": bt, "status": "succeeded"}}
                 if tok:
                     cfg["paginationToken"] = tok
-                r = self.h.rpc("getTransactionsForAddress", [address, cfg]) or {}
+                r = self._gtfa(address, cfg)
+                if r is None:
+                    return go()
                 out += r.get("data") or []
                 tok = r.get("paginationToken")
                 if not tok or not r.get("data"):
@@ -328,7 +384,9 @@ class Fetch:
                        "filters": {"blockTime": {"gte": int(gte), "lt": int(self.t19)}}}
                 if tok:
                     cfg["paginationToken"] = tok
-                r = self.h.rpc("getTransactionsForAddress", [address, cfg]) or {}
+                r = self._gtfa(address, cfg)
+                if r is None:
+                    return {"n": min(len(self._sigs(address, gte, self.t19)[0]), stop)}
                 n += len(r.get("data") or [])
                 tok = r.get("paginationToken")
                 if not tok or not r.get("data"):

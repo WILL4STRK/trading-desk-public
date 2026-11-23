@@ -116,6 +116,32 @@ class NoPostT19(TempHome):
         self.assertEqual([t["transaction"]["signatures"][0] for t in got], ["s1"])
         self.assertLessEqual(sent[0][1]["filters"]["blockTime"]["lt"], T)
 
+    def test_fallback_when_plan_refuses_gtfa_stays_before_t19(self):
+        calls = []
+
+        class H:
+            credits = 0
+
+            def rpc(self, m, params):
+                calls.append(m)
+                if m == "getTransactionsForAddress":
+                    raise RuntimeError("getTransactionsForAddress error -32601: not on this plan")
+                if m == "getSignaturesForAddress":
+                    if params[1].get("before"):
+                        return []
+                    return [{"signature": "late", "blockTime": T + 5, "err": None},
+                            {"signature": "in", "blockTime": T - 50, "err": None},
+                            {"signature": "bad", "blockTime": T - 60, "err": {"x": 1}},
+                            {"signature": "old", "blockTime": T - 5000, "err": None}]
+                return tx(params[0], {"in": T - 50}[params[0]], W1)
+        fx = D.Fetch(H(), self.dir / "cache")
+        got, trunc = fx.txs(W1, T - 1000, None)
+        self.assertEqual([t["transaction"]["signatures"][0] for t in got], ["in"])
+        self.assertFalse(trunc)
+        self.assertIs(fx.gtfa_ok, False)
+        self.assertEqual(fx.sig_count(W1, T - 1000), 1)
+        self.assertEqual(calls.count("getTransactionsForAddress"), 1)     # refused once, then never asked again
+
     def test_wallet_stats_only_inside_window(self):
         sw = [{"ts": T - 100, "sig": "a", "slot": 1, "mint": MINT, "side": "buy", "tokens": 10, "sol": 1.0},
               {"ts": T - 50, "sig": "b", "slot": 2, "mint": MINT, "side": "sell", "tokens": 10, "sol": 2.0},
@@ -540,6 +566,26 @@ class FakeFetch:
         if a == W1:
             return [sol_transfer("f", T - 2 * 86400, M, W1), tx("w1b", T - 86400, W1)]
         return []
+
+
+class DexPrices(unittest.TestCase):
+    def test_most_liquid_pair_and_native_price(self):
+        F._SOL.update(t=-1e18, v=None)
+
+        def http(url):
+            if url.endswith(C.SOL_MINT):
+                return [{"baseToken": {"address": C.SOL_MINT}, "quoteToken": {"symbol": "USDC"}, "priceUsd": "200",
+                         "liquidity": {"usd": 9e6}}]
+            return [{"baseToken": {"address": MINT, "symbol": "AAA"}, "quoteToken": {"address": C.SOL_MINT}, "priceUsd": "0.5",
+                     "priceNative": "0.0025", "liquidity": {"usd": 1000}, "pairAddress": "p1"},
+                    {"baseToken": {"address": MINT, "symbol": "AAA"}, "quoteToken": {"address": C.SOL_MINT}, "priceUsd": "0.4",
+                     "priceNative": "0.002", "liquidity": {"usd": 50000}, "pairAddress": "p2"},
+                    {"baseToken": {"address": MINT2, "symbol": "BBB"}, "quoteToken": {"address": "USDCmint"}, "priceUsd": "2",
+                     "liquidity": {"usd": 7000}, "pairAddress": "p3"}]
+        got = F.dex_prices([MINT, MINT2], http=http, clock=lambda: 123.0)
+        self.assertEqual((got[MINT]["pool"], got[MINT]["px"], got[MINT]["native"]), ("p2", 0.4, 0.002))
+        self.assertAlmostEqual(got[MINT2]["native"], 0.01)          # 2 USD / 200 USD per SOL
+        self.assertEqual(got[MINT]["t"], 123.0)
 
 
 class WebSocketFrames(unittest.TestCase):

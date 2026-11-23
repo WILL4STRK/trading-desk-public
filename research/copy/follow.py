@@ -72,10 +72,10 @@ def dex_prices(mints, http=C.http_json, clock=time.time):
     `t` is the local time the answer arrived (the sample time). SOL's own USD price converts non-SOL quotes."""
     out = {}
     ms = [m for m in dict.fromkeys(mints) if C.B58.match(m)]
-    for i in range(0, len(ms), 29):
-        chunk = ms[i:i + 29]
+    for i in range(0, len(ms), 30):
+        chunk = ms[i:i + 30]
         try:
-            pairs = http(DEX % ",".join(chunk + [C.SOL_MINT]))
+            pairs = http(DEX % ",".join(chunk))
         except RuntimeError:
             continue
         t = clock()
@@ -86,8 +86,6 @@ def dex_prices(mints, http=C.http_json, clock=time.time):
         for p in pairs:
             base = (p.get("baseToken") or {}).get("address")
             liq = (p.get("liquidity") or {}).get("usd")
-            if base == C.SOL_MINT and (p.get("quoteToken") or {}).get("symbol") in ("USDC", "USDT") and p.get("priceUsd"):
-                sol_usd = sol_usd or float(p["priceUsd"])
             if base in chunk and (base not in best or (liq or 0) > ((best[base].get("liquidity") or {}).get("usd") or 0)):
                 best[base] = p
         for m, p in best.items():
@@ -100,13 +98,35 @@ def dex_prices(mints, http=C.http_json, clock=time.time):
             try:
                 if q == C.SOL_MINT:
                     native = float(p.get("priceNative") or 0) or None
-                elif px and sol_usd:
-                    native = px / sol_usd
+                elif px:
+                    sol_usd = sol_usd or sol_price(http, clock)
+                    native = px / sol_usd if sol_usd else None
             except ValueError:
                 pass
             out[m] = {"px": px, "liq": (p.get("liquidity") or {}).get("usd"), "native": native, "pool": p.get("pairAddress"),
                       "symbol": (p.get("baseToken") or {}).get("symbol") or m[:6], "t": t}
     return out
+
+
+_SOL = {"t": -1e18, "v": None}
+
+
+def sol_price(http=C.http_json, clock=time.time):
+    """SOL in USD from DexScreener (the most liquid SOL/USDC or SOL/USDT pair), cached for 60 s."""
+    if clock() - _SOL["t"] < 60 and _SOL["v"]:
+        return _SOL["v"]
+    try:
+        pairs = http(DEX % C.SOL_MINT)
+    except RuntimeError:
+        return _SOL["v"]
+    best = None
+    for p in pairs if isinstance(pairs, list) else []:
+        if ((p.get("baseToken") or {}).get("address") == C.SOL_MINT and (p.get("quoteToken") or {}).get("symbol") in ("USDC", "USDT")
+                and p.get("priceUsd") and (best is None or ((p.get("liquidity") or {}).get("usd") or 0) > ((best.get("liquidity") or {}).get("usd") or 0))):
+            best = p
+    if best:
+        _SOL.update(t=clock(), v=float(best["priceUsd"]))
+    return _SOL["v"]
 
 
 # ---- alerts -----------------------------------------------------------------------------------------------------------------
