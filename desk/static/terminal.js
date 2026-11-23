@@ -62,7 +62,7 @@ const TERMINAL = (() => {
   function rowHtml(c, id) {
     const b = badge(c);
     return `<div class="wl-row" role="option" id="${esc(id)}" data-tkey="${esc(c.key)}" aria-selected="false">
-      <div class="wl-a"><b class="wl-sym" data-f="sym">${esc(c.symbol || "?")}</b><span class="wl-badge ${b.cls}" data-f="badge" title="${esc(b.label)}">${b.n}</span></div>
+      <div class="wl-a"><b class="wl-sym" data-f="sym" title="${esc(c.symbol || "?")}">${esc(c.symbol || "?")}</b><span class="wl-badge ${b.cls}" data-f="badge" title="${esc(b.label)}">${b.n}</span></div>
       <svg class="wl-spark" viewBox="0 0 52 18" aria-hidden="true"><path data-f="spark" d="${sparkPath(c)}"/></svg>
       <div class="wl-px num" data-f="px">${price(c.px)}</div>
       <div class="wl-b num"><span data-f="liq">${money(c.liq)}</span><span class="wl-strong" data-f="strong" title="last strong">${short(c.last_strong_ts)}</span></div>
@@ -136,7 +136,7 @@ const TERMINAL = (() => {
   function setText(el, v) { if (el && el.textContent !== v) el.textContent = v; }
   function updateRow(r, c) {                     // numbers only, in place: no node is replaced or moved
     const f = n => r.querySelector(`[data-f="${n}"]`);
-    setText(f("sym"), c.symbol || "?"); setText(f("px"), price(c.px)); setText(f("liq"), money(c.liq)); setText(f("strong"), short(c.last_strong_ts));
+    setText(f("sym"), c.symbol || "?"); if (f("sym").title !== (c.symbol || "?")) f("sym").title = c.symbol || "?"; setText(f("px"), price(c.px)); setText(f("liq"), money(c.liq)); setText(f("strong"), short(c.last_strong_ts));
     const ch = f("r1h"); setText(ch, pct(c.r1h)); const cls = "wl-chg num " + tone(c.r1h); if (ch.className.trim() !== cls.trim()) ch.className = cls;
     const b = badge(c), be = f("badge"); setText(be, String(b.n)); if (!be.classList.contains(b.cls)) be.className = "wl-badge " + b.cls; be.title = b.label;
     const d = sparkPath(c), sp = f("spark"); if (sp.getAttribute("d") !== d) sp.setAttribute("d", d);
@@ -224,7 +224,7 @@ const TERMINAL = (() => {
     if (!bar && CHD && CHD.bars.length) { const b = CHD.bars.at(-1); bar = b; v = {value: b.volume}; }
     const o = $("#t-ohlc"); if (!bar) { o.innerHTML = ""; return; }
     const up = bar.close >= bar.open, f = x => `<b class="${up ? "pos" : "neg"}">${price(x)}</b>`;
-    o.innerHTML = `O ${f(bar.open)} H ${f(bar.high)} L ${f(bar.low)} C ${f(bar.close)} V <b>${money(v && v.value)}</b>`;
+    o.innerHTML = `<span>O ${f(bar.open)}</span><span>H ${f(bar.high)}</span><span>L ${f(bar.low)}</span><span>C ${f(bar.close)}</span><span>V <b>${money(v && v.value)}</b></span>`;
   }
   async function loadChart(fresh) {
     const key = SEL, ivl = IVL; if (!key) return;
@@ -314,6 +314,11 @@ const TERMINAL = (() => {
       (matchMedia("(max-width: 899px)").matches && nav ? nav.getBoundingClientRect().height : 0) + "px");
     if (nav && typeof ResizeObserver === "function") new ResizeObserver(navh).observe(nav);
     addEventListener("resize", navh);
+    // the real-money banner wraps on narrow windows: the terminal's height is the window less its real height
+    const banner = document.querySelector(".real-banner"), bannerh = () => document.documentElement.style.setProperty("--bannerh",
+      (banner ? Math.ceil(banner.getBoundingClientRect().height) : 0) + "px");
+    if (banner && typeof ResizeObserver === "function") new ResizeObserver(bannerh).observe(banner);
+    bannerh();
   }
   // read-only state for the browser tests: what the chart shows, never the data itself
   const inspect = () => ({sel: SEL, active: ACTIVE, ivl: IVL, pill: PILL, pane: PANE, bars: CHD ? CHD.bars.length : 0,
