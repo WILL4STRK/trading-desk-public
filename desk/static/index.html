@@ -567,6 +567,8 @@ details.disc summary:hover{background:oklch(1 0 0 / .04)}
   .tx-swap{flex:0 0 auto}
 }
 @media(min-width:900px) and (max-width:1199px){.tx-side{display:grid}}
+/* 1200 px and up: the right column scrolls as a whole; token details at their natural height, the swap card below */
+@media(min-width:1200px){#t-token{flex:0 0 auto;min-height:0;overflow:visible}.tx-side{overscroll-behavior:auto}}
 .tx-head{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:1px solid var(--sep);font-size:12.5px;flex-wrap:wrap}
 .tx-head b{font-size:13px}
 .tx-head .sp{flex:1}

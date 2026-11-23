@@ -5,7 +5,7 @@
 // the failed-checks line is never ticked. 960x503 at devicePixelRatio 1.75 is the user's Chrome as measured on 2026-11-23.
 const { chromium } = require("playwright-core");
 const BASE = process.argv[2] || "http://127.0.0.1:8799";
-const SIZES = [[960, 503, 1.75, "user's Chrome"], [1280, 720, 1], [1920, 1080, 1], [390, 844, 2]];
+const SIZES = [[960, 503, 1.75, "user's Chrome"], [1527, 801, 1.75, "user's Chrome, wider"], [1280, 720, 1], [1920, 1080, 1], [390, 844, 2]];
 const results = [];
 const check = (name, ok, detail) => { results.push({name, ok: !!ok}); console.log((ok ? "PASS " : "FAIL ") + name + (detail !== undefined ? "  " + JSON.stringify(detail) : "")); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -62,8 +62,17 @@ async function run(browser, [w, h, dpr, note]) {
       check(tag + label + "the terminal fills the window under the banner, columns full height", full.every(p => Math.abs(p.h - want) <= 2 && p.t >= m.bannerh - 1 && p.b <= m.inner[1] + 1) &&
             (width >= 1200 ? Math.abs(m.tx.h - want) <= 2 && m.chart.b < m.list.b : Math.abs(m.list.h - m.chart.h) <= 1),
             {want: Math.round(want), list: [Math.round(m.list.t), Math.round(m.list.b)], chart: [Math.round(m.chart.t), Math.round(m.chart.b)], side: [Math.round(m.side.t), Math.round(m.side.b)], cols: m.cols});
-      if (width >= 1200) check(tag + label + "swap card and failed-checks line fully in view in the right column", m.ack && m.swap.b <= m.side.b + 1 && m.ack.b <= m.inner[1] && m.side.b <= m.inner[1] + 1,
-                           {swap: [Math.round(m.swap.t), Math.round(m.swap.b)], side: Math.round(m.side.b), ack: m.ack && Math.round(m.ack.b)});
+      if (width >= 1200) {
+        // the right column scrolls as a whole: token details at their natural height (no inner scroll), the swap card below
+        const tok = await page.$eval("#t-token", e => ({h: e.clientHeight, sh: e.scrollHeight, cs: getComputedStyle(e).overflowY}));
+        await page.$eval(".tx-side", e => { e.scrollTop = 0; });
+        await page.$eval(".tx-side", e => { const sw = e.querySelector(".tx-swap"); e.scrollTop = sw.offsetTop - 8; }); await sleep(200);
+        const s = await page.evaluate(MEASURE);
+        check(tag + label + "right column: token details at full height, column scrolls, swap card and its line reachable in view",
+              tok.sh <= tok.h + 1 && tok.h > 150 && s.ack && s.ack.t >= s.side.t - 1 && s.ack.b <= s.side.b + 1 && s.ack.b <= s.inner[1] + 1,
+              {token: tok, side: [Math.round(s.side.t), Math.round(s.side.b)], line: s.ack && [Math.round(s.ack.t), Math.round(s.ack.b)]});
+        await page.$eval(".tx-side", e => { e.scrollTop = 0; });
+      }
       else { await page.$eval(".tx-swap", e => e.scrollIntoView({block: "center"})); await sleep(200); const s = await page.evaluate(MEASURE);
         check(tag + label + "swap card (below the chart here) is whole and its failed-checks line reachable", s.ack && s.ack.b <= s.inner[1] && s.ack.t >= s.bannerh && s.swap.w >= 260, {swap: [Math.round(s.swap.t), Math.round(s.swap.b), Math.round(s.swap.w)], ack: s.ack && Math.round(s.ack.t)}); }
     } else {
