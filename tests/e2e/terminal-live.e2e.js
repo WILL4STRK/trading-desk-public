@@ -2,6 +2,7 @@
 //   DESK_DATA=<a COPY of data/> python -m desk --demo --port 8799 --no-browser
 //   NODE_PATH=<folder with playwright-core> node tests/e2e/terminal-live.e2e.js [http://127.0.0.1:8799]
 // No real network: DexScreener and Jupiter are stand-ins (page.route); the coin list and candles are fixtures.
+// These coins trade on Raydium, so this is the DexScreener fallback (price only, delayed); on-chain prices: terminal-onchain.e2e.js.
 const { chromium } = require("playwright-core");
 const BASE = process.argv[2] || "http://127.0.0.1:8799";
 const SOL = "So11111111111111111111111111111111111111112";
@@ -10,7 +11,7 @@ const addr = i => { let d = ""; for (let n = i, k = 0; k < 3; k++, n = Math.floo
 const results = [];
 const check = (name, ok, detail) => { results.push({name, ok: !!ok}); console.log((ok ? "PASS " : "FAIL ") + name + (detail !== undefined ? "  " + JSON.stringify(detail) : "")); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const coin = (i, extra) => Object.assign({key: "solana:" + addr(i), symbol: "T" + i, name: "Test " + i, mint: addr(i), px: 0.001, r1h: 1, r6h: 1, r24h: 1, liq: 1000, v1h: 500, age_h: i, dex: "pumpswap",
+const coin = (i, extra) => Object.assign({key: "solana:" + addr(i), symbol: "T" + i, name: "Test " + i, mint: addr(i), px: 0.001, r1h: 1, r6h: 1, r24h: 1, liq: 1000, v1h: 500, age_h: i, dex: "raydium",
   screen: "fail", strict: "fail", failed: [{check: "safety", reason: "RugCheck risk 54/100"}, {check: "safety", reason: "danger: Creator history of rugged tokens"},
     {check: "safety", reason: "danger: Single holder ownership"}, {check: "strict", reason: "top 10 holders 50%"}],
   cant_sell: [], swap: "confirm", last_strong_ts: null, seen: 1, record: {shadows: 0, practice: 0},
@@ -50,7 +51,7 @@ async function run(browser, [w, h, dpr]) {
   check(tag + "a coin opens: polls its own pool on api.dexscreener.com about every 2 s, status live", L.status === "live" && L.pool === pool1 && L.samples >= 2 &&
         ds.every(x => x.pool === pool1) && gaps.every(g => g > 1700 && g < 2600), {status: L.status, samples: L.samples, gaps});
   check(tag + "the status dot is green and the label says price only, live since", await page.$eval("#t-live", e => e.dataset.s) === "live" &&
-        /^live · price only · live since \d\d:\d\d:\d\d$/.test(await page.$eval("#t-livelbl", e => e.textContent)), await page.$eval("#t-livelbl", e => e.textContent));
+        /^live · price only · delayed · live since \d\d:\d\d:\d\d$/.test(await page.$eval("#t-livelbl", e => e.textContent)), await page.$eval("#t-livelbl", e => e.textContent));
   // 5s candles from those prices; the last candle updates live; no volume
   await page.click('[data-tivl="5s"]'); await sleep(300);
   const b0 = await page.evaluate(() => TERMINAL.inspect().bars); await sleep(6200);
@@ -61,7 +62,7 @@ async function run(browser, [w, h, dpr]) {
   check(tag + "15s: fewer, wider candles from the same prices", (await page.evaluate(() => TERMINAL.inspect().bars)) <= b1);
   // 5m keeps its history (from the desk's own endpoint, not live)
   await page.click('[data-tivl="5m"]'); await sleep(400);
-  check(tag + "5m keeps its history", (await page.evaluate(() => TERMINAL.inspect().bars)) === 60);
+  check(tag + "5m keeps its history (and the live price extends its last candle)", (await page.evaluate(() => TERMINAL.inspect().bars)) >= 60);
 
   // another coin: the old pool is no longer polled, the new one is, the seconds candles start again
   const since1 = L.since; await sleep(1100); await pick("T2"); const tSwitch = Date.now(); await sleep(4500);

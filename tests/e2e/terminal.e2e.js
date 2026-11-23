@@ -42,6 +42,8 @@ async function session(browser, vp, opts = {}) {
   });
   await page.route("**/api/meme/chart?*", route => { const u = new URL(route.request().url()); S.chartCalls.push([u.searchParams.get("key"), u.searchParams.get("ivl")]);
     route.fulfill({json: chartFixture(u.searchParams.get("ivl"))}); });
+  await page.route("https://api.mainnet-beta.solana.com/", route => { const b = JSON.parse(route.request().postData()); route.fulfill({json: {jsonrpc: "2.0", id: b.id, result: {context: {slot: 1}, value: b.params[0].map(() => null)}}}); });   // on-chain: unreadable, so the DexScreener stand-in
+  await page.route("https://lite-api.jup.ag/**", route => route.fulfill({json: {So11111111111111111111111111111111111111112: {usdPrice: 72.8}}}));
   await page.route("https://api.dexscreener.com/**", route => route.fulfill({json: {pairs: []}}));     // live prices: a stand-in, no network
   await page.route("https://plugin.jup.ag/**", route => route.fulfill({contentType: "text/javascript",
     body: "window.Jupiter={init:function(o){window.__jupInit=JSON.parse(JSON.stringify(o));document.getElementById(o.integratedTargetId).textContent='JUPITER STUB'},close:function(){window.__jupClosed=(window.__jupClosed||0)+1}};"}));

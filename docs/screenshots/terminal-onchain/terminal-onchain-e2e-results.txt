@@ -1,0 +1,36 @@
+PASS 1280x720@1 curve: one websocket, one accountSubscribe for the curve (base64, confirmed), status live, on-chain label  {"mode":"chain","subs":["8PA9idsoHRHrBVsk6bNRDEQL4HoH5JVm6RMqb8DLi54E"],"status":"live","label":"live · on-chain · live since 15:51:46"}
+PASS 1280x720@1 curve: the price at open matches the recorded curve (within 2% of DexScreener's USD price then)  {"last":0.00001940368744260255,"ds":0.00001942}
+PASS 1280x720@1 curve: checked owner, layout, mint decimals and the bonding-curve address before subscribing
+PASS 1280x720@1 curve: a reserve change is a tick: price up, volume = 1 SOL in USD, 1s candle has that volume  {"ticks":[1,2],"volume":72.81628507116278,"lastBar":{"time":1795467108,"open":0.000019686260009086538,"high":0.000019686260009086538,"low":0.000019686260009086538,"close":0.000019686260009086538,"volume":72.81628507116278}}
+PASS 1280x720@1 curve: seconds with no trade show as flat dojis (the 1s chart keeps moving)  {"bars":5}
+PASS 1280x720@1 curve: malformed, foreign and over-50x messages are dropped, no tick  {"dropped":[0,7],"ticks":[2,2]}
+PASS 1280x720@1 5m: the last candle's close follows the live tick between server refreshes  {"before":[0.00002,10],"after":[0.000020253643646360945,155.63257014232556],"last":0.000020253643646360945}
+PASS 1280x720@1 coin change: accountUnsubscribe sent and the old socket closed  {"unsubs":[[101]],"firstClosed":3}
+PASS 1280x720@1 pool: one new socket, 3 subscriptions (pool, base vault, quote vault), never more  {"psubs":["B5ZX4qqS5hvcCEiyxtUbkJDuFfNL66NcPK1NzSHPcus7","B6eMimTrHzsSmHLFpq6EBLNZmb892JDRddZNT9nMch9b","98bHEJfhKfcbLFEvXvTTsJgSZBVmE7vgBJfc2sZGu2LA"],"subs":3}
+PASS 1280x720@1 pool: the price at open uses effective quote reserves (within 2% of Jupiter's price then)  {"last":0.00001837599256428043,"jupiter":0.000018153635809199405}
+PASS 1280x720@1 pool: a trade's two vault updates make one tick, volume = 2 SOL in USD  {"ticks":[1,2],"volume":145.63257014232556}
+PASS 1280x720@1 pool: a vault message for the wrong mint is dropped
+PASS 1280x720@1 a dropped socket: amber, then reconnects with backoff and resubscribes  {"after":"reconnecting","opened":3,"status":"live"}
+PASS 1280x720@1 page hidden: unsubscribed, socket closed, no new socket  {"unsubs":[1,4],"opened":3,"status":"stopped"}
+PASS 1280x720@1 visible again: a new socket for the same coin
+PASS 1280x720@1 Raydium: DexScreener fallback, labelled price only · delayed, no websocket  {"mode":"poll","label":"live · price only · delayed · live since 15:52:04"}
+PASS 1280x720@1 nothing from GeckoTerminal in the page, no console errors  {"gecko":[],"errors":[]}
+PASS 390x844@2 curve: one websocket, one accountSubscribe for the curve (base64, confirmed), status live, on-chain label  {"mode":"chain","subs":["8PA9idsoHRHrBVsk6bNRDEQL4HoH5JVm6RMqb8DLi54E"],"status":"live","label":"live · on-chain · live since 15:52:07"}
+PASS 390x844@2 curve: the price at open matches the recorded curve (within 2% of DexScreener's USD price then)  {"last":0.00001940368744260255,"ds":0.00001942}
+PASS 390x844@2 curve: checked owner, layout, mint decimals and the bonding-curve address before subscribing
+PASS 390x844@2 curve: a reserve change is a tick: price up, volume = 1 SOL in USD, 1s candle has that volume  {"ticks":[1,2],"volume":72.81628507116278,"lastBar":{"time":1795467130,"open":0.000019686260009086538,"high":0.000019686260009086538,"low":0.000019686260009086538,"close":0.000019686260009086538,"volume":72.81628507116278}}
+PASS 390x844@2 curve: seconds with no trade show as flat dojis (the 1s chart keeps moving)  {"bars":5}
+PASS 390x844@2 curve: malformed, foreign and over-50x messages are dropped, no tick  {"dropped":[0,7],"ticks":[2,2]}
+PASS 390x844@2 5m: the last candle's close follows the live tick between server refreshes  {"before":[0.00002,10],"after":[0.000020253643646360945,155.63257014232556],"last":0.000020253643646360945}
+PASS 390x844@2 coin change: accountUnsubscribe sent and the old socket closed  {"unsubs":[[101]],"firstClosed":3}
+PASS 390x844@2 pool: one new socket, 3 subscriptions (pool, base vault, quote vault), never more  {"psubs":["B5ZX4qqS5hvcCEiyxtUbkJDuFfNL66NcPK1NzSHPcus7","B6eMimTrHzsSmHLFpq6EBLNZmb892JDRddZNT9nMch9b","98bHEJfhKfcbLFEvXvTTsJgSZBVmE7vgBJfc2sZGu2LA"],"subs":3}
+PASS 390x844@2 pool: the price at open uses effective quote reserves (within 2% of Jupiter's price then)  {"last":0.00001837599256428043,"jupiter":0.000018153635809199405}
+PASS 390x844@2 pool: a trade's two vault updates make one tick, volume = 2 SOL in USD  {"ticks":[1,2],"volume":145.63257014232556}
+PASS 390x844@2 pool: a vault message for the wrong mint is dropped
+PASS 390x844@2 a dropped socket: amber, then reconnects with backoff and resubscribes  {"after":"reconnecting","opened":3,"status":"live"}
+PASS 390x844@2 page hidden: unsubscribed, socket closed, no new socket  {"unsubs":[1,4],"opened":3,"status":"stopped"}
+PASS 390x844@2 visible again: a new socket for the same coin
+PASS 390x844@2 Raydium: DexScreener fallback, labelled price only · delayed, no websocket  {"mode":"poll","label":"live · price only · delayed · live since 15:52:25"}
+PASS 390x844@2 nothing from GeckoTerminal in the page, no console errors  {"gecko":[],"errors":[]}
+
+34 passed, 0 failed

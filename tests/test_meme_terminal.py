@@ -2,6 +2,7 @@
 block, escaping of attacker-chosen symbols, mint validation, the append-only atomic manual log, the CSP, and the
 D1 check that the display-only last_strong_ts leaves every saved account and shadow byte-for-byte the same."""
 import json
+from pathlib import Path
 import os
 import shutil
 import subprocess
@@ -256,6 +257,83 @@ class LivePrices(unittest.TestCase):
                "{pairs: [{pairAddress: P, baseToken: {address: M}}]}",
                "{pairs: [{pairAddress: P, baseToken: M, priceUsd: '1'}]}"]
         self.assertEqual(self.js("[%s].map(d => T.livePrice(d, M, P))" % ", ".join(bad)), [None] * len(bad))
+
+
+FIXTURE = Path(__file__).parent / "fixtures" / "onchain" / "pump-curve-and-pool.json"
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is not installed")
+class OnChain(unittest.TestCase):
+    """Live prices from on-chain reserves, decoded from real account bytes recorded on 2026-11-23
+    (tests/fixtures/onchain/pump-curve-and-pool.json): a pump.fun bonding curve and a PumpSwap pool, with Jupiter's and
+    DexScreener's prices read in the same second."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.f = json.loads(FIXTURE.read_text())
+        cls.sol = cls.f["sol_usd_jupiter"]
+
+    def js(self, code):
+        return json.loads(node("const F = require(%s); (async () => { const out = await (async () => %s)(); process.stdout.write(JSON.stringify(out)); })()"
+                               % (json.dumps(str(FIXTURE)), code)))
+
+    def test_bonding_curve_decodes_and_prices_within_2pct_of_jupiter(self):
+        out = self.js("""{ const a = F.curve.account, b = T.b64bytes(a.data), c = T.decodeCurve(b), dec = T.decodeMintDecimals(T.b64bytes(F.curve.mint_account.data));
+                           return {owner: a.owner, vToken: String(c.vToken), vQuote: String(c.vQuote), complete: c.complete, quoteMint: c.quoteMint, dec,
+                                   sol: T.curvePriceSol(c, dec), pda: await T.curveAddress(F.curve.mint), addr: a.address}; }""")
+        self.assertEqual(out["owner"], "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
+        self.assertEqual((out["complete"], out["quoteMint"], out["dec"]), (False, "So11111111111111111111111111111111111111112", 6))
+        self.assertEqual(out["pda"], out["addr"])                         # the pool is this coin's bonding curve
+        jup = self.f["curve"]["jupiter_usd"] / self.sol
+        self.assertLess(abs(out["sol"] / jup - 1), 0.02, (out["sol"], jup))
+        self.assertLess(abs(out["sol"] / float(self.f["curve"]["dexscreener"]["priceNative"]) - 1), 0.02)
+
+    def test_pumpswap_pool_decodes_and_prices_on_effective_reserves_within_2pct_of_jupiter(self):
+        out = self.js("""{ const p = T.decodePool(T.b64bytes(F.pool.account.data)), b = T.decodeTokenAccount(T.b64bytes(F.pool.base_vault.data)),
+                               q = T.decodeTokenAccount(T.b64bytes(F.pool.quote_vault.data)), dec = T.decodeMintDecimals(T.b64bytes(F.pool.mint_account.data));
+                           return {baseMint: p.baseMint, quoteMint: p.quoteMint, baseVault: p.baseVault, quoteVault: p.quoteVault, vQuote: String(p.vQuote),
+                                   bMint: b.mint, qMint: q.mint, dec, eff: T.poolPriceSol(b.amount, q.amount, p.vQuote, dec), raw: T.poolPriceSol(b.amount, q.amount, 0n, dec)}; }""")
+        self.assertEqual(self.f["pool"]["account"]["owner"], "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA")
+        self.assertEqual((out["baseMint"], out["quoteMint"]), (self.f["pool"]["mint"], "So11111111111111111111111111111111111111112"))
+        self.assertEqual((out["baseVault"], out["quoteVault"]), (self.f["pool"]["base_vault"]["address"], self.f["pool"]["quote_vault"]["address"]))
+        self.assertEqual((out["bMint"], out["qMint"]), (self.f["pool"]["mint"], "So11111111111111111111111111111111111111112"))
+        self.assertGreater(int(out["vQuote"]), 0)                         # a boosted pool: the effective reserves matter here
+        jup = self.f["pool"]["jupiter_usd"] / self.sol
+        self.assertLess(abs(out["eff"] / jup - 1), 0.02, (out["eff"], jup))
+        self.assertGreater(abs(out["raw"] / jup - 1), 0.2)                # the raw vault alone would be over 20% off
+        # DexScreener's last-trade price lags: 11% off at the recorded second (recorded, not asserted to 2%)
+        self.assertGreater(abs(out["eff"] / float(self.f["pool"]["dexscreener"]["priceNative"]) - 1), 0.05)
+
+    def test_wrong_layouts_are_refused(self):
+        out = self.js("""{ const c = T.b64bytes(F.curve.account.data), p = T.b64bytes(F.pool.account.data);
+                           const bad = Uint8Array.from(c); bad[0] ^= 1;
+                           return [T.decodeCurve(p), T.decodePool(c), T.decodeCurve(bad), T.decodeCurve(c.subarray(0, 40)), T.decodePool(p.subarray(0, 200)),
+                                   T.decodeTokenAccount(new Uint8Array(70)), T.decodeMintDecimals(new Uint8Array(44)), T.b64bytes("not base64!"),
+                                   T.decodePool(p.subarray(0, 245)).vQuote === 0n]; }""")
+        self.assertEqual(out[:8], [None] * 8)
+        self.assertTrue(out[8])                                           # an older, shorter pool reads virtual_quote_reserves as 0
+
+    def test_pda_and_base58(self):
+        out = self.js("""{ const m = F.curve.mint; return [T.b58encode(T.b58decode(m)) === m, T.b58decode(m).length, T.b58decode("0OIl"), await T.curveAddress(F.pool.mint) === F.curve.account.address]; }""")
+        self.assertEqual(out, [True, 32, None, False])
+
+    def test_ticks_to_1s_and_5s_candles_with_volume_and_flat_dojis(self):
+        out = self.js("""{ const k = [{t: 100.2, p: 1, v: 5}, {t: 100.9, p: 3, v: 1}, {t: 101.5, p: 2, v: 2}, {t: 104.99, p: 2.5, v: 1}, {t: 107, p: 0.5, v: 4}, {t: NaN, p: 9}, {t: 108, p: -1}];
+                           return [T.tickCandles(k, 1, 108.4), T.tickCandles(k, 5, 108.4)]; }""")
+        one, five = out
+        self.assertEqual(one[0], {"time": 100, "open": 1, "high": 3, "low": 1, "close": 3, "volume": 6})
+        self.assertEqual(one[1], {"time": 101, "open": 2, "high": 2, "low": 2, "close": 2, "volume": 2})
+        self.assertEqual(one[2], {"time": 102, "open": 2, "high": 2, "low": 2, "close": 2, "volume": 0})    # no trade: a flat doji at the last close
+        self.assertEqual([c["time"] for c in one], list(range(100, 109)))
+        self.assertEqual(one[-1], {"time": 108, "open": 0.5, "high": 0.5, "low": 0.5, "close": 0.5, "volume": 0})
+        self.assertEqual(five, [{"time": 100, "open": 1, "high": 3, "low": 1, "close": 2.5, "volume": 9},
+                                {"time": 105, "open": 0.5, "high": 0.5, "low": 0.5, "close": 0.5, "volume": 4}])
+
+    def test_a_jump_over_50x_and_bad_sol_prices_are_dropped(self):
+        self.assertEqual(self.js("[T.tickOk(1, 49.9), T.tickOk(1, 50.1), T.tickOk(1, 0.019), T.tickOk(null, 7), T.tickOk(1, NaN), T.tickOk(1, -2)]"),
+                         [True, False, False, True, False, False])
+        self.assertEqual(self.js("""[T.solPrice({So11111111111111111111111111111111111111112: {usdPrice: 72.8}}), T.solPrice({So11111111111111111111111111111111111111112: {usdPrice: "x"}}),
+                                     T.solPrice({}), T.solPrice(null), T.solPrice({So11111111111111111111111111111111111111112: {usdPrice: 0.5}})]"""), [72.8, None, None, None, None])
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is not installed")
