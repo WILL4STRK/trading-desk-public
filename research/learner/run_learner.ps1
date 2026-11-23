@@ -83,7 +83,8 @@ function Invoke-Watch {
         (Stamp), $(if ($alerts) { 'ALERT' } else { 'OK' }), $pid0, $alive, $beatAge, $c.predicted, $c.closes, $c.missed, $c.void, $c.scored, $sh, $pr, $prAge
     if ($alerts) { $line += ' | ALERT: ' + ($alerts -join '; ') }
     Add-Content -Path $alertLog -Value $line -Encoding UTF8
-    $w | ConvertTo-Json | Set-Content -Path $watchF -Encoding UTF8
+    $w | ConvertTo-Json | Set-Content -Path "$watchF.tmp" -Encoding UTF8
+    Move-Item -LiteralPath "$watchF.tmp" -Destination $watchF -Force      # atomic replace
     $line
 }
 
