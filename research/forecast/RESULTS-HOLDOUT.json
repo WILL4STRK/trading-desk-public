@@ -1,0 +1,247 @@
+{
+ "info": {
+  "tokens_selected": 442,
+  "tokens_with_bars": 432,
+  "no_candles": 10,
+  "not_fetched": 0,
+  "gaps": 3553,
+  "bad_open": 0,
+  "dead_tokens": 23,
+  "eligible_points": 7708,
+  "points_used": 7708,
+  "step_minutes": 15,
+  "window": [
+   "2026-11-12 15:00 UTC",
+   "2026-11-23 02:45 UTC",
+   "2026-11-18 22:03 UTC"
+  ]
+ },
+ "arms": {
+  "f1": {
+   "dev": {
+    "trades": 24,
+    "tokens": 13,
+    "mean": -4.3932227678244695,
+    "median": -10.52567079865236,
+    "pct_positive": 29.166666666666668,
+    "mean_without_best3": -8.66771966726447,
+    "worst5_mean": -17.923832923832926,
+    "mean_per_token": -6.270415103485901,
+    "exits": {
+     "target": 4,
+     "stop": 11,
+     "time": 9
+    },
+    "open_at_end": 0,
+    "best": 25.528255528255528,
+    "worst": -17.923832923832926,
+    "top_token_share": 0.16666666666666666,
+    "top_token": "solana:34DXEU2ttEtBSb1TqGJm7izgvYTTkqKcCoiNWdPDpump",
+    "h15_mean": null,
+    "h15_trades": 0,
+    "h60_mean": null,
+    "h60_trades": 0,
+    "h240_mean": null,
+    "h240_trades": 0
+   },
+   "holdout": {
+    "trades": 40,
+    "tokens": 19,
+    "mean": -0.5648735658899503,
+    "median": -2.5366713255664974,
+    "pct_positive": 40.0,
+    "mean_without_best3": -2.6805326816314756,
+    "worst5_mean": -17.923832923832933,
+    "mean_per_token": -3.043601663691852,
+    "exits": {
+     "time": 18,
+     "stop": 15,
+     "target": 7
+    },
+    "open_at_end": 0,
+    "best": 25.528255528255528,
+    "worst": -17.92383292383294,
+    "top_token_share": 0.15,
+    "top_token": "solana:FVzqGqRmr4UH1Fif6dewmwbJ1p4YUZCu8dcw4Efopump",
+    "h15_mean": null,
+    "h15_trades": 0,
+    "h60_mean": null,
+    "h60_trades": 0,
+    "h240_mean": null,
+    "h240_trades": 0
+   }
+  },
+  "p0": {
+   "dev": {
+    "trades": 306,
+    "tokens": 55,
+    "mean": -4.854653573961951,
+    "median": -5.684009743165708,
+    "pct_positive": 19.607843137254903,
+    "mean_without_best3": -5.155474456162124,
+    "worst5_mean": -17.92383292383294,
+    "mean_per_token": -4.344244669067615,
+    "exits": {
+     "stop": 96,
+     "target": 34,
+     "time": 176
+    },
+    "open_at_end": 0,
+    "best": 25.52825552825555,
+    "worst": -17.92383292383295,
+    "top_token_share": 0.06209150326797386,
+    "top_token": "solana:9HFUEab7sompLDPTAaTGkryMNGbtBaFMhHMVpJEBpump",
+    "h15_mean": null,
+    "h15_trades": 0,
+    "h60_mean": null,
+    "h60_trades": 0,
+    "h240_mean": null,
+    "h240_trades": 0
+   },
+   "holdout": {
+    "trades": 473,
+    "tokens": 61,
+    "mean": -3.1898895937011207,
+    "median": -4.44580021026656,
+    "pct_positive": 24.735729386892178,
+    "mean_without_best3": -3.3731969029902062,
+    "worst5_mean": -17.92383292383294,
+    "mean_per_token": -3.4548507331820377,
+    "exits": {
+     "time": 279,
+     "stop": 129,
+     "target": 65
+    },
+    "open_at_end": 11,
+    "best": 25.52825552825555,
+    "worst": -17.92383292383295,
+    "top_token_share": 0.07399577167019028,
+    "top_token": "solana:Fn95NtGXWPaJXc4N5y9rVkUq1NwZbjBNJzPVvNRLpump",
+    "h15_mean": null,
+    "h15_trades": 0,
+    "h60_mean": null,
+    "h60_trades": 0,
+    "h240_mean": null,
+    "h240_trades": 0
+   }
+  },
+  "persist": {
+   "dev": {
+    "trades": 90,
+    "tokens": 36,
+    "mean": -6.669697720691949,
+    "median": -17.923832923832915,
+    "pct_positive": 21.11111111111111,
+    "mean_without_best3": -7.779971970655655,
+    "worst5_mean": -17.92383292383294,
+    "mean_per_token": -5.910313729472546,
+    "exits": {
+     "stop": 47,
+     "target": 15,
+     "time": 28
+    },
+    "open_at_end": 0,
+    "best": 25.52825552825555,
+    "worst": -17.92383292383295,
+    "top_token_share": 0.12222222222222222,
+    "top_token": "solana:FVzqGqRmr4UH1Fif6dewmwbJ1p4YUZCu8dcw4Efopump",
+    "h15_mean": null,
+    "h15_trades": 0,
+    "h60_mean": null,
+    "h60_trades": 0,
+    "h240_mean": null,
+    "h240_trades": 0
+   },
+   "holdout": {
+    "trades": 149,
+    "tokens": 40,
+    "mean": -4.831947086810127,
+    "median": -13.252741627696917,
+    "pct_positive": 27.516778523489933,
+    "mean_without_best3": -5.45578686657175,
+    "worst5_mean": -17.92383292383294,
+    "mean_per_token": -4.823726386126926,
+    "exits": {
+     "stop": 73,
+     "time": 47,
+     "target": 29
+    },
+    "open_at_end": 1,
+    "best": 25.52825552825555,
+    "worst": -17.92383292383295,
+    "top_token_share": 0.087248322147651,
+    "top_token": "solana:Fn95NtGXWPaJXc4N5y9rVkUq1NwZbjBNJzPVvNRLpump",
+    "h15_mean": null,
+    "h15_trades": 0,
+    "h60_mean": null,
+    "h60_trades": 0,
+    "h240_mean": null,
+    "h240_trades": 0
+   }
+  }
+ },
+ "folds": {
+  "f1": [
+   2.6899288679222537,
+   1.1996300002282336,
+   -4.791633083577078,
+   0.21836541343199953
+  ],
+  "p0": [
+   -5.0431417042767865,
+   -4.707982123256789,
+   -4.765948143612107,
+   -2.4532558181175417
+  ],
+  "persist": [
+   -2.468450374992044,
+   -7.117497590921028,
+   -6.350776225407418,
+   -4.463373395467872
+  ]
+ },
+ "selection": {
+  "dev": {
+   "eligible": 2966,
+   "f1_selected": 75,
+   "selected": {
+    "points": 75,
+    "closed": 75,
+    "mean": -5.372815230672523,
+    "median": -17.923832923832915
+   },
+   "rejected": {
+    "points": 2891,
+    "closed": 2891,
+    "mean": -4.176831498034226,
+    "median": -4.620110439674963
+   }
+  },
+  "holdout": {
+   "eligible": 4742,
+   "f1_selected": 116,
+   "selected": {
+    "points": 116,
+    "closed": 116,
+    "mean": -4.792209684290915,
+    "median": -5.491894986950113
+   },
+   "rejected": {
+    "points": 4626,
+    "closed": 4508,
+    "mean": -3.9192119874740032,
+    "median": -4.212961917965924
+   }
+  }
+ },
+ "conditions": {
+  "mean_positive": false,
+  "median_positive": false,
+  "positive_without_best3": false,
+  "enough_trades": false,
+  "folds_positive_3_of_4": true,
+  "beats_p0": true,
+  "beats_persist": true
+ },
+ "verdict": "inconclusive"
+}
