@@ -780,6 +780,13 @@ class Desk:
         except ValueError as e:
             raise DeskError(str(e))
 
+    def test_meme_alert(self):
+        """Settings > Send test meme alert: one sample memecoin push to the memecoin topic, now."""
+        try:
+            notify.send_meme_test(S.load(), self.src.demo)
+        except ValueError as e:
+            raise DeskError(str(e))
+
     def set_mode(self, new, typed=None):
         """Paper or live. Each has its own journal, so this swaps the whole record."""
         with self.lock:

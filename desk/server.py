@@ -141,6 +141,9 @@ def make_handler(desk, scheduler=None):
                 elif path == "/api/notify/test":          # one sample phone alert, from the saved settings
                     desk.test_alert()
                     out = {}
+                elif path == "/api/notify/test-meme":     # one sample memecoin paper alert, from the saved settings
+                    desk.test_meme_alert()
+                    out = {}
                 elif path == "/api/mode":                 # paper or live; live needs the word typed
                     out = {"mode": desk.set_mode(body.get("mode"), body.get("confirm"))}
                 elif path == "/api/scan":

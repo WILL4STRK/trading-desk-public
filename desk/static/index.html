@@ -1263,7 +1263,7 @@ function renderForm() {
     const id = "set-" + k;
     const ctl = type === "select" ? `<select id="${id}" data-k="${k}">${opts.map(o => `<option value="${o}" ${o === v ? "selected" : ""}>${k === "meme_policy" ? esc(polName(o)) : o}</option>`).join("")}</select>`
       : type === "area" ? `<textarea id="${id}" data-k="${k}" rows="3">${esc(v)}</textarea>` : `<input id="${id}" data-k="${k}" value="${esc(v)}">`;
-    const box = k === "ntfy_topic" ? `<div style="display:grid;gap:6px">${ctl}<button class="btn small gray" id="ntfy-test" type="button">Send test alert</button></div>` : ctl;
+    const box = k === "ntfy_topic" ? `<div style="display:grid;gap:6px">${ctl}<div class="hrow" style="margin:0;gap:6px;flex-wrap:wrap"><button class="btn small gray" id="ntfy-test" type="button">Send test alert</button><button class="btn small gray" id="ntfy-test-meme" type="button">Send test meme alert</button></div></div>` : ctl;
     return `<div class="frow ${type === "area" ? "full" : ""}"><label for="${id}">${l}<small>${h}</small></label>${box}</div>`;
   }).join("");
 }
@@ -1394,6 +1394,8 @@ document.addEventListener("click", async e => {
     await act("/api/settings", {changes:{auto_paper_weak: on}}, on ? "Auto paper also takes weak signals now. Practice only." : "Auto paper takes ready signals only."); }
   else if (t.id === "ntfy-test") { if (formDirty) return toast("Save settings first, then send the test.", true);
     try { await api("/api/notify/test", {}); toast("Sent. Check your phone."); } catch (e) { toast(e.message, true); } }
+  else if (t.id === "ntfy-test-meme") { if (formDirty || MMDIRTY) return toast("Save settings first, then send the test.", true);
+    try { await api("/api/notify/test-meme", {}); toast("Sent a sample memecoin alert. Check your phone."); } catch (e) { toast(e.message, true); } }
   else if (t.id === "paper-reset") {
     if (!confirm("Start the practice account over? Its practice cash goes back to your starting balance and its practice positions and orders are removed. Your journal is not touched.")) return;
     try { await api("/api/paper/reset", {}); toast("The practice account starts over."); } catch (e) { toast(e.message, true); } }
@@ -1432,6 +1434,9 @@ const MEME_FIELDS = [
   ["meme_chains","Chains","Any of: solana base bsc ethereum.","area"],
   ["meme_search_new","Also search for brand-new pools","Adds DexScreener search results under a day old to the coins it watches. Same rules and checks.","select",["true","false"]],
   ["meme_news_words","News you are watching","One phrase per line, like GTA 6 launch. A coin named after one counts for the news rule.","area"],
+  ["meme_ntfy","Phone alerts for paper trades","One ntfy push per practice buy and sell. off, main (the main account only) or all (every practice account). Never for shadows. Paper only, not advice. Test it from Settings with Send test meme alert.","select",["off","main","all"]],
+  ["meme_ntfy_topic","Memecoin ntfy topic","Empty = the ntfy topic in Settings. Letters, digits, - and _ only. Anyone who knows the topic can read the alerts."],
+  ["meme_ntfy_max_per_hour","Most alerts an hour","Over this, alerts are dropped and one \"N alerts skipped\" push follows at the next free slot."],
 ];
 const RULE_NAME = {careful:"Careful: strict check, no research filter", learn:"Learning: any of the six rules", auto:"The backtest's pick"};
 const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative", migration:"After migration, steady flow (P7)", migration_base:"After migration, any (P7 control)", moonshot:"Moonshot: young coin taking off (P8)", moonshot_base:"Young coin, any (P8 control)", quick:"Quick: +10% / -5% / 30 min (P9)"};
@@ -1494,7 +1499,7 @@ async function loadMeme() {
   if (st && !MMDIRTY && !$("#meme-form").contains(document.activeElement)) $("#meme-form").innerHTML = MEME_FIELDS.map(([k, l, h, type, opts]) => {
     const v = Array.isArray(st[k]) ? st[k].join(k === "meme_news_words" ? "\n" : " ") : String(st[k]), id = "mset-" + k;
     const ctl = type === "select" ? `<select id="${id}" data-mk="${k}">${opts.map(o => `<option value="${o}" ${o === v ? "selected" : ""}>${k === "meme_policy" ? esc(polName(o)) : o}</option>`).join("")}</select>`
-      : type === "area" ? `<textarea id="${id}" data-mk="${k}" rows="2">${esc(v)}</textarea>` : `<input id="${id}" data-mk="${k}" value="${esc(v)}" inputmode="decimal">`;
+      : type === "area" ? `<textarea id="${id}" data-mk="${k}" rows="2">${esc(v)}</textarea>` : `<input id="${id}" data-mk="${k}" value="${esc(v)}"${typeof st[k] === "number" ? ' inputmode="decimal"' : ""}>`;
     return `<div class="frow ${type === "area" ? "full" : ""}"><label for="${id}">${l}<small>${h}</small></label>${ctl}</div>`;
   }).join("");
   drawMemeResearchPlots();
