@@ -533,3 +533,203 @@ discovery feeds (section 1 survivorship applies). One regime, one week. A pass e
 it changes no live rule.
 
 **Changes.** Changing any number in this section after a result is seen restarts the count and is logged in docs/CHANGES.md.
+
+## 19. C1: copy niche Solana wallets that buy early in runners, and C1-S: side wallets of popular callers (pre-registered 2026-11-23, before any code and before any wallet data)
+
+**Why.** Every rule above decides from price and volume. C1 asks a different question: do a few small Solana wallets that kept buying runners
+early, and made money doing it, keep doing it, so that a paper copy that is a few seconds late still makes money? C1-S asks the same of
+**side wallets** linked to popular public callers ("KOLs"), and whether a side wallet beats the caller's public main wallet. **Paper only.**
+C1 has no order path: no wallet, no signing key, no swap code. It sends phone alerts. Section 0 applies: "no edge" is an allowed and likely
+answer, and callers often sell into the people who follow them.
+
+**Isolation.** C1 runs as its own process (`research/copy/follow.py`) with its own scheduled task, from its own pinned clone
+`C:\Trading\copy\repo`, never from the live desk folder and never inside `desk/meme.py`. It changes no running rule. The D1 freeze (section 17)
+holds: nothing here changes P0, the safety screen, or the section 2 cost or section 3 exits. Desk files are read only through copies under
+`C:\Trading\research\copy\input\`, except the desk's `settings.json`, which `follow.py` reads for `meme_ntfy_topic` only (shared-delete
+handle, closed at once, at most once an hour).
+
+**Secrets.** The Helius key is read at run time from `C:\Trading\secrets\helius.key`. It is never committed, logged or printed; any URL that
+is logged has its `api-key` value replaced by `***`. The caller-name map (C1-S) lives only in `C:\Trading\secrets\kol-map.json` and never
+reaches the repo, a log or an alert.
+
+**What was seen before this section.** Field names and line counts of the desk's `discoveries.jsonl` (7,292 lines, 1,572 distinct Solana
+coins, first line 2026-11-20 20:24 UTC), `shadows.jsonl` and `model.json`; the desk's `memeterminal.cant_sell` reasons; Helius's public docs
+(plans, credits, rate limits). No price path, return, wallet address, swap or caller of any coin was looked at.
+
+**T19.** The author time of the commit that adds this section's heading to docs/MEME.md (read from git by `discover.py`). The **dev window**
+is all data stamped before T19. Discovery runs after T19 and must not use anything stamped at or after T19 (block time, candle close time,
+desk line `ts`).
+
+### 19.A Discovery (dev window only)
+
+**Data.** Desk: a copy of `discoveries.jsonl` in `C:\Trading\research\copy\input\`, lines with `ts < T19` only. Prices: GeckoTerminal 5-minute
+OHLCV, at most 5 calls a minute, one process. Swaps and transfers: Helius `getTransactionsForAddress` (full transactions, ascending, with a
+`blockTime` filter `lt T19`); if the free plan refuses it, `getSignaturesForAddress` plus `getTransaction` (1 credit each, at most 8 calls a
+second). Coin creator: RugCheck `tokens/{mint}/report` (`creator`), about 1 a second.
+
+**Swap, buy and sell (used everywhere in section 19).** A successful transaction is a swap by wallet `W` of mint `M` when `W` signed it, `W`'s
+own balance of `M` changed (sum of `postTokenBalances` minus `preTokenBalances` over token accounts whose `owner` is `W`), and `W`'s SOL plus
+wrapped-SOL balance changed the other way. **Buy**: `M` up, SOL down. **Sell**: `M` down, SOL up. Its SOL amount is the change in `W`'s
+lamports plus wrapped SOL, fees included. Transfers (no opposite SOL change) and token-for-token swaps without SOL are not swaps.
+
+**Runner coins.** Every coin in the copy with `chain == "solana"` whose **first sighting** `ts0` (its first line) satisfies `ts0 + 24 h <= T19`.
+Base price `p0` = that line's `px` (DexScreener `priceUsd` at first sighting). Pool = that line's `pool`. Candles: GeckoTerminal 5-minute OHLCV
+(USD) of that pool. A coin is a **runner** if some 5-minute candle with open time `>= ts0` and close time (open + 300 s) `<= ts0 + 24 h` has a
+**close** `>= 2.0 x p0` (+100 %). Closes, not highs, so one wick does not make a runner. A coin with no candles in that range is not a runner
+(counted). **Run start** `t_run` = the open time of the first candle in that range whose close is `>= 1.25 x p0`.
+
+**Early buyers.** Pool creation `t_c = ts0 - 3600 x features.age_h` from the first-sighting line (DexScreener `pairCreatedAt`). A buy of the
+runner's mint (any venue, launchpad curve or pool, found through the mint address) is **early** if its block time is in `[t_c, t_c + 30 min)`
+or in `[max(t_c, t_run - 6 h), t_run)`, and before T19. Wallets with at least one early buy are the **early buyers**.
+
+**Exclusions (applied in this order, each counted in the report).**
+1. Creator and dev: RugCheck's `creator` for that mint, and the fee payer of the mint's earliest transaction; excluded for every runner.
+2. Bots and MEV, from each wallet's dev-window swaps (all mints): more than **20 swaps in any 60 s**; or a **sandwich pattern** (a buy and a
+   sell of the same mint in the same slot, around another wallet's swap of that mint in that slot) on 2 or more slots.
+3. Heavy traders: more than **50 swaps of any one mint in any one UTC day**.
+4. Exchanges and services: **10,000 or more** signatures in the dev window.
+5. Not niche: the **top 100** early buyers by total SOL spent on early buys across all runners.
+
+**Score (all of).** Early buys on at least **5 distinct runners**; and **positive realized P&L** over the wallet's own dev-window swaps after its
+costs: per mint, average-cost basis in SOL; realized = SOL received from sells minus the basis of the tokens sold; SOL figures include the
+wallet's network and priority fees; summed over mints. Unsold tokens count nothing.
+
+**C1 list.** Rank qualifying wallets by distinct runners (desc), then realized P&L in SOL (desc), then address. Freeze the top **30** (fewer if
+fewer qualify) into `research/copy/WALLETS-C1.json`: address, tag (`C1-01`...), dev stats (runners, early buys, swaps, swaps a day, realized
+SOL, share of closed mints in profit), plus T19, the input file's SHA-256 and the Helius credits used. **If fewer than 10 wallets qualify, C1
+does not start**; the report says so, and any retry is a new section with a new dev window. `discover.py` also writes
+`research/copy/DISCOVERY-C1.md`: runners, coins without candles, early buyers, each exclusion's count, candidates, qualifiers.
+
+**Random control list.** Early buyers that passed exclusions 1 to 5 but did **not** meet the score are binned into quintiles of swaps a day
+(dev window). For each frozen C1 wallet, in rank order, one wallet is drawn from its quintile without replacement (Python
+`random.Random(19)`, candidates sorted by address). Frozen in the same file as `random`, with the same dev stats.
+
+**Credit cap.** Discovery stops at **600,000** Helius credits (60 % of a free month). If the cap would be passed, runners are processed in order
+of SHA-256(mint) and the rest are dropped and counted; the order does not depend on any result.
+
+### 19.S C1-S: side wallets of popular callers (dev window only)
+
+**Seed list.** Public main wallets of popular Solana callers from public KOL trackers: the top **30** Solana wallets of the kolscan.io
+leaderboard (monthly), read once within 48 h after T19; if it cannot be read, another public KOL tracker the user names, read the same way. For
+each: the source URL and read date. Committed files carry cluster IDs only (`K01`, `K02`... in leaderboard order); the name-to-cluster map is
+only in `C:\Trading\secrets\kol-map.json`. A main wallet that is an exchange (exclusion 4) is dropped.
+
+**Candidates.** For each main wallet `M`: wallets that received SOL from `M` in the dev window; wallets that received SOL from an intermediary
+`I` that `M` funded in the dev window; and wallets that bought a mint 10 s to 30 min before `M`'s first buy of that mint (`M`'s dev-window
+buys, at most its first 200 mints by time).
+
+**Linking rules.** `W` links to `M` if any holds; every rule that holds is recorded.
+- **(a) funded:** `W`'s first incoming SOL transfer came directly from `M`, or from a **fresh** intermediary `I` (`I`'s first transaction at
+  most 7 days earlier, and `I` received SOL from `M` before funding `W`), and that transfer was within **7 days before** `W`'s first swap.
+- **(b) lead:** `W` bought the same mint **10 s to 30 min before** `M`'s first buy of it, on at least **3 distinct mints**.
+- **(c) sweep:** `W` sent SOL or tokens (a transfer, not a swap) to `M` or to `M`'s funder (the source of `M`'s first incoming SOL), unless
+  that funder is an exchange (exclusion 4).
+
+**Exclusions:** C1 exclusions 2 to 4 (bots and MEV, heavy traders, exchanges), every main wallet, and any wallet linked to **more than one
+cluster**. Each rule's link count is reported before and after exclusions. No score: every linked wallet is followed.
+
+**Frozen list.** `research/copy/WALLETS-C1S.json`: per side wallet, address, tag (`K03-side-1`...), cluster, rules, lead stats (rule (b) count
+and median lead), dev stats as in C1; and the main wallets as `main` (`K03-main`) with their dev stats. No names and no URL that carries a name.
+
+### 19.B Copy rules (the same for every arm and control)
+
+**Forward window.** C1 and its random control start at the author time of the commit that adds `WALLETS-C1.json`; C1-S and its main-wallet
+control at the commit that adds `WALLETS-C1S.json`. The lists never change during the study; a new list is C2 (a new section, a fresh count).
+`follow.py` checks each file's SHA-256 against the one recorded at its freeze commit at every start, and stops on a mismatch.
+
+**Detection.** `follow.py` subscribes to every frozen wallet over Helius standard WebSocket `logsSubscribe` (`mentions`, `confirmed`) and
+fetches each new signature with `getTransaction`. After a reconnect or restart it back-fills from the last processed signature with
+`getSignaturesForAddress`. Detection time `t_det` = local UTC time the transaction was parsed; **detection lag** = `t_det - blockTime`, logged.
+A swap first seen more than 120 s after its block time is logged as **missed**, never copied.
+
+**Buy.** A followed wallet's buy (SOL to token) is our paper buy at the **first DexScreener price sample taken at least 3 s after `t_det`**
+(`/tokens/v1/solana/{mint}`, the pair with the most liquidity; a sample every 5 s; none within 120 s cancels the copy, logged). Size **$20**.
+Fill = `priceUsd x (1 + 0.0175 + 20 / (liquidity_usd / 2))`. No liquidity figure means no fill (logged). At most **10 open** per arm and **one
+per coin** per arm; a buy over either limit is skipped and logged.
+
+**Sells.** When the wallet that opened our position sells, we sell the same **fraction** of our remaining tokens: fraction = tokens it sold /
+its balance just before that sale. Same 3 s rule and sample; fill = `priceUsd x (1 - 0.0175 - value / (liquidity_usd / 2))`.
+
+**Other exits.** Every open position is priced every 30 s: liquidity under **$1,000** closes the rest at **-100 %**; **24 h** after our buy the
+rest is sold at the next sample (time exit).
+
+**Can't-sell skip.** Before a buy the mint is checked (cached per mint). Helius `getAccountInfo` (jsonParsed) of the mint: blocked if a freeze
+authority is set, or if it is Token-2022 with a permanent delegate, transfer hook, non-transferable flag, default frozen account state, or a
+transfer fee over 10 %. RugCheck summary: blocked on the desk's `memeterminal.cant_sell` reasons (honeypot, freeze authority, Token-2022 traps,
+a tax over 10 %). A check that cannot be completed is **unknown**, and unknown is a skip. Every skip is logged with its reasons.
+
+**Net per copied buy.** `(dollars returned over all its sells) / 20 - 1`, in %, once fully closed. **Own result** of the copied wallet on the
+same trade: SOL received for the matching fractions of its tokens / SOL it paid, minus 1, fees included (when we exit on our own rule, its
+remaining tokens are valued at our exit sample's `priceNative`). **Copy gap** = own result - our net.
+
+**Logs.** `C:\Trading\research\copy\`: append-only JSONL (one flushed line per write) and `state.json` replaced atomically. Every event has a
+unique id (signature + leg), so a restart resumes with no duplicate line.
+
+**Alerts.** One ntfy push per followed-wallet buy or sell (C1 and C1-S, not the controls): `[PAPER COPY] <tag> BUY|SELL <SYMBOL>`, the
+DexScreener, Solscan and RugCheck links, the wallet's dev stats, and "Paper. Callers often sell into followers." Topic: the desk setting
+`meme_ntfy_topic`. At most **20 an hour**. C1-S tags are cluster IDs only.
+
+### 19.C Controls and measures
+
+C1: (1) the **random** wallets, copied the same way; (2) **P0**: the desk's `all` shadows on Solana with entry `ts` in the forward window (from
+a copy of `shadows.jsonl`, net as recorded), descriptive; (3) the copied wallets' **own** results on the same trades, giving the copy gap.
+C1-S: (1) the clusters' **main** wallets, copied the same way ("does the side wallet beat the public one?"); (2) C1's random wallets. For every
+side-wallet trade: **lead** = its buy time minus the main wallet's first buy of the same mint (within 24 h either way, else none); **dump** =
+it sold while the main wallet still held that mint, or within 1 h after a main-wallet buy of it. The dump share is reported.
+
+### 19.D Pass bar (C1 and C1-S each, against its own controls)
+
+Formal looks only at **100, 200, 400 and 800** closed copied buys (the first N by entry time, once all have closed); each writes
+`look-<arm>-N.json` and refuses a second run. Alpha 0.05 one-sided, split 4 ways: **0.0125** a look. A live readout is descriptive only.
+An arm passes at a look if all hold:
+1. at least **100** copied buys on at least **50** distinct coins;
+2. mean and median net above 0;
+3. mean above 0 without its **best 3**;
+4. mean positive in at least **3 of 4** equal slices of the look's entry-time range (a slice with no buy is not positive);
+5. gain = arm mean - random-control mean (C1-S: and arm mean - main-wallet mean, both): the **1.25th percentile** of a bootstrap that
+   resamples **whole coins** (all copies of a mint in both arms together), **10,000** resamples, seed 19, is above 0;
+6. no single wallet makes more than **25 %** of the arm's net dollar profit.
+No pass by the 800 look is a fail. A pass is a lead only: it changes no live rule and earns a separate pre-registration.
+
+**Helius budget (free plan, read 2026-11-23: 1M credits a month, 10 RPC calls/s, 5 WebSocket connections, 1,000 subscriptions per connection,
+WebSocket data 2 credits per 0.1 MB).** If the month's credits run out, swaps not seen are logged as missed, never filled in later.
+
+**Changes.** Changing any number here after a result is seen restarts the count and is logged in docs/CHANGES.md.
+
+### 19.1 Amendment, 2026-11-23 (written with the code, before discovery ran and before any wallet, swap, candle or caller was fetched)
+
+No Helius, GeckoTerminal, RugCheck or KOL-tracker call has been made, and the desk-data copy for C1 does not exist yet. This fixes what
+section 19 left open, as `research/copy/` implements it. It changes no threshold, cost, exit, control or pass-bar number above.
+
+1. **History window.** A wallet's dev-window swaps (exclusions 2 to 4, score, dev stats, C1-S candidates) are those with block time in
+   `[D0, T19)`, where `D0` is the `ts` of the earliest line of the desk copy (about 2026-11-20 20:24 UTC). Swaps a day = swaps / window days.
+   The runner universe therefore spans about 2 days of first sightings (`ts0 + 24 h <= T19`): a short dev window, stated as a limit.
+2. **Order of exclusions.** 1 (creator and dev), then 5 (top 100 by early SOL, ranked among the early buyers left after 1; it needs no
+   history), then 2 to 4 on fetched histories. A wallet with more than **3,000** transactions in the history window is excluded as
+   **too active to score** (counted on its own). Exclusion 4 counts signatures in the history window, up to 10,000.
+3. **Sandwich pattern.** One wallet's buy and sell of the same mint in the same slot (separate transactions), on 2 or more slots. Whether
+   another wallet's swap sits between them is not checked (it needs every slot's full data).
+4. **Early-window fetch.** Transactions of the runner's mint and of its first-sighting pool, successful only, ascending, the earliest
+   **10,000** per address and window. A truncated window is counted.
+5. **Random control pool.** Early buyers left after exclusions 1 and 5 that are not C1 candidates (fewer than 5 runners), sampled with
+   `random.Random(19)` to **300** (sorted addresses), plus candidates that failed only the P&L test; exclusions 2 to 4 then apply. Quintiles
+   are over that pool. A quintile that runs dry draws from the nearest one (lower first).
+6. **Creator and dev.** RugCheck's full-report `creator`, and the fee payer of the mint's earliest transaction (before T19).
+7. **C1-S.** `M`'s funder and `W`'s first incoming SOL are read from each address's first 20 transactions; `W`'s first swap from those or
+   from its history. Rule (b) candidates are fetched from the mint's transactions in `[t_M - 30 min, t_M - 10 s)`, at most 2,000 per mint,
+   in round-robin order over clusters by mint index. C1-S discovery stops at **300,000** Helius credits; mints not fetched are counted.
+8. **Follower.** On its very first start a wallet's back-fill begins at its newest signature (nothing older is replayed). An unknown
+   can't-sell check is retried after 10 minutes. The open limit counts buys waiting for their fill. A position is checked every 30 s, so the
+   time exit fills at the first such sample at or after 24 h. Alerts are sent at detection (not for missed swaps and not for controls). The
+   copied wallet's own price for its remaining lot uses DexScreener `priceNative` when the pair is quoted in SOL, else `priceUsd` / SOL's USD
+   price from the same request.
+9. **Looks.** A control's rows at look N are its closed copies entered at or before the arm's N-th copied buy. The 1.25th percentile is the
+   `ceil(0.0125 x B)`-th smallest of the B usable resamples; a resample with an empty side is dropped and counted.
+10. **P0 readout.** The desk's `all` shadows with `chain == "solana"` (no screen filter), net as recorded, entered after C1's start.
+
+### 19.2 Amendment, 2026-11-23 (before discovery ran and before any wallet data)
+
+The section 19.A fallback (if the plan refuses `getTransactionsForAddress`) pages `getSignaturesForAddress` backwards from the newest
+signature, at most **3,000** pages of 1,000 per address and window, keeps successful signatures with block time in the window and before
+T19, and fetches each with `getTransaction`. A window cut by the page cap is counted as truncated. Once refused, the fallback is used for the
+rest of the run. Nothing else changes.
