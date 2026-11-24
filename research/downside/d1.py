@@ -1,12 +1,13 @@
 """D1 downside vetoes on P0's own entries (docs/MEME.md section 17). Stdlib only. Reads a COPY of shadows.jsonl, never the live file.
 
   python research/downside/d1.py explore --until <unix>     # shadows opened up to the section 17 commit: description only
-  python research/downside/d1.py forward [--since <unix>]   # the one forward-window read; writes out/forward.lock
+  python research/downside/d1.py forward [--since <unix>]   # the one forward-window read; writes forward.lock in default_out()
 
 Fields read (as the desk writes them, desk/meme.py): policy, screen, key, chain, ts, f.liq, f.r1h, f.buy_ratio_m5, exit_ts, why, net_pct.
 """
 import argparse
 import json
+import os
 import random
 import statistics
 import subprocess
@@ -16,7 +17,19 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 INPUT = Path(r"C:\Trading\research\downside\input\shadows.jsonl")
-OUT = HERE / "out"
+WIN_OUT = Path(r"C:\Trading\research\downside\out")
+
+
+def default_out(name=None):
+    """Where the forward read writes forward.json and forward.lock: D1_OUT if set, else WIN_OUT
+    (C:/Trading/research/downside/out) on Windows, never inside a repo or the live desk folder; else research/downside/out."""
+    env = os.environ.get("D1_OUT")
+    if env:
+        return Path(env)
+    return WIN_OUT if (name or os.name) == "nt" else HERE / "out"
+
+
+OUT = default_out()
 SEED, DRAWS, BOOT = 17, 1000, 1000
 WINDOW_S, GRACE_S = 7 * 86400, 4 * 3600 + 150
 BLOCK_S = 6 * 3600
@@ -250,7 +263,7 @@ if __name__ == "__main__":
     if a.mode == "explore":
         r = explore(a.input, a.until)
         print_table(r, "EXPLORATORY (shadows before the section 17 commit; description only, never used to change a number)")
-        OUT.mkdir(exist_ok=True)
+        OUT.mkdir(parents=True, exist_ok=True)
         (OUT / "explore.json").write_text(json.dumps(r, indent=1, default=str))
     else:
         since = a.since if a.since else since_from_git(HERE.parents[1])

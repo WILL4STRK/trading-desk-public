@@ -329,3 +329,21 @@ class RefillRoute(Route):
 
     def test_reset_returns_a_conflict_if_a_pass_holds_the_lock_for_ten_seconds(self):
         pass
+
+
+class D1LockPath(unittest.TestCase):
+    """The desk reads the D1 lock where research/downside/d1.py forward writes it: on Windows under
+    C:/Trading/research/downside/out (never the live folder), elsewhere ROOT-relative; DESK_D1_LOCK overrides."""
+
+    def test_default_lock_path(self):
+        from desk.paths import ROOT
+        from research.downside import d1
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DESK_D1_LOCK", None)
+            os.environ.pop("D1_OUT", None)
+            self.assertEqual(MS.default_d1_lock("nt"), MS.D1_LOCK_WIN)
+            self.assertEqual(MS.default_d1_lock("nt"), d1.default_out("nt") / "forward.lock")    # the same file
+            self.assertNotIn(str(ROOT).lower(), str(MS.default_d1_lock("nt")).lower())
+            self.assertEqual(MS.default_d1_lock("posix"), ROOT / "research" / "downside" / "out" / "forward.lock")
+        with mock.patch.dict(os.environ, {"DESK_D1_LOCK": "X:/l/forward.lock"}):
+            self.assertEqual(MS.default_d1_lock("nt"), Path("X:/l/forward.lock"))

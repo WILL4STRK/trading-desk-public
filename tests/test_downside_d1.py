@@ -161,3 +161,31 @@ class Duplicates(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             res = d1.forward(self.write([self.FIRST, self.AGAIN]), since=1795400000, now=1795400000 + d1.WINDOW_S + d1.GRACE_S + 1, out=out)
         self.assertEqual((res["duplicates_removed"], res["signals_in_window"]), (1, 1))
+
+
+class LockPath(unittest.TestCase):
+    """The forward read writes its lock under C:/Trading/research/downside/out on Windows, never in a repo or the live folder."""
+
+    def test_default_out_windows_and_elsewhere(self):
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("D1_OUT", None)
+            self.assertEqual(d1.default_out("nt"), d1.WIN_OUT)
+            self.assertEqual(str(d1.WIN_OUT), "C:" + chr(92) + "Trading" + chr(92) + "research" + chr(92) + "downside" + chr(92) + "out")
+            self.assertEqual(d1.default_out("posix"), d1.HERE / "out")
+        with mock.patch.dict(os.environ, {"D1_OUT": "X:/elsewhere"}):
+            self.assertEqual(d1.default_out("nt"), Path("X:/elsewhere"))
+
+    def test_forward_writes_its_lock_in_the_given_out(self):
+        since = 1795404112
+        rows = [{"policy": "all", "screen": "pass", "key": "solana:%d" % i, "chain": "solana", "ts": since + 100 + i,
+                 "f": {"liq": 1.0, "r1h": 1.0, "buy_ratio_m5": 0.6}, "exit_ts": since + 900, "why": "time", "net_pct": 1.0}
+                for i in range(5)]
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "shadows.jsonl"
+            f.write_text(chr(10).join(json.dumps(r) for r in rows), encoding="utf8")
+            out = Path(d) / "Trading" / "research" / "downside" / "out"          # does not exist yet: created
+            d1.forward(f, since, now=since + d1.WINDOW_S + d1.GRACE_S + 1, out=out)
+            self.assertTrue((out / "forward.lock").exists())
+            self.assertFalse((d1.HERE / "out" / "forward.lock").exists() and out != d1.HERE / "out")
