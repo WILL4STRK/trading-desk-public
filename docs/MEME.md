@@ -946,3 +946,11 @@ changes; a new list is a new study.
 The dexscreener.com ranking page of 20.A item 1 (b) is read once on 2026-11-24, before the first snapshot day, instead of on the
 first snapshot day, so the first 00:05 UTC snapshot does not wait on it. Only its list of tokens is used (as candidates); its order
 and volumes are not. Nothing else changes.
+
+### 19.3 Data-fetch note, 2026-11-24 (no rule change; no wallet list, P&L or score had been computed)
+
+C1 discovery stopped at its first Helius transaction fetch: Solana now has version-1 transactions, and asking with
+`maxSupportedTransactionVersion: 0` is refused (-32015). Version 0 had also made the first `getTransactionsForAddress` call fail, which the
+code took for "the plan refuses it" and so switched to the section 19.2 fallback. Fix: every request asks for version 1, and the fallback is used
+only when the method itself is unavailable. GeckoTerminal candles (all 993 coins, 102 runners by the section 19.A rule) are kept; no transaction
+was cached and no early buyer, exclusion or score was computed before the stop. Nothing in sections 19 to 19.2 changes.
