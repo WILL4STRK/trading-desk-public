@@ -954,3 +954,8 @@ C1 discovery stopped at its first Helius transaction fetch: Solana now has versi
 code took for "the plan refuses it" and so switched to the section 19.2 fallback. Fix: every request asks for version 1, and the fallback is used
 only when the method itself is unavailable. GeckoTerminal candles (all 993 coins, 102 runners by the section 19.A rule) are kept; no transaction
 was cached and no early buyer, exclusion or score was computed before the stop. Nothing in sections 19 to 19.2 changes.
+"Unavailable" means the error contains `-32601`, `method not found` or `not available on your plan`, nothing broader.
+Three real version-1 buys (PumpSwap, pump.fun curve, Raydium LaunchLab; tests/fixtures/helius_v1) are read by the C1 and C2
+parsers with the same signer, mint, token and SOL amounts, block time and slot as Helius's own enhanced parse. In the ~1,850
+version-1 transactions searched, the message has no `header` and no `addressTableLookups`, every account key is listed
+in the transaction itself, and meta has no `loadedAddresses`; the parsers read the jsonParsed signer flags, so this needs no change.

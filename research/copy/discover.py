@@ -267,7 +267,7 @@ def unavailable(err):
     """True only when the error says the method itself is not available (plan or unknown method): the section 19.A
     fallback is for that case, not for any other error (an unsupported transaction version, a timeout, a bad request)."""
     t = str(err).lower()
-    return "-32601" in t or "method not found" in t or "not available" in t or "upgrade" in t or "plan" in t
+    return "-32601" in t or "method not found" in t or "not available on your plan" in t
 
 
 class Fetch:

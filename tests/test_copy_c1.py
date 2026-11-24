@@ -159,7 +159,13 @@ class NoPostT19(TempHome):
         self.assertEqual(sent[0][1][1]["maxSupportedTransactionVersion"], C.TX_VERSION)
         self.assertGreaterEqual(C.TX_VERSION, 1)
         self.assertTrue(D.unavailable(RuntimeError("error -32601: method not found")))
+        self.assertTrue(D.unavailable(RuntimeError("error -32000: Method Not Found")))
+        self.assertTrue(D.unavailable(RuntimeError("error -32403: This method is not available on your plan")))
         self.assertFalse(D.unavailable(RuntimeError("HTTP 500 from https://x")))
+        for other in ("error -32000: rate limit for your plan exceeded", "error -32602: please upgrade the client",
+                      "error -32000: slot not available", "error -32009: snapshot not available yet",
+                      "HTTP 429 from https://mainnet.helius-rpc.com/?api-key=***"):
+            self.assertFalse(D.unavailable(RuntimeError(other)), other)             # only the three phrases count
 
     def test_429_is_retried_and_never_cached(self):
         calls = []
