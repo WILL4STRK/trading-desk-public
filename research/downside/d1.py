@@ -25,21 +25,51 @@ FLOOR_SIGNALS, FLOOR_COINS = 300, 100
 VETOES = {"V1": ("r1h", lambda v: v >= 5.0), "V2": ("buy_ratio_m5", lambda v: v < 0.50)}
 
 
-def load(path=INPUT):
-    """Signals: policy 'all' and screen 'pass'. Unresolved ones (no exit) keep net None."""
-    out = []
+def dedupe(rows):
+    """Section 17.1: one line per shadow (the same key, policy and entry ts). A failed desk save can make the next run
+    close a shadow again; keep the FIRST close (the earliest exit_ts, the one the paper logic took). Returns (rows, removed);
+    order is kept, and of equal exit times the earlier line wins."""
+    best = {}
+    for i, r in enumerate(rows):
+        k = (r.get("key"), r.get("policy"), r.get("ts"))
+        x = r.get("exit_ts")
+        rank = (x is None, x if x is not None else 0.0, i)        # a close beats an open line, then the earliest exit
+        if k not in best or rank < best[k][0]:
+            best[k] = (rank, i)
+    keep = {i for _, i in best.values()}
+    return [r for i, r in enumerate(rows) if i in keep], len(rows) - len(keep)
+
+
+def read(path=INPUT):
+    """(signals, duplicate closes removed). Signals: policy 'all' and screen 'pass', de-duplicated first (section 17.1).
+    Unresolved ones (no exit) keep net None."""
+    rows = []
     for line in Path(path).read_text(encoding="utf8").splitlines():
         try:
             r = json.loads(line)
         except ValueError:
             continue
+        if isinstance(r, dict):
+            rows.append(r)
+    rows, removed = dedupe(rows)
+    out = []
+    for r in rows:
         if r.get("policy") != "all" or r.get("screen") != "pass":
             continue
         f = r.get("f") or {}
         out.append({"key": r["key"], "chain": r.get("chain"), "ts": r["ts"], "liq": f.get("liq"), "r1h": f.get("r1h"),
                     "buy_ratio_m5": f.get("buy_ratio_m5"), "exit_ts": r.get("exit_ts"), "why": r.get("why"),
                     "net": r.get("net_pct") if r.get("exit_ts") is not None else None})
-    return out
+    return out, removed
+
+
+def load(path=INPUT, quiet=False):
+    """The signals (see read); prints how many duplicate closes section 17.1 removed."""
+    sigs, removed = read(path)
+    if not quiet:
+        print("section 17.1: removed %d duplicate close%s (same key, policy and entry ts; kept the earliest exit)"
+              % (removed, "" if removed == 1 else "s"))
+    return sigs
 
 
 def vetoed(sig, name):
@@ -171,9 +201,13 @@ def forward(path=INPUT, since=None, now=None, out=OUT):
     if now < end + GRACE_S:
         sys.exit("the window ends %s; read after %s" % (time.strftime("%Y-%m-%d %H:%M", time.gmtime(end)),
                                                         time.strftime("%Y-%m-%d %H:%M", time.gmtime(end + GRACE_S))))
-    allsigs = [s for s in load(path) if since < s["ts"] <= end]
+    sigs, removed = read(path)
+    print("section 17.1: removed %d duplicate close%s (same key, policy and entry ts; kept the earliest exit)"
+          % (removed, "" if removed == 1 else "s"))
+    allsigs = [s for s in sigs if since < s["ts"] <= end]
     unresolved = sum(s["net"] is None for s in allsigs)
-    res = {"since": since, "end": end, "signals_in_window": len(allsigs), "unresolved": unresolved, "vetoes": {}}
+    res = {"since": since, "end": end, "signals_in_window": len(allsigs), "unresolved": unresolved,
+           "duplicates_removed": removed, "vetoes": {}}
     for name in VETOES:
         e = evaluate(allsigs, name)
         floor = e["signals"] >= FLOOR_SIGNALS and e["coins"] >= FLOOR_COINS and unresolved <= 0.02 * max(len(allsigs), 1)

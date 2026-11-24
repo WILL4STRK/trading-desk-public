@@ -114,3 +114,50 @@ class SinceFromGit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Duplicates(unittest.TestCase):
+    """Section 17.1: a shadow closed twice (a failed desk save) counts once, at its first close."""
+    KEY = "solana:8WW5B189mPntQQ85HTPvQNsYxXhQbAhdjXvZ6qaapump"
+    # the real case, 2026-11-23: entry 21:14:58 UTC, closed at 21:20:00 and again at 21:21:01 (save failed at 21:20:11)
+    FIRST = {"key": KEY, "chain": "solana", "policy": "all", "screen": "pass", "ts": 1795468498.5843933, "at": "2026-11-23 21:14:58",
+             "f": {"liq": 30000.0, "r1h": 3.0, "buy_ratio_m5": 0.6}, "exit_ts": 1795468800.3069353, "exit_at": "2026-11-23 21:20:00",
+             "why": "stop", "net_pct": -17.985}
+    AGAIN = dict(FIRST, exit_ts=1795468861.0062323, exit_at="2026-11-23 21:21:01", net_pct=-26.216)
+
+    def write(self, rows):
+        d = tempfile.mkdtemp(prefix="d1-dup-")
+        p = Path(d) / "shadows.jsonl"
+        p.write_text("".join(json.dumps(r) + chr(10) for r in rows), encoding="utf8")
+        return p
+
+    def test_the_real_case_keeps_one_line_the_21_20_00_close(self):
+        other = dict(self.FIRST, key="solana:Other", ts=1795468000.0, exit_ts=1795468300.0, net_pct=5.0)
+        sigs, removed = d1.read(self.write([self.FIRST, other, self.AGAIN]))
+        mine = [s for s in sigs if s["key"] == self.KEY]
+        self.assertEqual(removed, 1)
+        self.assertEqual(len(mine), 1)
+        self.assertEqual((mine[0]["exit_ts"], mine[0]["net"]), (1795468800.3069353, -17.985))
+        self.assertEqual(len(sigs), 2)
+
+    def test_the_first_close_is_kept_whatever_the_line_order(self):
+        sigs, removed = d1.read(self.write([self.AGAIN, self.FIRST]))
+        self.assertEqual((removed, [s["net"] for s in sigs]), (1, [-17.985]))
+
+    def test_other_policies_and_distinct_entries_are_not_duplicates(self):
+        rows = [self.FIRST, dict(self.FIRST, policy="hype"), dict(self.FIRST, ts=self.FIRST["ts"] + 900)]
+        sigs, removed = d1.read(self.write(rows))
+        self.assertEqual((removed, len(sigs)), (0, 2))              # the hype line is not a D1 signal
+
+    def test_load_prints_the_count_and_forward_records_it(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            sigs = d1.load(self.write([self.FIRST, self.AGAIN]))
+        self.assertIn("removed 1 duplicate close (same key, policy and entry ts; kept the earliest exit)", buf.getvalue())
+        self.assertEqual(len(sigs), 1)
+        out = tempfile.mkdtemp(prefix="d1-out-")
+        with redirect_stdout(io.StringIO()):
+            res = d1.forward(self.write([self.FIRST, self.AGAIN]), since=1795400000, now=1795400000 + d1.WINDOW_S + d1.GRACE_S + 1, out=out)
+        self.assertEqual((res["duplicates_removed"], res["signals_in_window"]), (1, 1))
