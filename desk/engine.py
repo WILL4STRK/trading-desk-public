@@ -765,7 +765,7 @@ class Desk:
                 raise DeskError("Settings must be a set of names and values.")
             for k in changes.RESERVED:
                 if k in wanted:
-                    raise DeskError("%s has its own switch. It cannot be changed from the settings form." % k)
+                    raise DeskError(changes.RESERVED_WHY[k])
             old = S.load()
             new = S.update(wanted)
             now = self.src.now()
@@ -777,6 +777,13 @@ class Desk:
         """Settings > Send test alert: one sample push to your phone, now."""
         try:
             notify.send_test(S.load(), self.src.demo)
+        except ValueError as e:
+            raise DeskError(str(e))
+
+    def test_meme_alert(self):
+        """Settings > Send test meme alert: one sample memecoin push to the memecoin topic, now."""
+        try:
+            notify.send_meme_test(S.load(), self.src.demo)
         except ValueError as e:
             raise DeskError(str(e))
 

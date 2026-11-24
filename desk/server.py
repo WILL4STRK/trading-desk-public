@@ -10,9 +10,23 @@ from urllib.parse import parse_qs, urlparse
 
 from . import meme
 from . import memebot
+from . import memeterminal
 from . import settings as S
 from .engine import DeskError
 from .paths import STATIC
+
+# Scripts only from this desk and Jupiter's Plugin host (the Terminal tab's swap widget). No inline script.
+# Jupiter's widget talks to its own APIs (*.jup.ag) and a Solana RPC, fetches its CSS and Google Fonts' stylesheet,
+# and shows token logos from many hosts.
+CSP = ("default-src 'self'; script-src 'self' https://plugin.jup.ag; "
+       "style-src 'self' 'unsafe-inline' https://plugin.jup.ag https://fonts.googleapis.com; "
+       "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; "
+       # api.dexscreener.com: the Terminal's live 5s/15s prices for the selected coin (read-only GETs from the page)
+       "connect-src 'self' https://*.jup.ag https://fonts.googleapis.com https://api.mainnet-beta.solana.com https://api.dexscreener.com "
+       "wss://api.mainnet-beta.solana.com; "
+       "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
+       # TradingView charts are cross-origin frames: they cannot read or call this desk
+       "frame-src https://www.tradingview-widget.com https://s.tradingview.com")
 
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".woff2": "font/woff2",
@@ -33,11 +47,7 @@ def make_handler(desk, scheduler=None):
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy",
-                             "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
-                             "connect-src 'self'; frame-ancestors 'none'; "
-                             # TradingView charts are cross-origin frames: they cannot read or call this desk
-                             "frame-src https://www.tradingview-widget.com https://s.tradingview.com")
+            self.send_header("Content-Security-Policy", CSP)
             for k, v in (extra or {}).items():
                 self.send_header(k, v)
             self.end_headers()
@@ -77,6 +87,13 @@ def make_handler(desk, scheduler=None):
                     try:
                         return self._send(200, meme.chart((q.get("key") or [""])[0], (q.get("ivl") or ["5m"])[0]))
                     except meme.MemeError as e:
+                        return self._send(400, {"error": str(e)})
+                if u.path == "/api/meme/terminal":          # read-only: coins that failed a check, the ticker, your log
+                    return self._send(200, memeterminal.view())
+                if u.path == "/api/meme/chain":             # read-only: one tracked coin's on-chain accounts, for live prices
+                    try:
+                        return self._send(200, memeterminal.chain((parse_qs(u.query).get("key") or [""])[0]))
+                    except memeterminal.ChainError as e:
                         return self._send(400, {"error": str(e)})
                 if u.path == "/api/memebot":                # read-only: the separate memebot paper loop's files
                     return self._send(200, memebot.status())
@@ -124,6 +141,11 @@ def make_handler(desk, scheduler=None):
                     except meme.MemeError as e:
                         return self._send(409, {"error": str(e)})
                     out = {}
+                elif path == "/api/meme/manual":           # a swap you signed in your wallet; the desk only logs it
+                    try:
+                        out = {"logged": memeterminal.record_manual(body)}
+                    except ValueError as e:
+                        return self._send(400, {"error": str(e)})
                 elif path == "/api/take":
                     out = {"trade_id": desk.take(body.get("signal_id"), body.get("qty"), body.get("price"))}
                 elif path == "/api/skip":
@@ -140,6 +162,9 @@ def make_handler(desk, scheduler=None):
                     out = desk.reset_stops()
                 elif path == "/api/notify/test":          # one sample phone alert, from the saved settings
                     desk.test_alert()
+                    out = {}
+                elif path == "/api/notify/test-meme":     # one sample memecoin paper alert, from the saved settings
+                    desk.test_meme_alert()
                     out = {}
                 elif path == "/api/mode":                 # paper or live; live needs the word typed
                     out = {"mode": desk.set_mode(body.get("mode"), body.get("confirm"))}

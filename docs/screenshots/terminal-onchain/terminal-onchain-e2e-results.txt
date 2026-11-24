@@ -1,0 +1,38 @@
+PASS 1280x720@1 curve: read through the desk by coin key, status live, on-chain label  {"calls":3,"status":"live","label":"live · on-chain · live since 16:08:17"}
+PASS 1280x720@1 curve: the price at open matches the recorded curve (within 2% of DexScreener's USD price then)  {"last":0.00001940368744260255,"ds":0.00001942}
+PASS 1280x720@1 curve: one read a second, and never to Solana's RPC or a websocket from the page  {"gaps":[1008,1008],"direct":[]}
+PASS 1280x720@1 curve: a reserve change is one tick: price up, volume = 1 SOL in USD  {"ticks":[1,2],"volume":72.81628507116278}
+PASS 1280x720@1 curve: no reserve change, no tick; the 1s chart carries flat dojis
+PASS 1280x720@1 curve: answers for another coin, invalid JSON and over-50x prices are dropped, no tick  {"dropped":[0,3],"ticks":[2,2]}
+PASS 1280x720@1 curve: an account with the wrong owner switches to the DexScreener fallback, with the reason  {"mode":"poll","why":"the pool is not a pump.fun bonding curve (switched to DexScreener)"}
+PASS 1280x720@1 5m: the last candle's close and volume follow the live tick between server refreshes  {"before":[0.00002,10],"after":[0.000020253643646360945,155.63257014232556]}
+PASS 1280x720@1 coin change: the old coin is not read again, the new one is  {"old":0,"now":4}
+PASS 1280x720@1 pool: the price at open uses effective quote reserves (within 2% of Jupiter's price then)  {"last":0.00001837599256428043,"jupiter":0.000018153635809199405}
+PASS 1280x720@1 pool: a trade (both vaults) is one tick, volume = 2 SOL in USD  {"ticks":[1,2],"volume":145.63257014232556}
+PASS 1280x720@1 pool: a vault with the wrong mint is refused (fallback, with the reason)  {"mode":"poll","why":"the pool's vaults do not match the pool (switched to DexScreener)"}
+PASS 1280x720@1 RPC down: status reconnecting, retries back off  {"status":"reconnecting","gaps":[142,2012,4008]}
+PASS 1280x720@1 after the backoff it is live again
+PASS 1280x720@1 page hidden: no reads, status stopped  {"status":"stopped"}
+PASS 1280x720@1 visible again: reads resume for the same coin
+PASS 1280x720@1 Raydium: DexScreener fallback, labelled price only · delayed, no on-chain reads  {"mode":"poll","label":"live · price only · delayed · live since 16:09:17"}
+PASS 1280x720@1 nothing from GeckoTerminal, nothing to Solana from the page, no console errors  {"gecko":[],"direct":[],"errors":[]}
+PASS 390x844@2 curve: read through the desk by coin key, status live, on-chain label  {"calls":3,"status":"live","label":"live · on-chain · live since 16:09:21"}
+PASS 390x844@2 curve: the price at open matches the recorded curve (within 2% of DexScreener's USD price then)  {"last":0.00001940368744260255,"ds":0.00001942}
+PASS 390x844@2 curve: one read a second, and never to Solana's RPC or a websocket from the page  {"gaps":[1006,1012],"direct":[]}
+PASS 390x844@2 curve: a reserve change is one tick: price up, volume = 1 SOL in USD  {"ticks":[1,2],"volume":72.81628507116278}
+PASS 390x844@2 curve: no reserve change, no tick; the 1s chart carries flat dojis
+PASS 390x844@2 curve: answers for another coin, invalid JSON and over-50x prices are dropped, no tick  {"dropped":[0,3],"ticks":[2,2]}
+PASS 390x844@2 curve: an account with the wrong owner switches to the DexScreener fallback, with the reason  {"mode":"poll","why":"the pool is not a pump.fun bonding curve (switched to DexScreener)"}
+PASS 390x844@2 5m: the last candle's close and volume follow the live tick between server refreshes  {"before":[0.00002,10],"after":[0.000020253643646360945,155.63257014232556]}
+PASS 390x844@2 coin change: the old coin is not read again, the new one is  {"old":0,"now":4}
+PASS 390x844@2 pool: the price at open uses effective quote reserves (within 2% of Jupiter's price then)  {"last":0.00001837599256428043,"jupiter":0.000018153635809199405}
+PASS 390x844@2 pool: a trade (both vaults) is one tick, volume = 2 SOL in USD  {"ticks":[1,2],"volume":145.63257014232556}
+PASS 390x844@2 pool: a vault with the wrong mint is refused (fallback, with the reason)  {"mode":"poll","why":"the pool's vaults do not match the pool (switched to DexScreener)"}
+PASS 390x844@2 RPC down: status reconnecting, retries back off  {"status":"reconnecting","gaps":[126,2018,4008]}
+PASS 390x844@2 after the backoff it is live again
+PASS 390x844@2 page hidden: no reads, status stopped  {"status":"stopped"}
+PASS 390x844@2 visible again: reads resume for the same coin
+PASS 390x844@2 Raydium: DexScreener fallback, labelled price only · delayed, no on-chain reads  {"mode":"poll","label":"live · price only · delayed · live since 16:10:22"}
+PASS 390x844@2 nothing from GeckoTerminal, nothing to Solana from the page, no console errors  {"gecko":[],"direct":[],"errors":[]}
+
+36 passed, 0 failed

@@ -194,7 +194,7 @@ class Dashboard(unittest.TestCase):
 
     def setUp(self):
         from desk.paths import STATIC
-        self.html = (STATIC / "index.html").read_text()
+        self.html = (STATIC / "index.html").read_text(encoding="utf-8") + (STATIC / "app.js").read_text(encoding="utf-8")
 
     def test_short_slips_are_labelled_in_words(self):
         for want in (">SHORT<", ">PRACTICE ONLY<", "Sell short", "or ${sh ? \"higher\" : \"lower\"}", "Buy stop (above)",

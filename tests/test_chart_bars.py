@@ -11,7 +11,7 @@ from desk.paths import STATIC
 
 
 def _clean_bars_source():
-    page = (STATIC / "index.html").read_text(encoding="utf-8")
+    page = (STATIC / "app.js").read_text(encoding="utf-8")
     start = page.index("function cleanBars(")
     end = page.index("\n", start)
     return page[start:end]
@@ -47,7 +47,7 @@ class CleanBars(unittest.TestCase):
         self.assertEqual(self.run_clean(None, ["value"]), [])
 
     def test_load_chart_uses_the_cleaner_for_every_series(self):
-        page = (STATIC / "index.html").read_text(encoding="utf-8")
+        page = (STATIC / "app.js").read_text(encoding="utf-8")
         body = page[page.index("async function loadChart("):]
         body = body[:body.index("\n}\n")]
         self.assertIn('cleanBars(d.candles, ["open", "high", "low", "close"])', body)
