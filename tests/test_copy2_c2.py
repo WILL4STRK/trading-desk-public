@@ -189,6 +189,7 @@ class ScanDB(Temp):
         with self.assertRaises(SC.Budget):
             SC.fetch_buys(db, m, log=lambda *_: None)
         self.assertEqual(db.get("credits"), 20)
+        self.assertEqual(h.calls[0][1][1]["maxSupportedTransactionVersion"], C.TX_VERSION)   # version-1 transactions load
         self.assertEqual(db.c.execute("select count(*) from buys").fetchone()[0], 6)
         db2 = SC.DB(self.dir / "scan.db")               # a new process, a bigger budget
         m2 = SC.Meter(FakeHelius(pages), db2, budget=1000)

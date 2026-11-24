@@ -263,6 +263,13 @@ def link_all(links):
 
 # ---- fetching --------------------------------------------------------------------------------------------------------------
 
+def unavailable(err):
+    """True only when the error says the method itself is not available (plan or unknown method): the section 19.A
+    fallback is for that case, not for any other error (an unsupported transaction version, a timeout, a bad request)."""
+    t = str(err).lower()
+    return "-32601" in t or "method not found" in t or "not available on your plan" in t
+
+
 class Fetch:
     """Cached reads. Helius transactions always carry blockTime < T19; GeckoTerminal at most 5 calls a minute."""
 
@@ -330,8 +337,8 @@ class Fetch:
             return r
         except C.CreditCap:
             raise
-        except RuntimeError:
-            if self.gtfa_ok:
+        except RuntimeError as e:
+            if self.gtfa_ok or not unavailable(e):
                 raise
             self.gtfa_ok = False
             return None
@@ -364,7 +371,7 @@ class Fetch:
         sigs, trunc = self._sigs(address, gte, lt)
         out = []
         for s in sigs[:cap]:
-            t = self.h.rpc("getTransaction", [s["signature"], {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}])
+            t = self.h.rpc("getTransaction", [s["signature"], {"encoding": "jsonParsed", "maxSupportedTransactionVersion": C.TX_VERSION}])
             if t:
                 out.append(t)
         return out, trunc or len(sigs) > cap
@@ -386,7 +393,7 @@ class Fetch:
                 if gte is not None:
                     bt["gte"] = int(math.floor(gte))
                 cfg = {"transactionDetails": "full", "sortOrder": "asc" if asc else "desc", "limit": 100,
-                       "encoding": "jsonParsed", "maxSupportedTransactionVersion": 0,
+                       "encoding": "jsonParsed", "maxSupportedTransactionVersion": C.TX_VERSION,
                        "filters": {"blockTime": bt, "status": "succeeded"}}
                 if tok:
                     cfg["paginationToken"] = tok

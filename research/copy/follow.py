@@ -529,7 +529,7 @@ def process(h, eng, sig, log):
     if sig in eng.state["seen"]:
         return
     try:
-        tx = h.rpc("getTransaction", [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0,
+        tx = h.rpc("getTransaction", [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": C.TX_VERSION,
                                             "commitment": "confirmed"}])
     except Exception as e:
         log("getTransaction %s: %s" % (sig[:8], C.mask(e)))

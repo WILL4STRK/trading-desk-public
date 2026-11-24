@@ -211,7 +211,7 @@ def gtfa(m, address, gte=None, lt=None, limit=1000, details="full", token=None, 
     if lt is not None:
         bt["lt"] = int(math.ceil(lt))
     cfg = {"transactionDetails": details, "sortOrder": "asc" if asc else "desc", "limit": limit,
-           "maxSupportedTransactionVersion": 0, "filters": {"status": "succeeded"}}
+           "maxSupportedTransactionVersion": C.TX_VERSION, "filters": {"status": "succeeded"}}
     if details == "full":
         cfg["encoding"] = "jsonParsed"
     if bt:
