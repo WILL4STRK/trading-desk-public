@@ -959,3 +959,86 @@ Three real version-1 buys (PumpSwap, pump.fun curve, Raydium LaunchLab; tests/fi
 parsers with the same signer, mint, token and SOL amounts, block time and slot as Helius's own enhanced parse. In the ~1,850
 version-1 transactions searched, the message has no `header` and no `addressTableLookups`, every account key is listed
 in the transaction itself, and meta has no `loadedAddresses`; the parsers read the jsonParsed signer flags, so this needs no change.
+
+## 21. Rule P10: yellow, P0's entries on coins with only one or two warn-level flags (pre-registered 2026-11-24, before any P10 code and before any outcome was looked at)
+
+**Question.** Do P0's own entries do better on coins whose safety screen found nothing worse than one or two
+warn-level findings, than on clean coins, on coins with many warnings, or on coins with a danger finding? Paper only.
+No wallet, key or order path. "No edge" is an allowed and the likely answer (section 0). This section is written and
+pushed before any P10 code exists. Sections 2 to 20 are unchanged.
+
+**What was seen before this section.** Only a copy of `screens.json` (2,152 coins, 2026-11-24, SHA-1 `ee62cae5`) was
+read, for its field layout and the number of flags per coin under the definitions below. No shadow, return, exit, price
+or account figure was opened. The counts on that copy: 158 coins unknown, 1 tripping the can't-sell block, 1,120 with
+no flag, 308 with one or two warn-level flags and no danger flag, 13 with three or more warn-level flags and no danger
+flag, and 552 with at least one danger flag.
+
+**How the screen stores a finding (desk/meme.py `screen`, desk/memerules.py).** Each coin's latest screen in
+`screens.json` holds `verdict` and `why` (the plain check), `strict` and `strict_why` (the strict check, section 6) and a
+slim `report`. For Solana the report keeps RugCheck's `score_normalised` and every RugCheck risk as `{name, level}`;
+for BSC, Base and Ethereum it keeps GoPlus's `is_honeypot`, `buy_tax`, `sell_tax`, `cannot_sell_all`,
+`is_open_source`, `holder_count`, `owner_percent` and `creator_percent`. GoPlus owner powers and holder shares
+are only kept as the strict check's reasons.
+
+**The flags, exactly.** A flag is one entry of the lists below, counted on the coin's screen as `screens.json` holds it
+at the decision (the same screen P0's shadow records).
+- **Known screen.** `verdict` is `pass` or `fail` **and** `strict` is `pass` or `fail`. Anything else (`unknown`,
+  missing, not screened yet), or a Solana risk whose `level` is neither `warn` nor `danger`, makes the screen
+  **unknown, and an unknown screen buys in none of the four lines below.**
+- **Danger-level flags.** Solana: each RugCheck risk with `level == "danger"`, plus one flag when `score_normalised` is
+  above 30 (the plain check's "RugCheck risk N/100" reason). BSC, Base, Ethereum: each reason in the plain check's `why`
+  (honeypot, buy tax above 10 %, sell tax above 10 %, cannot sell all, contract not open source).
+- **Warn-level flags.** Solana: each RugCheck risk with `level == "warn"`, plus each reason in `strict_why` (top 10
+  holders above 30 %, creator above 5 %, traded pool locked under 90 %). BSC, Base, Ethereum: each reason in `strict_why`
+  (creator and owner above 5 %, top 10 holders above 30 %, each owner power when ownership is not renounced, creator
+  made a honeypot before, UniV2 LP locked under 90 %). A RugCheck holder warning and a strict holder reason are two
+  flags (two sources), and each list entry counts once.
+- **Not flags.** The research filters R1 to R3 (section 6), a RugCheck score of 30 or less, and the screen's optional
+  `pilot` diagnostics.
+- **Can't-sell block.** The Terminal's `cant_sell` (desk/memeterminal.py as of this commit: freeze authority, honeypot
+  in any risk name or reason or GoPlus `is_honeypot` 1, Token-2022 permanent delegate, transfer hook or non-transferable,
+  a sell tax or transfer fee above 10 % or of unreadable size). A coin it blocks buys in none of the four lines.
+
+**Entry (P10, `yellow`).** Exactly P0's decision (section 3): hour volume >= $20k, one decision point per coin every 15
+minutes, the same fill (the snapshot price at the decision), the same guards (no buy of a coin with no price or whose
+pool already reports under $1,000, none while that coin's shadow in this line is open, none inside the 60-minute
+cooldown after that line's last exit on the coin), on coins whose screen is known, has **0 danger-level flags and 1 or
+2 warn-level flags**, and is not blocked by `cant_sell`. Such a coin always passes the plain check.
+
+**Exits and cost.** Section 3's primary exits (stop -15 %, target +30 %, 4 hours, from the buy price before costs; stop
+first when one sample or candle touches both; replayed from 5-minute candles after a gap, as section 4) and section 2's
+cost (3.5 % round trip, half each side; 6 % on Ethereum as section 6; a pool under $1,000 or without a price is -100 %).
+Shadows are net of the round-trip cost only; the practice account also pays price impact on each side (size / half the
+pool's liquidity).
+
+**Controls (shadow-only lines, the same decision, guards, exits, cost and clock).**
+- (a) `yellow_clean`: P0 on coins with a known screen and **0 flags of any kind**, not blocked (the clean pass).
+- (b) `yellow_heavy`: P0 on coins with **3 or more warn-level flags and 0 danger-level flags**, not blocked.
+- (c) `yellow_danger`: P0 on coins with **at least one danger-level flag**, not blocked.
+The four lines split every known, unblocked P0 decision point into disjoint groups. The comparison period starts at the
+first shadow of any of the four lines; the four lines and buy-everything (`all`, P0 without the screen) are each counted
+on entries at or after that time. Older P0 history is not used for the comparison. Control (b) may stay small (13
+coins in the copy above); it and (c) are reported, not required.
+
+**Practice account.** Its own $100 account (`yellow`), desk sizing (20 % of equity a position, at most 4 open, one
+position per coin), P10's entries only, the exits and cost above. A shadow is recorded for every entry whether or not the
+account can take it. The account is a readable balance; the pass bar is read on the shadows.
+
+**Pass bar (section 5 plus section 8's slices), on P10's closed shadows.** At least 100 trades on at least 50 distinct
+coins; mean and median net return above 0; mean above 0 without its 3 best trades; positive mean in at least 3 of 4
+equal time slices of its own entries, with **at least 10 trades in every slice**; and a mean above **both** control (a)
+and buy-everything (entries since the start above). The 95 % range of the mean, by whole coins, is reported. A pass earns
+only a fresh forward test and a separate pre-registration; it changes no other rule.
+
+**Earlier P0 shadows.** Closed `all` shadows from before the start are reported by the same four flag groups as
+**exploratory description only, labelled so**: counts, mean, median and win rate per group. The screen used is the coin's
+latest screen in a copy of `screens.json`, which is often later than the entry (later information), a stated limit. They
+never change a number here and never count toward the pass bar.
+
+**Running.** P10 and its controls add shadow lines to the desk scan, and their gap replays share the GeckoTerminal candle
+budget with every other shadow. A P10 error is kept on its own record (`yellow_v1`) and never stops the scan, like P9.
+The code deploys only after the D1 read (section 17, after 2026-11-30 07:24 UTC), together with the shadow replay-budget
+change, so nothing here touches the D1 window.
+
+**Changes.** Changing any number or definition in this section after a result is seen restarts the count and is logged
+in docs/CHANGES.md.
