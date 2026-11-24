@@ -62,6 +62,7 @@ SPACING = {"api.dexscreener.com": 0.25, "api.geckoterminal.com": 2.4, "api.rugch
 
 _lock, _last, _cool = threading.Lock(), {}, {}
 _running = threading.Lock()
+_state_lock = threading.Lock()   # held by a pass's whole read-change-save of model.json and by a season refill
 _append_lock = threading.Lock()
 log = logging.getLogger(__name__)
 
@@ -561,7 +562,8 @@ def run(now=None, fetch=None, demo=False):
     if not _running.acquire(blocking=False):
         return {"skipped": "already running"}
     try:
-        return _run(time.time() if now is None else now, fetch or get, demo)
+        with _state_lock:                # a refill (desk/memeseasons.py) waits for the pass; the pass never skips
+            return _run(time.time() if now is None else now, fetch or get, demo)
     finally:
         _running.release()
 
@@ -1020,14 +1022,15 @@ def note_error(now, err):
 
 
 def reset():
-    """Start the paper account over. The forward record (discoveries, shadows, screens) is kept."""
+    """Start the main paper account over: its season ends (open coins sold at the last price with the normal costs,
+    why "season end") and is archived untouched under data/accounts/meme/seasons/main/, nothing is deleted. The
+    forward record (discoveries, shadows, screens) is kept."""
+    from . import memeseasons
     if not _running.acquire(timeout=10):
         raise MemeError("A memecoin pass is running, try again in a minute.")
     try:
-        s = load()
-        s["account"] = _new_account(S.load()["meme_starting_balance"])
-        s.pop("practice_drawdown", None)
-        _save(s)
+        with _state_lock:
+            memeseasons._refill_locked(["main"], time.time(), "start over")
     finally:
         _running.release()
 

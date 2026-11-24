@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import meme
 from . import memebot
+from . import memeseasons
 from . import memeterminal
 from . import settings as S
 from .engine import DeskError
@@ -82,6 +83,8 @@ def make_handler(desk, scheduler=None):
                     return self._send(200, desk.review())
                 if u.path == "/api/meme":                   # read-only: model 4, the memecoin paper accounts
                     return self._send(200, meme.view())
+                if u.path == "/api/meme/accounts":          # read-only: every practice account and study view, by season
+                    return self._send(200, memeseasons.view())
                 if u.path == "/api/meme/chart":             # read-only: one coin's candles (GeckoTerminal) and levels
                     q = parse_qs(u.query)
                     try:
@@ -141,6 +144,23 @@ def make_handler(desk, scheduler=None):
                     except meme.MemeError as e:
                         return self._send(409, {"error": str(e)})
                     out = {}
+                elif path == "/api/meme/refill":           # end a season: archive it untouched, start the next at $100
+                    if body.get("sure") is not True:
+                        raise DeskError("A refill needs sure: true.")
+                    who = body.get("account")
+                    if who == "all":
+                        books, views = list(memeseasons.book_names()), list(memeseasons.VIEWS)
+                    elif isinstance(who, str) and who in memeseasons.VIEWS:
+                        books, views = [], [who]
+                    elif isinstance(who, str) and who in memeseasons.book_names():
+                        books, views = [who], []
+                    else:
+                        raise DeskError("account must be \"all\" or one of the memecoin accounts.")
+                    try:
+                        out = {"refilled": (memeseasons.refill(books) if books else [])
+                               + (memeseasons.refill_view(views) if views else [])}
+                    except meme.MemeError as e:
+                        return self._send(409, {"error": str(e)})
                 elif path == "/api/meme/manual":           # a swap you signed in your wallet; the desk only logs it
                     try:
                         out = {"logged": memeterminal.record_manual(body)}
