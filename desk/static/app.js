@@ -578,6 +578,9 @@ document.addEventListener("click", async e => {
       ch[k] = k === "meme_news_words" ? v.split("\n").map(x => x.trim()).filter(Boolean) : Array.isArray(cur) ? v.split(/[\s,]+/).filter(Boolean) : typeof cur === "boolean" ? v === "true" : typeof cur === "number" ? Number(v) : v; });
     if (await act("/api/settings", {changes:ch}, "Saved memecoin settings.")) { MMDIRTY = false; loadMeme(); }
   }
+  else if (t.dataset.maSeason) { MASEASON[t.dataset.maSeason] = Number(t.dataset.n); renderAccountCards(); }
+  else if (t.dataset.maRefill) { const a = (MA && MA.accounts.find(x => x.name === t.dataset.maRefill)) || {}; refillAccounts(t.dataset.maRefill, a.label || t.dataset.maRefill); }
+  else if (t.id === "m-refill-all") refillAccounts("all");
   else if (t.id === "meme-reset") {
     if (!confirm("Start the main memecoin practice account over at its starting cash? Its trades are cleared; the forward test record and the other practice accounts are kept.")) return;
     try { await api("/api/meme/reset", {sure:true}); toast("The memecoin account starts over."); loadMeme(); } catch (err) { toast(err.message, true); }
@@ -804,18 +807,53 @@ $("#m-dist-select").addEventListener("change", () => {
     drawMemeResearchPlots();
   }
 });
-function renderPracticeCurves(m) {
-  const books = m.books || [];
-  $("#m-books").innerHTML = books.length ? `<div class="mm-book-grid">${books.map((b, i) => {
-    const label = b.name === "main" ? `Main · ${polName(m.policy)}` : RULE_SHORT[b.name] || polName(b.name);
-    const marks = (b.curve || []).length;
-    return `<article class="mm-book num"><div class="mm-book-head"><b>${esc(label)}</b>
-      <small>${b.trades} closed · ${b.wins} won · ${b.open} open</small></div>
-      <b class="mm-book-equity ${tone(b.return_pct)}">${usd(b.equity)} <span>${pctS(b.return_pct)}</span></b>
-      <div class="mm-plot" data-meme-book="${i}"></div>
-      <small>${marks} saved marks${b.trades < 30 ? " · too few trades" : ""}${marks < 2 ? " · curve pending" : ""}</small></article>`;
-  }).join("")}</div><p class="mm-source">Paper-account equity · latest 72 saved marks per account · shared scales in time and % from start · dotted line is starting equity. Balances include open positions at the last after-cost mark.</p>` :
-    '<p class="mm-source">Paper accounts · no accounts saved yet.</p>';
+let MA = null; const MASEASON = {};
+async function renderPracticeCurves() {
+  try { MA = await api("/api/meme/accounts"); } catch (e) { $("#m-books").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; return; }
+  renderAccountCards();
+}
+function renderAccountCards() {
+  if (!MA) return;
+  const start = MA.start, accts = MA.accounts || [];
+  const card = (a, idx) => {
+    const ss = a.seasons || [], cur = ss.length ? ss.at(-1).n : 1;
+    const sel = ss.find(x => x.n === MASEASON[a.name]) || ss.at(-1);
+    const tabs = ss.length > 1 ? `<div class="mm-seasons" role="tablist">${ss.map(x => `<button class="btn text" role="tab" data-ma-season="${esc(a.name)}" data-n="${x.n}" aria-pressed="${sel && x.n === sel.n}">S${x.n}</button>`).join("")}</div>` : "";
+    const body = sel ? `<b class="mm-book-equity ${tone(sel.pnl)}">${usd(sel.equity)} <span>${usd(sel.pnl, true)} · ${pctS(sel.pnl_pct)}</span></b>
+      <small>Season ${sel.n}${sel.n === cur ? " (now)" : " (closed " + esc((sel.ended || "").slice(0, 16)) + " UTC)"} · ${sel.trades} trades · ${sel.win_rate == null ? "no wins yet" : sel.win_rate + "% won"} · ${sel.open} open</small>
+      <div class="mm-plot" data-ma-plot="${idx}"></div>` : "";
+    return `<article class="mm-book num"><div class="mm-book-head"><b>${esc(a.label)}</b><small>${a.kind === "view" ? "Study view · read only" : "Practice account"}</small></div>
+      ${tabs}${body}${a.note ? `<small>${esc(a.note)}</small>` : ""}${a.sizing ? `<small>${esc(a.sizing)}</small>` : ""}
+      ${a.refillable ? `<button class="btn gray" data-ma-refill="${esc(a.name)}">Refill to ${usd(start)}</button>` : ""}</article>`;
+  };
+  $("#m-books").innerHTML = `<div class="hrow"><button class="btn gray" id="m-refill-all">Refill all to ${usd(start)}</button></div>
+    <div class="mm-book-grid">${accts.map(card).join("")}</div>
+    <p class="mm-source">Every account starts at ${usd(start)}. A refill ends the season (open coins sold at the last price with the normal costs, "season end") and keeps it under its season tab; nothing is deleted. A refill changes balances only: never the shadows, P0, the screen, the exits or the costs. Study views are never traded by the desk; they read the studies' own logs. D1's forward window ends ${esc(MA.d1_window_ends)} UTC.</p>`;
+  drawAccountPlots();
+}
+function drawAccountPlots() {
+  if (!MA) return;
+  document.querySelectorAll("[data-ma-plot]").forEach(el => {
+    const a = MA.accounts[Number(el.dataset.maPlot)], ss = a.seasons || [];
+    const sel = ss.find(x => x.n === MASEASON[a.name]) || ss.at(-1);
+    const pts = (sel && sel.curve || []).filter(c => Number.isFinite(c.ts) && Number.isFinite(c.equity));
+    const w = el.clientWidth;
+    if (pts.length < 2 || !w) { el.innerHTML = ""; return; }
+    const t0 = pts[0].ts, ts = Math.max(1, pts.at(-1).ts - t0), base = sel.start;
+    const lo = Math.min(base, ...pts.map(p => p.equity)), hi = Math.max(base, ...pts.map(p => p.equity)), span = hi - lo || 1;
+    const y = v => 4 + 32 * (hi - v) / span;
+    const xy = pts.map(p => `${(4 + (w - 8) * (p.ts - t0) / ts).toFixed(1)},${y(p.equity).toFixed(1)}`).join(" ");
+    el.innerHTML = `<svg width="${w}" height="40" viewBox="0 0 ${w} 40" role="img" aria-label="${esc(a.label)} season ${sel.n} equity, ${pts.length} marks"><line x1="0" x2="${w}" y1="${y(base)}" y2="${y(base)}" stroke="var(--label2)" stroke-dasharray="3 3" opacity=".6"/><polyline fill="none" stroke="var(--tint)" stroke-width="2" points="${xy}"/></svg>`;
+  });
+}
+async function refillAccounts(who, label) {
+  const start = MA ? usd(MA.start) : "$100";
+  const msg = who === "all"
+    ? `Refill every memecoin account to ${start}? Each one's current season ends and is kept under its season tab; open coins are sold at the last price with the normal costs. Shadows and the forward record are not touched.`
+    : `Refill ${label} to ${start}? Its current season ends and is kept under its season tab; open coins are sold at the last price with the normal costs.`;
+  if (!confirm(msg)) return;
+  try { await api("/api/meme/refill", {sure:true, account:who}); toast(who === "all" ? "Every account starts a new season." : label + " starts a new season."); Object.keys(MASEASON).forEach(k => delete MASEASON[k]); loadMeme(); }
+  catch (err) { toast(err.message, true); }
 }
 function renderMemeFunnels(m) {
   const mo = m.moonshots || {}, g = m.migrations || {};
@@ -911,6 +949,7 @@ new ResizeObserver(([entry]) => {
   if (entry.contentRect.width === memePlotWidth) return;
   memePlotWidth = entry.contentRect.width;
   drawMemeResearchPlots();
+  drawAccountPlots();
 }).observe($("#v-meme"));
 function renderMemeWhy(c) {
   const standardRules = c.rules.filter(rule => rule !== "all");
