@@ -2,10 +2,6 @@
 # "run whether logged on or not" task needs it). The tasks run as WILLPC\Willr, RunLevel Limited, no stored password.
 # Safe to re-run: -Force replaces a task with the same name. Never starts or stops a task.
 #
-# HOLD: do not register before desk/skills.py write_json retries PermissionError (its own PR, after the D1 window ends
-# 2026-11-30 07:24 UTC). Until then the learner's 30 s read of model.json can make a desk save fail (os.replace onto an
-# open file is WinError 5 on Windows, even with FILE_SHARE_DELETE).
-#
 # First, once, after the PR is merged (pin the clone to the merge commit; never the live folder):
 #   git clone https://github.com/WILL4STRK/trading-desk-public.git C:\Trading\learner\repo
 #   git -C C:\Trading\learner\repo checkout --detach <merge-sha>
