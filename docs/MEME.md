@@ -946,3 +946,78 @@ changes; a new list is a new study.
 The dexscreener.com ranking page of 20.A item 1 (b) is read once on 2026-11-24, before the first snapshot day, instead of on the
 first snapshot day, so the first 00:05 UTC snapshot does not wait on it. Only its list of tokens is used (as candidates); its order
 and volumes are not. Nothing else changes.
+
+### 20.2 Amendment, 2026-11-24 (before any snapshot and before any C2 data)
+
+**What exists before this amendment.** No C2 snapshot, buyer list, wallet history, swap, price or P&L exists or has been read. The only
+C2 input read so far is the dexscreener.com ranking page of 20.1 (`C:\Trading\research\copy2\input\ranking-page.json`, its token list
+only). This amendment also draws on a methods memo, Meambot `research/copy/CODEX-COPY-METHODS.md` (commit `dbff14c`, branch
+`codex/copy-research`, 2026-11-24). That memo holds published literature and product documentation only, and no C2 data.
+It warns that "the most impressive leader fills may be the least copyable" and that "random wallets may supply a weak counterfactual". Its
+Draft 1 proposes selecting leaders by **prior copyable return** against a control matched on activity, size and launch age.
+
+**1. The selection score is the copyable return, not the wallet's own P&L.** In 20.D, "net realized P&L" and every measure built on it
+(qualification, rank, against luck) now mean the **copyable P&L** defined here. The wallet's own P&L, as 20.D first defined it, is
+kept and reported, never used to select.
+
+- **Replayed follower.** For each wallet, its section 19 swaps of coins outside the set in the history period are replayed in time
+  order. A wallet **buy** opens a follower position of **0.1 SOL** when the follower holds none of that mint (one per coin, as 19.B). The
+  follower buys at the **first price at least 3 s after the wallet's buy**. A buy while the follower already holds that mint is not copied.
+- **Mirrored sells.** On each wallet **sell** of a mint the follower holds, the follower sells the same fraction of its remaining tokens.
+  The fraction is the tokens the wallet sold divided by its balance just before that sale, as in 19.B. The follower sells at the **first
+  price at least 3 s after the wallet's sell**.
+- **Time exit, as 20.E copies forward.** A follower position still open **24 h** after the follower's buy sells the rest at the first
+  price at or after that time.
+- **A price.** "The first price" is the first successful swap of that mint against SOL, by any signer, with block time at or after the
+  given time. Its price is the swapping account's SOL change divided by its token change. Its **liquidity** is twice the pool's SOL
+  reserve after that swap (the pool's WSOL token-account post-balance).
+  - No such swap within **120 s** of a wallet buy: the buy is not copied, and it is counted.
+  - No such swap before T20 for a sell or the time exit: that leg is unfilled. Its tokens stay unrealized and are not counted, as 20.D
+    treats tokens still held. The leg is counted.
+- **Costs.** These are the desk cost of 20.D plus the price impact of 19.B, both in SOL.
+  - Buy fill = `price x (1 + 0.0175 + 0.1 / reserve)`.
+  - Sell fill = `price x (1 - 0.0175 - value / reserve)`.
+  - `reserve` is the pool's SOL reserve (half the liquidity above), and `value` is the leg's SOL value at `price`.
+- **A copyable trade** is one follower sell leg: SOL received minus the cost basis of the tokens sold (average cost). It belongs to the
+  window of the follower's sell time. A position opened before `T20 - 180 d` does not exist; a wallet sell before its first copied buy is
+  not mirrored.
+
+**2. Qualification, rank and luck use the copyable measure** with the same numbers as 20.D:
+- **Qualify:** in **each** window A and B, copyable net P&L > 0, copyable trades on at least **5 distinct coins**, and the largest single
+  copyable trade's profit at most **40 %** of that window's copyable net. Only coins outside the set count, as before.
+- **Rank:** window B's copyable net P&L divided by its bootstrap standard error. B's copyable trades are resampled with replacement
+  **1,000** times, `random.Random(20)`, and the SE is the standard deviation of the resampled sums. Ties go by address. Freeze the top
+  **50**.
+- **Against luck:** eligible wallets are those that passed 20.C with copyable trades on at least 5 distinct outside-set coins in each
+  window. Each eligible wallet's copyable trade P&Ls are permuted across its own copyable trade slots (each slot keeps its coin and
+  window), **1,000** times, `random.Random(20)`. The null, the 95th and 99th percentiles, and the "clearly above chance" rule are unchanged.
+  If the actual count is not clearly above chance, C2 stops with no forward test.
+
+**3. Report beside each qualifier** (in `WALLETS-C2.json` dev stats and the scan report), per window:
+- its **own** realized P&L (20.D as first written, in SOL) and its own return per SOL of basis sold;
+- its **copyable** P&L (in SOL, on 0.1 SOL copies) and the copyable return per SOL of follower basis sold;
+- the **gap** = own return minus copyable return, in percentage points.
+
+The report gives the **average gap** over the qualifiers, per window, and the counts of uncopied buys and unfilled legs.
+
+**4. The random control is matched on three measures, in terciles** (replacing 20.D's quintile of swaps a day). Following the memo's
+matched-control advice:
+- **Swaps a day:** buys and sells over the history period, as 20.D's control used.
+- **Median entry liquidity:** over the wallet's buys of outside-set coins, the median liquidity (twice the pool's SOL reserve after the
+  wallet's own buy).
+- **Median token age at entry:** buy time minus the block time of the mint's earliest transaction.
+
+Each measure is cut at its 33rd and 67th percentile over the eligible wallets, which gives 27 cells. Each C2 wallet draws one control from
+eligible wallets that did not qualify, in its own cell, without replacement, `random.Random(20)`, candidates sorted by address. If its cell
+has no candidate left, the draw comes from the nearest cell: smallest sum of tercile steps, ties to the lower cell in the order swaps,
+liquidity, age. Every non-exact match is counted and reported.
+
+**5. Budget and code.**
+- The copyable replay and the age measure need Helius calls that 20.F's estimate of about 17M credits did not include: one price lookup
+  per copied leg and one earliest-transaction lookup per outside-set mint.
+- The hard stop stays at **20,000,000** credits, and the SHA-256 wallet order of 20.F is unchanged.
+- A new estimate is given to the user before the scan, which still does not start without the user's confirmation (20.F).
+- `research/copy2/scan.py` at this commit still implements 20.D as first written. It is changed to this amendment in a separate commit
+  before any scan runs.
+
+Nothing else in section 20 changes: the coins, buyers, exclusions, copy rules, pass bar and T20 stay as written.
