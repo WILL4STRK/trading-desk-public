@@ -1,0 +1,113 @@
+{
+ "note": "Section 20.A item 3. A candidate is excluded if its mint is listed here or its symbol (case-insensitive, exact) is listed here, or if it looks like a stablecoin: every one of its 7 snapshot prices is between 0.97 and 1.03 USD. Written 2026-11-24 with section 20, before any snapshot.",
+ "mints": {
+  "stable": [
+   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+   "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+   "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+   "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA"
+  ],
+  "sol_and_lst": [
+   "So11111111111111111111111111111111111111112",
+   "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+   "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+   "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1",
+   "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+   "5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm",
+   "7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj"
+  ],
+  "wrapped_majors": [
+   "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
+   "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+   "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs"
+  ],
+  "infra_defi": [
+   "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+   "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+   "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+   "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+   "85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ",
+   "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+   "DriFtupJYLTosbwoN8koMbEYSx54aFAVLddWsbksjwg7",
+   "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux",
+   "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof",
+   "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",
+   "TNSRxcUxoT9xBG3de7PiJyTDYu7kskLqcpddxnEJAS6"
+  ]
+ },
+ "symbols": {
+  "stable": [
+   "USDC",
+   "USDT",
+   "PYUSD",
+   "USDS",
+   "USDE",
+   "SUSDE",
+   "FDUSD",
+   "DAI",
+   "EURC",
+   "USDH",
+   "UXD",
+   "USDY",
+   "USD1",
+   "USDG",
+   "AUSD"
+  ],
+  "sol_and_lst": [
+   "SOL",
+   "WSOL",
+   "MSOL",
+   "JITOSOL",
+   "BSOL",
+   "JUPSOL",
+   "INF",
+   "STSOL",
+   "HSOL",
+   "DSOL",
+   "BONKSOL",
+   "VSOL",
+   "BBSOL",
+   "JSOL",
+   "LAINESOL",
+   "HUBSOL",
+   "PICOSOL",
+   "STRONGSOL",
+   "CGNTSOL",
+   "EDGESOL",
+   "COMPASSSOL"
+  ],
+  "wrapped_majors": [
+   "WBTC",
+   "CBBTC",
+   "WETH",
+   "ETH",
+   "TBTC",
+   "ZBTC",
+   "BTC",
+   "XBTC",
+   "SOETH",
+   "WBNB"
+  ],
+  "infra_defi": [
+   "JUP",
+   "RAY",
+   "JTO",
+   "PYTH",
+   "W",
+   "ORCA",
+   "DRIFT",
+   "HNT",
+   "RENDER",
+   "KMNO",
+   "TNSR",
+   "MNDE",
+   "CLOUD",
+   "ZEUS",
+   "IO",
+   "SNS",
+   "MOBILE",
+   "IOT",
+   "SHDW"
+  ]
+ }
+}
