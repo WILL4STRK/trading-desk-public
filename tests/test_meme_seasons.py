@@ -174,13 +174,20 @@ class Views(DeskCase):
         self.home = Path(self.tmp) / "studies"
         p1 = mock.patch.object(MS, "L1_OUT", self.home / "learner" / "out")
         p2 = mock.patch.object(MS, "COPY_HOME", self.home / "copy")
-        p1.start(), p2.start()
-        self.addCleanup(p1.stop), self.addCleanup(p2.stop)
+        self.lock = self.home / "downside" / "out" / "forward.lock"
+        p3 = mock.patch.object(MS, "D1_LOCK", self.lock)
+        p1.start(), p2.start(), p3.start()
+        self.addCleanup(p1.stop), self.addCleanup(p2.stop), self.addCleanup(p3.stop)
+
+    def read_d1(self):
+        self.lock.parent.mkdir(parents=True, exist_ok=True)
+        self.lock.write_text("read")
 
     def cards(self):
         return {c["name"]: c for c in MS.view()["accounts"] if c["kind"] == "view"}
 
     def test_missing_files_give_empty_accounts_that_say_when_they_start(self):
+        self.read_d1()
         c = self.cards()
         self.assertEqual(set(c), {"l1", "c1", "c1s", "d1v1", "d1v2"})
         for card in c.values():
@@ -233,9 +240,30 @@ class Views(DeskCase):
         self.assertEqual([(x["key"], x["net_pct"]) for x in v2], [("a", 20.0)])
         meme.folder().mkdir(parents=True, exist_ok=True)
         _lines(meme.folder() / "shadows.jsonl", rows)
+        self.read_d1()
         c = self.cards()
         self.assertEqual(c["d1v1"]["seasons"][-1]["trades"], 1)
         self.assertGreater(c["d1v2"]["seasons"][-1]["equity"], 100.0)
+
+    def test_d1_numbers_stay_hidden_until_the_forward_read_writes_its_lock(self):
+        t = MS.D1_T0 + 10
+        rows = [{"key": "a%d" % i, "policy": "all", "screen": "pass", "ts": t + i, "exit_ts": t + 60 + i,
+                 "net_pct": 12.345 + i, "f": {"r1h": 1.0, "buy_ratio_m5": 0.6}} for i in range(3)]
+        meme.folder().mkdir(parents=True, exist_ok=True)
+        _lines(meme.folder() / "shadows.jsonl", rows)
+        with mock.patch.object(MS, "d1_trades", side_effect=AssertionError("read while hidden")):
+            cards = self.cards()
+        for name in ("d1v1", "d1v2"):
+            card = cards[name]
+            self.assertEqual(set(card), {"name", "label", "kind", "refillable", "study", "hidden", "seasons", "note"})
+            self.assertEqual((card["seasons"], card["hidden"], card["refillable"]), ([], True, False))
+            self.assertEqual(card["note"], "Results hidden until the D1 read (after 2026-11-30 07:24 UTC)")
+        self.assertEqual(cards["l1"]["seasons"][-1]["equity"], 100.0)           # L1 and C1 stay visible
+        self.assertNotIn("d1", json.dumps(meme.view()).lower().replace("id1", ""))
+        self.read_d1()
+        shown = self.cards()["d1v1"]
+        self.assertEqual(shown["seasons"][-1]["trades"], 3)
+        self.assertNotIn("hidden", shown)
 
     def test_a_view_refill_is_a_season_boundary_only(self):
         home = self.home / "copy"
@@ -275,6 +303,20 @@ class RefillRoute(Route):
         self.assertEqual(code, 200)
         code, v = self.call("/api/meme/accounts")
         self.assertEqual((code, len(v["accounts"])), (200, len(MS.book_names()) + len(MS.VIEWS)))
+
+    def test_the_page_and_api_carry_no_d1_numbers_before_the_lock(self):
+        t = MS.D1_T0 + 10
+        meme._save({"account": meme._new_account(100.0)})
+        _lines(meme.folder() / "shadows.jsonl", [{"key": "z", "policy": "all", "screen": "pass", "ts": t,
+                                                  "exit_ts": t + 60, "net_pct": 77.777, "f": {}}])
+        with mock.patch.object(MS, "D1_LOCK", Path(self.tmp) / "no" / "forward.lock"):
+            code, v = self.call("/api/meme/accounts")
+            self.assertEqual(code, 200)
+            d1 = [a for a in v["accounts"] if a["name"].startswith("d1")]
+            self.assertEqual([(a["seasons"], a.get("hidden")) for a in d1], [([], True), ([], True)])
+            self.assertEqual(self.call("/api/meme")[0], 200)
+            page = (Path(meme.__file__).parent / "static" / "app.js").read_text(encoding="utf-8")
+            self.assertIn("a.hidden", page)                    # the page draws a hidden card with its note only
 
     def test_the_page_asks_before_it_refills(self):
         js = (Path(meme.__file__).parent / "static" / "app.js").read_text(encoding="utf-8")

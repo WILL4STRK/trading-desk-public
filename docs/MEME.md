@@ -544,6 +544,13 @@ known in the window: `solana:8WW5B189mPntQQ85HTPvQNsYxXhQbAhdjXvZ6qaapump`, poli
 closed at 21:20:00 (stop, -17.985 %) and again at 21:21:01 (stop, -26.216 %), around a failed save at 21:20:11; the
 21:20:00 close is kept. This changes no number in section 17. The desk's save now retries the replace (PR #19).
 
+### 17.2 Note, 2026-11-24 (before the forward window was read)
+
+While building the desk's memecoin play-money accounts (PR #27), a development dry-run on a copy of the desk's files on
+2026-11-24 computed interim D1 V1 and V2 virtual balances from shadows already in the forward window. They were not
+shared and not acted on. The desk now hides the D1 cards' numbers until `research/downside/out/forward.lock` exists.
+No number in section 17 changes, and the forward window is still read once, as section 17 says.
+
 ## 19. C1: copy niche Solana wallets that buy early in runners, and C1-S: side wallets of popular callers (pre-registered 2026-11-23, before any code and before any wallet data)
 
 **Why.** Every rule above decides from price and volume. C1 asks a different question: do a few small Solana wallets that kept buying runners

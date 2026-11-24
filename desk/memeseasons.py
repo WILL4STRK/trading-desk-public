@@ -24,6 +24,7 @@ from pathlib import Path
 from . import meme
 from . import memereentry as MR
 from . import settings as S
+from .paths import ROOT
 from .skills import read_json
 
 VIEW_FILE = "views.json"
@@ -32,6 +33,8 @@ D1_DAYS = 7
 L1_T0 = 1795411987          # T18, docs/MEME.md section 18 (commit 0f02330)
 L1_OUT = Path(os.environ.get("DESK_L1_OUT", r"C:\Trading\research\learner\out"))
 COPY_HOME = Path(os.environ.get("DESK_COPY_HOME", r"C:\Trading\research\copy"))
+D1_LOCK = Path(os.environ.get("DESK_D1_LOCK", ROOT / "research" / "downside" / "out" / "forward.lock"))
+D1_HIDDEN = "Results hidden until the D1 read (after 2026-11-30 07:24 UTC)"
 COPY_SIZE = 20.0            # section 19.B: $20 a copied buy
 CURVE_MAX = 400             # points sent to the page per season
 
@@ -463,6 +466,12 @@ def d1_trades(veto, rows=None, open_shadows=None):
     return out
 
 
+def d1_revealed():
+    """D1's forward window is read once (docs/MEME.md section 17); its cards show numbers only after that read
+    has written research/downside/out/forward.lock."""
+    return D1_LOCK.exists()
+
+
 def view_cards(st=None, s=None):
     st, s = st or S.load(), s or meme.load()
     start = st["meme_starting_balance"]
@@ -470,6 +479,11 @@ def view_cards(st=None, s=None):
     shadow_rows = None
     cards = []
     for name, meta in VIEWS.items():
+        if name.startswith("d1") and not d1_revealed():
+            # nothing is computed or read for a hidden card: no balance, trade count, curve or season list
+            cards.append({"name": name, "label": meta["label"], "kind": "view", "refillable": False,
+                          "study": meta["study"], "hidden": True, "seasons": [], "note": D1_HIDDEN})
+            continue
         note = None
         try:
             if name == "l1":

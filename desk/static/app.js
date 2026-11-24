@@ -819,6 +819,7 @@ function renderAccountCards() {
     const ss = a.seasons || [], cur = ss.length ? ss.at(-1).n : 1;
     const sel = ss.find(x => x.n === MASEASON[a.name]) || ss.at(-1);
     const tabs = ss.length > 1 ? `<div class="mm-seasons" role="tablist">${ss.map(x => `<button class="btn text" role="tab" data-ma-season="${esc(a.name)}" data-n="${x.n}" aria-pressed="${sel && x.n === sel.n}">S${x.n}</button>`).join("")}</div>` : "";
+    if (a.hidden) return `<article class="mm-book num"><div class="mm-book-head"><b>${esc(a.label)}</b><small>Study view · read only</small></div><small>${esc(a.note)}</small></article>`;
     const body = sel ? `<b class="mm-book-equity ${tone(sel.pnl)}">${usd(sel.equity)} <span>${usd(sel.pnl, true)} · ${pctS(sel.pnl_pct)}</span></b>
       <small>Season ${sel.n}${sel.n === cur ? " (now)" : " (closed " + esc((sel.ended || "").slice(0, 16)) + " UTC)"} · ${sel.trades} trades · ${sel.win_rate == null ? "no wins yet" : sel.win_rate + "% won"} · ${sel.open} open</small>
       <div class="mm-plot" data-ma-plot="${idx}"></div>` : "";
