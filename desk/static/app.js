@@ -812,6 +812,13 @@ async function renderPracticeCurves() {
   try { MA = await api("/api/meme/accounts"); } catch (e) { $("#m-books").innerHTML = `<div class="callout bad">${esc(e.message)}</div>`; return; }
   renderAccountCards();
 }
+// L1's predictions after its warm-up: is any prediction near 0 (a take is a predicted net above 0)? Descriptive only.
+function predLine(p) {
+  if (!p) return "";
+  if (!p.n) return `<small>Predictions after warm-up: none yet${p.warmup ? " (" + p.warmup + " in warm-up)" : ""}.</small>`;
+  const f = x => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(2) + "%";
+  return `<small class="mm-preds">Predicted net, ${p.n} after warm-up: median ${f(p.median)} · p90 ${f(p.p90)} · max <b class="${p.max > 0 ? "pos" : ""}">${f(p.max)}</b> · ${p.takes} take${p.takes === 1 ? "" : "s"} (above 0)${p.warmup ? " · " + p.warmup + " in warm-up" : ""}</small>`;
+}
 function renderAccountCards() {
   if (!MA) return;
   const start = MA.start, accts = MA.accounts || [];
@@ -824,7 +831,7 @@ function renderAccountCards() {
       <small>Season ${sel.n}${sel.n === cur ? " (now)" : " (closed " + esc((sel.ended || "").slice(0, 16)) + " UTC)"} · ${sel.trades} trades · ${sel.win_rate == null ? "no wins yet" : sel.win_rate + "% won"} · ${sel.open} open</small>
       <div class="mm-plot" data-ma-plot="${idx}"></div>` : "";
     return `<article class="mm-book num"><div class="mm-book-head"><b>${esc(a.label)}</b><small>${a.kind === "view" ? "Study view · read only" : "Practice account"}</small></div>
-      ${tabs}${body}${a.note ? `<small>${esc(a.note)}</small>` : ""}${a.sizing ? `<small>${esc(a.sizing)}</small>` : ""}
+      ${tabs}${body}${a.note ? `<small>${esc(a.note)}</small>` : ""}${a.sizing ? `<small>${esc(a.sizing)}</small>` : ""}${predLine(a.preds)}
       ${a.refillable ? `<button class="btn gray" data-ma-refill="${esc(a.name)}">Refill to ${usd(start)}</button>` : ""}</article>`;
   };
   $("#m-books").innerHTML = `<div class="hrow"><button class="btn gray" id="m-refill-all">Refill all to ${usd(start)}</button></div>

@@ -287,8 +287,8 @@ if os.name == "nt":
 
 def read_shared(path):
     """The whole file through a read-only handle that shares read, write and delete (Python's open() does not share
-    delete), closed at once, so the study's own append or atomic replace never fails because of the desk. b"" if the
-    file is missing."""
+    delete), closed at once. A study's append is never blocked; its atomic replace can still be refused while the handle
+    is open (Windows, measured), so the studies retry their replace (learner atomic_write, PR #29). b"" if missing."""
     path = os.fspath(Path(path).absolute())
     if os.name != "nt":
         try:
@@ -435,6 +435,19 @@ def l1_trades(out_dir=None):
     return rows
 
 
+def l1_pred_stats(out_dir=None):
+    """What L1 predicts, after its warm-up: how many predictions, the median, p90 and max predicted net %, and how many
+    were takes (a take is a predicted net above 0). Shows whether any prediction ever comes close to 0. Descriptive only."""
+    rows = read_jsonl(Path(out_dir or L1_OUT) / "predictions.jsonl")
+    preds = sorted(v for v in (_num(r.get("pred")) for r in rows if not r.get("warmup")) if v is not None)
+    n = len(preds)
+    q = lambda f: round(preds[max(0, math.ceil(f * n) - 1)], 3)       # nearest rank
+    return {"n": n, "warmup": sum(1 for r in rows if r.get("warmup")),
+            "median": round((preds[(n - 1) // 2] + preds[n // 2]) / 2, 3) if n else None,
+            "p90": q(0.9) if n else None, "max": round(preds[-1], 3) if n else None,
+            "takes": sum(1 for r in rows if not r.get("warmup") and r.get("take"))}
+
+
 def copy_trades(arm, home=None):
     """One arm's copied buys from the follower's logs: fills.jsonl buy legs, closes.jsonl net per buy."""
     home = Path(home or COPY_HOME)
@@ -518,11 +531,17 @@ def view_cards(st=None, s=None):
                                     _iso(upto) if upto else None))
         if not trades and note is None:
             note = meta["starts"]
-        cards.append({"name": name, "label": meta["label"], "kind": "view", "refillable": True, "study": meta["study"],
+        extra = {}
+        if name == "l1":
+            try:
+                extra["preds"] = l1_pred_stats()
+            except Exception:                           # a view never breaks the page
+                extra["preds"] = None
+        cards.append(dict({"name": name, "label": meta["label"], "kind": "view", "refillable": True, "study": meta["study"],
                       "seasons": seasons, "note": note, "starts": meta["starts"],
                       "sizing": ("$%.0f a copied buy, as section 19.B" % COPY_SIZE) if fixed else
                       "%g%% a position, at most %d open, the study's net after cost and price impact"
-                      % (st["meme_position_pct"], st["meme_max_open"])})
+                      % (st["meme_position_pct"], st["meme_max_open"])}, **extra))
     return cards
 
 
