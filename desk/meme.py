@@ -14,6 +14,8 @@ Files, in data/accounts/meme/: model.json (accounts, tracked tokens, open shadow
 shadows.jsonl and screens.json. Nothing here can sign, swap or send anything: it has no wallet, no key and only
 makes read-only GETs to public APIs.
 """
+import collections
+import copy
 import datetime
 import json
 import logging
@@ -1089,8 +1091,31 @@ def fold_counts(rows, k=4):
     return n
 
 
+_stats_memo = collections.OrderedDict()   # display only: stats() results by their exact inputs
+_stats_lock = threading.Lock()
+STATS_MEMO_MAX = 4096
+
+
 def stats(rows):
-    """The pass-bar numbers (docs/MEME.md section 5) for closed shadows or trades with net_pct."""
+    """The pass-bar numbers (docs/MEME.md section 5) for closed shadows or trades with net_pct. Memoized on exactly what
+    _stats_fresh reads from each row (key, net_pct, ts, in order), so the 1,000-draw coin bootstrap runs once per distinct
+    input; the result is the same dict _stats_fresh returns (a fresh copy per call)."""
+    sig = tuple((x["key"], x["net_pct"], x.get("ts")) for x in rows)
+    with _stats_lock:
+        hit = _stats_memo.get(sig)
+        if hit is not None:
+            _stats_memo.move_to_end(sig)
+            return copy.deepcopy(hit)
+    out = _stats_fresh(rows)
+    with _stats_lock:
+        _stats_memo[sig] = out
+        while len(_stats_memo) > STATS_MEMO_MAX:
+            _stats_memo.popitem(last=False)
+    return copy.deepcopy(out)
+
+
+def _stats_fresh(rows):
+    """stats() without the memo (what it always computed)."""
     r = sorted(x["net_pct"] for x in rows)
     if not r:
         return {"n": 0, "tokens": 0}
@@ -1197,8 +1222,40 @@ def verdict(fw, pol, account_rows=()):
     return [{"check": c, "ok": bool(ok)} for c, ok in checks]
 
 
+VIEW_FILES = ("model.json", "screens.json", "shadows.jsonl", "migrations.jsonl", "moonshots.jsonl", "discoveries.jsonl")
+_view_cache = {}
+_view_lock = threading.Lock()
+
+
+def view_inputs():
+    """Every file _view_fresh reads: the settings, the memecoin folder's files and the research pick."""
+    return [S.path()] + [folder() / n for n in VIEW_FILES] + [ROOT / "research" / "meme" / "out" / "results.json"]
+
+
+def view_signature(paths=None):
+    out = []
+    for p in paths if paths is not None else view_inputs():
+        try:
+            st = p.stat()
+            out.append((str(p), st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append((str(p), None, None))
+    return tuple(out)
+
+
 def view():
-    """What /api/meme and the Memecoins tab show. Reads files only: no network."""
+    """What /api/meme and the Memecoins tab show. Reads files only: no network. _view_fresh depends only on the files in
+    view_inputs() (no clock), so its result is cached by their (mtime, size) and rebuilt at most once per change; the
+    lock makes a second request wait for the rebuild instead of starting its own. Each caller gets its own copy."""
+    with _view_lock:
+        sig = view_signature()
+        if _view_cache.get("sig") != sig:
+            _view_cache.update(sig=sig, out=_view_fresh())
+        return copy.deepcopy(_view_cache["out"])
+
+
+def _view_fresh():
+    """view() without the cache (what it always computed)."""
     st, s = S.load(), load()
     acct = s.get("account") or _new_account(st["meme_starting_balance"])
     tracked = s.get("tracked") or {}
