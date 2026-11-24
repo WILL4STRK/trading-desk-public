@@ -838,3 +838,98 @@ The section 19.A fallback (if the plan refuses `getTransactionsForAddress`) page
 signature, at most **3,000** pages of 1,000 per address and window, keeps successful signatures with block time in the window and before
 T19, and fetches each with `getTransaction`. A window cut by the page cap is counted as truncated. Once refused, the fallback is used for the
 rest of the run. Nothing else changes.
+
+## 20. C2: a deep scan for consistently profitable Solana wallets, two windows against luck (pre-registered 2026-11-24, before any C2 code or data)
+
+**Why.** C1 (section 19) picks wallets from about two days of desk data. C2 is the bigger successor: it looks for wallets whose own
+trades made money, after desk costs, in **two separate 90-day windows**. Wallets that pass both and clear a shuffle test against luck are
+then paper-copied the way section 19 copies. **Paper only.** No wallet, no signing key, no order path. C1 and C1-S carry on unchanged; nothing
+here changes their discovery, lists or rules. The D1 freeze (section 17) holds: no change to P0, the safety screen, or the section 2 cost or
+section 3 exits.
+
+**Decided with the user before this section (2026-11-24):** the scope (a wallet must have bought at least 3 of the set's coins, history 180
+days), the coin source (7 daily DexScreener snapshots), one time split for every wallet, and qualification on coins **outside** the set only.
+The budget was estimated before any data: about 17M Helius credits, with a hard stop at 20M.
+
+**What was seen before this section.** C1's code and its frozen rules; Helius's public plans and credit costs; the count of Solana coins in the
+desk's discoveries copy (1,638). No wallet, swap, P&L, price path, coin ranking or volume figure was looked at for C2.
+
+**T20.** The author time of the commit that adds this section's heading. The **history period** is `[T20 - 180 d, T20)`: window **A** =
+`[T20 - 180 d, T20 - 90 d)`, window **B** = `[T20 - 90 d, T20)`. No transaction at or after T20 is used for selection.
+
+### 20.A Coins
+
+1. **Candidates.** Solana tokens from (a) every `chain == "solana"` token in the desk's `discoveries.jsonl` at the time of each snapshot,
+   and (b) the base tokens of the top 500 Solana pairs by 24 h volume on dexscreener.com (its public ranking page, read-only, the first 5
+   pages, once, on the first snapshot day; the URL and time are recorded). The union of (a) and (b) is the candidate list. DexScreener's API
+   has no ranking endpoint, so (b) is the only way to see coins the desk never tracked.
+2. **Snapshots.** Once a day for **7** consecutive UTC days, starting on the first 00:05 UTC after T20: every candidate's 24 h USD volume,
+   summed over all its Solana pairs, from DexScreener `/tokens/v1/solana/{addresses}` (30 a call). A candidate missing on a day counts 0 that
+   day. No Helius or GeckoTerminal call.
+3. **Exclusions:** stablecoins, SOL and liquid-staking SOL tokens, wrapped majors, and the infrastructure and DeFi tokens in
+   `research/copy2/coin_exclusions.json` (committed with this section, before any snapshot). Also excluded: any token whose first transaction
+   is at or after `T20 - 24 h` (its first 24 h is not complete before T20).
+4. **The set.** The **top 300** remaining candidates by summed 7-day volume (ties by mint address), **plus every runner C1's discovery found**
+   (section 19.A, from C1's cached candles; no new GeckoTerminal call). The set is written to `research/copy2/COINS-C2.json` with the
+   snapshot file hashes.
+
+### 20.B Buyers
+
+- **A coin's first 24 h:** from the block time of its mint's earliest transaction (Helius), for 24 hours, and before T20.
+- **Buyers:** every wallet with at least one section 19 **buy** of the coin in its first 24 h, read from the mint's transactions with Helius
+  (`getTransactionsForAddress`, full, ascending; or the section 19.2 fallback). There is no cap on the number of wallets. There is a cap of
+  **1,000,000** transactions per coin; a coin cut by it is counted.
+- **Scope filter:** only wallets that bought **at least 3 distinct coins of the set** in those coins' first 24 h go on to history fetches.
+  Everything else is counted, not fetched.
+- **Prices** come from the swaps themselves: SOL in per token out, never GeckoTerminal.
+
+### 20.C Exclusions (each counted)
+
+1. **Creator and dev:** the fee payer of each mint's earliest transaction, and RugCheck's `creator`.
+2. **Snipers:** a buy of a set coin in the slot of that coin's first swap or the next slot.
+3. **Bundlers:** two or more wallets that bought the same set coin in the **same slot** and whose first incoming SOL came from the **same
+   source** (read from each wallet's first 20 transactions; a source with 50,000 or more signatures in the history period is an exchange and
+   does not make a bundle). Every wallet of such a group is excluded, and so is a wallet in more than one group (multi-cluster).
+4. **Bots and MEV, heavy traders:** as section 19 and 19.1, measured over the history period: more than 20 swaps in any 60 s, the sandwich
+   pattern on 2 or more slots, more than 50 swaps of one mint in one UTC day.
+5. **Exchanges and services:** **50,000** or more signatures in the history period. More than **20,000** transactions in the history period
+   is too active to score.
+
+### 20.D Two-window qualification (coins outside the set only)
+
+- **Trades.** From the wallet's section 19 swaps in the history period, per mint, average-cost basis in SOL. Desk cost: each buy's SOL
+  counts as `sol x 1.0175`, each sell's SOL as `sol x 0.9825` (3.5 % round trip, half each side). A **trade** is one sell: realized = net SOL
+  received minus the basis of the tokens sold. Tokens bought before `T20 - 180 d` have no basis; their sells are not counted. A trade belongs
+  to the window of its sell time.
+- **Only coins outside the set count.** Trades in the set's coins are reported beside the result, never used to qualify or rank.
+- **A wallet qualifies** if, in **each** window: net realized P&L > 0; trades on at least **5 distinct coins**; and its largest single
+  trade's profit is at most **40 %** of that window's net P&L.
+- **Rank** qualifiers by window B's net P&L divided by its bootstrap standard error: B's trades resampled with replacement **1,000** times,
+  `random.Random(20)`; SE = standard deviation of the resampled sums. Ties by address. **Freeze the top 50** in
+  `research/copy2/WALLETS-C2.json` with dev stats per window.
+- **Against luck.** The eligible wallets are those that passed 20.C with trades on at least 5 distinct outside-set coins in each window. For
+  each eligible wallet, its trade P&Ls are permuted across its own trade slots (each slot keeps its coin and window), **1,000** times,
+  `random.Random(20)`, and the qualifier count is taken each time. Report the null mean and its 95th and 99th percentiles beside the actual
+  count. **Clearly above chance** means the actual count is above the null's 99th percentile **and** at least twice the null mean. If not,
+  C2 says so and **stops: no forward test**.
+- **Random control:** 50 wallets drawn from eligible wallets that did not qualify, one per C2 wallet from the same quintile of swaps a day
+  (history period), without replacement, `random.Random(20)`, candidates sorted by address. Frozen in the same file.
+
+### 20.E Copy rules, controls and pass bar
+
+Exactly as section 19.B, 19.C (random control, P0 descriptive, own result and copy gap) and 19.D. That means a 3 s delay after detection,
+desk cost plus price impact, $20 a copy, at most 10 open, one per coin, mirrored sell fractions, a dead-pool exit at -100 %, a 24 h time
+exit, the can't-sell skip, looks at 100, 200, 400 and 800 closed copies (alpha 0.0125 each), and no wallet over 25 % of the profit. The
+arm is `C2`, its control `C2-random`. The forward window starts at the author time of the commit that adds `WALLETS-C2.json`, which never
+changes; a new list is a new study.
+
+### 20.F Budget and running
+
+- Helius at most **8 calls/s**. A credit meter in the scan's state file. A **hard stop at 20,000,000 credits**: the scan stops, and wallets
+  not reached are counted.
+- Wallets are fetched in SHA-256(address) order, so where the stop falls does not depend on any result.
+- The scan does not start before C1's discovery has finished, and not before the user has confirmed the plan and budget.
+- It is resumable: an interrupted scan picks up where it stopped.
+- It streams per-wallet results to disk and never holds all wallets in memory.
+
+**Changes.** Changing any number here after a result is seen restarts the count and is logged in docs/CHANGES.md.
