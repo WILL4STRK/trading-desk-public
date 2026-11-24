@@ -33,7 +33,19 @@ D1_DAYS = 7
 L1_T0 = 1795411987          # T18, docs/MEME.md section 18 (commit 0f02330)
 L1_OUT = Path(os.environ.get("DESK_L1_OUT", r"C:\Trading\research\learner\out"))
 COPY_HOME = Path(os.environ.get("DESK_COPY_HOME", r"C:\Trading\research\copy"))
-D1_LOCK = Path(os.environ.get("DESK_D1_LOCK", ROOT / "research" / "downside" / "out" / "forward.lock"))
+D1_LOCK_WIN = Path(r"C:\Trading\research\downside\out\forward.lock")
+
+
+def default_d1_lock(name=None):
+    """DESK_D1_LOCK if set; on Windows D1_LOCK_WIN (forward.lock under C:/Trading/research/downside/out), where
+    research/downside/d1.py forward writes it, never the live desk folder; elsewhere ROOT-relative."""
+    env = os.environ.get("DESK_D1_LOCK")
+    if env:
+        return Path(env)
+    return D1_LOCK_WIN if (name or os.name) == "nt" else ROOT / "research" / "downside" / "out" / "forward.lock"
+
+
+D1_LOCK = default_d1_lock()
 D1_HIDDEN = "Results hidden until the D1 read (after 2026-11-30 07:24 UTC)"
 COPY_SIZE = 20.0            # section 19.B: $20 a copied buy
 CURVE_MAX = 400             # points sent to the page per season
