@@ -131,6 +131,9 @@ def sha(b):
     return hashlib.sha256(b).hexdigest()
 
 
+REPLACE_TRIES = 10
+
+
 def atomic_write(path, text):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -139,7 +142,16 @@ def atomic_write(path, text):
         fh.write(text)
         fh.flush()
         os.fsync(fh.fileno())
-    os.replace(tmp, path)
+    # On Windows the replace fails with PermissionError while another process has the file open without sharing delete.
+    # As the desk's write_json (PR #19): REPLACE_TRIES tries, sleeping 0.05 s, 0.1 s, then doubling up to 0.5 s; then raise.
+    for i in range(REPLACE_TRIES):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if i == REPLACE_TRIES - 1:
+                raise
+            time.sleep(min(0.05 * 2 ** i, 0.5))
 
 
 def last_line(path):
@@ -187,8 +199,10 @@ if os.name == "nt":
 
 
 class _SharedHandle:
-    """A read-only handle. On Windows it is opened with FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE (Python's
-    open() does not share delete, so a replace of the file by another process would fail with PermissionError)."""
+    """A read-only handle. On Windows it is opened with FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE and closed at
+    once. Sharing delete does NOT let another process's os.replace onto the file through while it is open (measured: still
+    PermissionError); it keeps the open short and never blocks a writer's own handle. What makes a replace safe is the
+    writer retrying it: desk/skills.py write_json (PR #19) and atomic_write here."""
 
     def __init__(self, path):
         self.path = os.fspath(Path(path).absolute())
@@ -306,8 +320,8 @@ class Learner:
         self.save()
 
     def _read_inputs(self):
-        """(model.json dict, new complete shadows.jsonl lines, new offset). Both files are read through a handle that shares
-        read, write and delete, and closed at once, so the desk's atomic replace of model.json never fails because of us."""
+        """(model.json dict, new complete shadows.jsonl lines, new offset). Both files are read through a shared handle and
+        closed at once; a desk save that meets our read retries its replace (desk/skills.py write_json, PR #19)."""
         mj = json.loads(read_shared(self.data / "model.json")[1].decode("utf8"))
         off = self.state["offset"]
         try:
