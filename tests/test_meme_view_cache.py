@@ -6,6 +6,7 @@ import json
 import os
 import random
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -17,6 +18,9 @@ from desk import settings as S
 
 from .base import DeskCase
 from .test_meme import T0, FakeAPI
+
+
+_recording = []                                             # non-empty while the audit hook below records
 
 
 def _clear():
@@ -126,6 +130,31 @@ class ViewCache(DeskCase):
             [t.join() for t in ts]
         self.assertEqual(fresh.call_count, 1)
         self.assertEqual(len({json.dumps(v, sort_keys=True) for v in out}), 1)
+
+    def test_every_path_read_is_a_view_input(self):
+        """An audit hook records every file open, directory listing and sqlite connect made on this thread while
+        _view_fresh() runs; each must be one of view_inputs(), or a change to it would not rebuild the cache."""
+        _passes(self.api, n=3)
+        meme._view_fresh()                                      # warm: lazy imports open their own files
+        allowed = {os.path.normcase(os.path.abspath(str(p))) for p in meme.view_inputs()}
+        seen, me = [], threading.get_ident()
+
+        def hook(event, args):
+            if _recording and threading.get_ident() == me and event in ("open", "os.listdir", "os.scandir",
+                                                                         "sqlite3.connect", "glob.glob"):
+                seen.append((event, args[0] if args else None))
+        _recording.append(True)
+        sys.addaudithook(hook)                                  # cannot be removed: _recording switches it off
+        try:
+            meme._view_fresh()
+        finally:
+            _recording.clear()
+        paths = [(e, a) for e, a in seen if not isinstance(a, int)]
+        self.assertTrue(paths)                                  # not vacuous: the view does read files
+        outside = sorted({(e, str(a)) for e, a in paths
+                          if os.path.normcase(os.path.abspath(os.fsdecode(a) if a is not None else "")) not in allowed})
+        self.assertEqual(outside, [])
+        self.assertEqual([a for e, a in seen if isinstance(a, int)], [])     # no reads through a bare descriptor
 
     def test_callers_get_copies(self):
         _passes(self.api, n=2)
