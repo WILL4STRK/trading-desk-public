@@ -933,3 +933,9 @@ changes; a new list is a new study.
 - It streams per-wallet results to disk and never holds all wallets in memory.
 
 **Changes.** Changing any number here after a result is seen restarts the count and is logged in docs/CHANGES.md.
+
+### 20.1 Amendment, 2026-11-24 (before any snapshot and before any C2 data)
+
+The dexscreener.com ranking page of 20.A item 1 (b) is read once on 2026-11-24, before the first snapshot day, instead of on the
+first snapshot day, so the first 00:05 UTC snapshot does not wait on it. Only its list of tokens is used (as candidates); its order
+and volumes are not. Nothing else changes.
