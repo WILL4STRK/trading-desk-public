@@ -9,16 +9,19 @@
 param([switch]$Watch)
 $ErrorActionPreference = 'Continue'
 $repo    = 'C:\Trading\learner\repo'
-$lhome   = 'C:\Trading\research\learner'
+# The L1_* environment variables exist only for the tests (temp folders); the scheduled tasks never set them.
+$lhome   = if ($env:L1_HOME) { $env:L1_HOME } else { 'C:\Trading\research\learner' }
 $state   = Join-Path $lhome 'state'
 $runLog  = Join-Path $lhome 'learner.log'
 $outLog  = Join-Path $lhome 'learner.out.log'
 $watchF  = Join-Path $state 'watch.json'
-$alertLog = 'C:\Trading\logs\learner-watchdog.log'
-$shadowsF = 'C:\Users\Willr\trading-desk\data\accounts\meme\shadows.jsonl'
+$alertLog = if ($env:L1_ALERT_LOG) { $env:L1_ALERT_LOG } else { 'C:\Trading\logs\learner-watchdog.log' }
+$deskDir  = if ($env:L1_DESK_MEME) { $env:L1_DESK_MEME } else { 'C:\Users\Willr\trading-desk\data\accounts\meme' }
+$modelF   = Join-Path $deskDir 'model.json'
 $predsF   = Join-Path $lhome 'out\predictions.jsonl'
 $pidF     = Join-Path $state 'learner.pid'
-$stallMin = 90          # predictions.jsonl not grown for this long while shadows.jsonl grew: ALERT
+$t18      = 1795411987  # docs/MEME.md section 18 start (learner.py T18): only opens after it are L1's
+$openMin  = 10          # a policy-all, screen-pass open this old in model.json with no prediction: ALERT
 $beatMin  = 5           # learner heartbeat older than this: ALERT
 New-Item -ItemType Directory -Path $state, (Split-Path $alertLog) -Force | Out-Null
 
@@ -31,14 +34,49 @@ function Get-Len($p) {
     catch { return [long]-1 }
 }
 
-function Get-LearnerPid {
-    if (-not (Test-Path $pidF)) { return $null }
+# Every file the watchdog reads goes through this: shared read, write AND delete, closed at once. Never Get-Content.
+# Note: on Windows an open handle still makes another process's replace of the file fail, even when it shares delete
+# (measured); the open is kept to one short read, and the writers retry their replace (learner atomic_write, desk write_json).
+function Read-Shared($p) {
+    if (-not (Test-Path -LiteralPath $p)) { return $null }
     try {
-        $fs = [IO.File]::Open($pidF, 'Open', 'Read', 'ReadWrite,Delete')
-        try { $txt = (New-Object IO.StreamReader($fs)).ReadToEnd() } finally { $fs.Dispose() }
-        $n = 0; if ([int]::TryParse($txt.Trim(), [ref]$n)) { return $n }
-    } catch {}
+        $fs = [IO.File]::Open($p, 'Open', 'Read', 'ReadWrite,Delete')
+        try { return (New-Object IO.StreamReader($fs, [Text.Encoding]::UTF8)).ReadToEnd() } finally { $fs.Dispose() }
+    } catch { return $null }
+}
+
+function Get-LearnerPid {
+    $txt = Read-Shared $pidF
+    if ($null -eq $txt) { return $null }
+    $n = 0; if ([int]::TryParse($txt.Trim(), [ref]$n)) { return $n }
     return $null
+}
+
+# Policy-all, screen-pass shadows opened after T18 and open in model.json for $openMin+ minutes, with no line in
+# predictions.jsonl: the learner polls every 30 s, so each should have one. (One that opened and closed between polls goes
+# to the learner's missed count, alerted separately.) Returns @(opens, without_prediction) or $null if model.json is unreadable.
+function Get-OpenLag {
+    $mj = Read-Shared $modelF
+    if (-not $mj) { return $null }
+    try { $m = $mj | ConvertFrom-Json } catch { return $null }
+    $preds = @{}
+    $pt = Read-Shared $predsF
+    if ($pt) {
+        foreach ($l in ($pt -split "`n")) {
+            $k = [regex]::Match($l, '"key"\s*:\s*"([^"]+)"'); $e = [regex]::Match($l, '"entry_ts"\s*:\s*([-0-9.eE+]+)')
+            if ($k.Success -and $e.Success) { $preds[('{0}|{1:R}' -f $k.Groups[1].Value, [double]$e.Groups[1].Value)] = 1 }
+        }
+    }
+    $nowUnix = [double][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $opens = 0; $lag = 0
+    foreach ($s in @($m.shadows)) {
+        if ($s -and $s.policy -eq 'all' -and $s.screen -eq 'pass' -and $null -ne $s.ts -and [double]$s.ts -gt $t18) {
+            if (($nowUnix - [double]$s.ts) -lt $openMin * 60) { continue }
+            $opens++
+            if (-not $preds.ContainsKey(('{0}|{1:R}' -f $s.key, [double]$s.ts))) { $lag++ }
+        }
+    }
+    return @($opens, $lag)
 }
 
 function Test-LearnerAlive($procId) {
@@ -50,22 +88,25 @@ function Test-LearnerAlive($procId) {
 function Invoke-Watch {
     $now = (Get-Date).ToUniversalTime()
     $alerts = @()
-    $w = [ordered]@{ sh_len = -1; sh_grew = $now.ToString('o'); pr_len = -1; pr_grew = $now.ToString('o'); missed = -1 }
-    if (Test-Path $watchF) {
-        try { $o = Get-Content $watchF -Raw | ConvertFrom-Json
-              $w.sh_len = [long]$o.sh_len; $w.sh_grew = [string]$o.sh_grew; $w.pr_len = [long]$o.pr_len
-              $w.pr_grew = [string]$o.pr_grew; $w.missed = [long]$o.missed } catch {}
+    $w = [ordered]@{ pr_len = -1; pr_grew = $now.ToString('o'); missed = -1 }
+    $wt = Read-Shared $watchF
+    if ($wt) {
+        try { $o = $wt | ConvertFrom-Json
+              $w.pr_len = [long]$o.pr_len; $w.pr_grew = [string]$o.pr_grew; $w.missed = [long]$o.missed } catch {}
     }
-    $sh = Get-Len $shadowsF; $pr = Get-Len $predsF
-    if ($sh -ne $w.sh_len) { $w.sh_grew = $now.ToString('o'); $w.sh_len = $sh }
+    $pr = Get-Len $predsF
     if ($pr -ne $w.pr_len) { $w.pr_grew = $now.ToString('o'); $w.pr_len = $pr }
-    $shGrew = [datetime]::Parse($w.sh_grew).ToUniversalTime(); $prGrew = [datetime]::Parse($w.pr_grew).ToUniversalTime()
-    $prAge = [math]::Round(($now - $prGrew).TotalMinutes)
-    if ($prAge -ge $stallMin -and $shGrew -gt $prGrew) {
-        $alerts += "predictions.jsonl not grown for $prAge min while shadows.jsonl grew"
+    $prAge = [math]::Round(($now - [datetime]::Parse($w.pr_grew).ToUniversalTime()).TotalMinutes)    # shown in the line only
+    # predictions against OPENS (model.json), never against shadows.jsonl growth: that file gets closes of every policy
+    $lagInfo = Get-OpenLag
+    $opens = ''; $noPred = ''
+    if ($null -ne $lagInfo) {
+        $opens = $lagInfo[0]; $noPred = $lagInfo[1]
+        if ($noPred -gt 0) { $alerts += "$noPred policy-all screen-pass open(s) in model.json for $openMin+ min without a prediction" }
     }
     $st = $null
-    try { $st = Get-Content (Join-Path $state 'state.json') -Raw | ConvertFrom-Json } catch {}
+    $stt = Read-Shared (Join-Path $state 'state.json')
+    if ($stt) { try { $st = $stt | ConvertFrom-Json } catch {} }
     $pid0 = Get-LearnerPid
     $alive = Test-LearnerAlive $pid0
     if (-not $alive) { $alerts += "learner not running (lock pid $pid0)" }
@@ -79,8 +120,8 @@ function Invoke-Watch {
     if ($w.missed -ge 0 -and $missed -gt $w.missed) { $alerts += "missed shadows +$($missed - $w.missed) (first seen closed)" }
     $w.missed = $missed
     $c = if ($st) { $st.counts } else { $null }
-    $line = "{0} {1} pid={2} alive={3} beat_min={4} predicted={5} closes={6} missed={7} void={8} scored={9} shadows_bytes={10} predictions_bytes={11} predictions_idle_min={12}" -f `
-        (Stamp), $(if ($alerts) { 'ALERT' } else { 'OK' }), $pid0, $alive, $beatAge, $c.predicted, $c.closes, $c.missed, $c.void, $c.scored, $sh, $pr, $prAge
+    $line = "{0} {1} pid={2} alive={3} beat_min={4} predicted={5} closes={6} missed={7} void={8} scored={9} opens_{13}min={10} opens_without_prediction={11} predictions_bytes={14} predictions_idle_min={12}" -f `
+        (Stamp), $(if ($alerts) { 'ALERT' } else { 'OK' }), $pid0, $alive, $beatAge, $c.predicted, $c.closes, $c.missed, $c.void, $c.scored, $opens, $noPred, $prAge, $openMin, $pr
     if ($alerts) { $line += ' | ALERT: ' + ($alerts -join '; ') }
     Add-Content -Path $alertLog -Value $line -Encoding UTF8
     $w | ConvertTo-Json | Set-Content -Path "$watchF.tmp" -Encoding UTF8

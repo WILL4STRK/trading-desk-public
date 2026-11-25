@@ -48,6 +48,7 @@ TIME_EXIT_S = 24 * 3600
 ALERT_CAP = 20
 ALERT_DISCLAIMER = "Paper. Callers often sell into followers."
 LAMPORTS = 1e9
+TX_VERSION = 1                        # highest transaction version asked for (version 1 exists since 2026; 0 refuses it)
 
 
 # ---- secrets -----------------------------------------------------------------------------------------------------------

@@ -142,6 +142,31 @@ class NoPostT19(TempHome):
         self.assertEqual(fx.sig_count(W1, T - 1000), 1)
         self.assertEqual(calls.count("getTransactionsForAddress"), 1)     # refused once, then never asked again
 
+    def test_other_errors_never_trigger_the_fallback_and_version_1_is_asked(self):
+        sent = []
+
+        class H:
+            credits = 0
+
+            def rpc(self, m, params):
+                sent.append((m, params))
+                raise RuntimeError("getTransactionsForAddress error -32015: Transaction version (1) is not supported")
+        fx = D.Fetch(H(), self.dir / "cache")
+        with self.assertRaises(RuntimeError):
+            fx.txs(W1, T - 1000, None)
+        self.assertIsNot(fx.gtfa_ok, False)                                  # not mistaken for "the plan refuses it"
+        self.assertEqual([m for m, _ in sent], ["getTransactionsForAddress"])
+        self.assertEqual(sent[0][1][1]["maxSupportedTransactionVersion"], C.TX_VERSION)
+        self.assertGreaterEqual(C.TX_VERSION, 1)
+        self.assertTrue(D.unavailable(RuntimeError("error -32601: method not found")))
+        self.assertTrue(D.unavailable(RuntimeError("error -32000: Method Not Found")))
+        self.assertTrue(D.unavailable(RuntimeError("error -32403: This method is not available on your plan")))
+        self.assertFalse(D.unavailable(RuntimeError("HTTP 500 from https://x")))
+        for other in ("error -32000: rate limit for your plan exceeded", "error -32602: please upgrade the client",
+                      "error -32000: slot not available", "error -32009: snapshot not available yet",
+                      "HTTP 429 from https://mainnet.helius-rpc.com/?api-key=***"):
+            self.assertFalse(D.unavailable(RuntimeError(other)), other)             # only the three phrases count
+
     def test_429_is_retried_and_never_cached(self):
         calls = []
 
@@ -333,6 +358,19 @@ class Engine(TempHome):
         self.assertAlmostEqual(c["own_pct"], 30.0, places=3)                             # 1.3 SOL back on 1 SOL
         self.assertAlmostEqual(c["gap_pct"], round(c["own_pct"] - c["net_pct"], 4), places=3)
         self.assertAlmostEqual(full, 20 / f_buy)
+
+    def test_follower_asks_for_version_1_transactions(self):
+        clk = Clock(T + 100)
+        e = self.make(clk)
+        sent = []
+
+        class H:
+            def rpc(self, m, params):
+                sent.append(params)
+                return tx("v1", T + 99, W1)
+        F.process(H(), e, "v1sig", lambda *_: None)
+        self.assertEqual(sent[0][1]["maxSupportedTransactionVersion"], C.TX_VERSION)
+        self.assertEqual([r["sig"] for r in e.events.rows()], ["v1"])        # parsed and logged (missed: real clock)
 
     def test_copy_gap_math(self):
         self.assertEqual(F.copy_net(25.0), 25.0)

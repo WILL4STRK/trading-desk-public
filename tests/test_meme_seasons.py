@@ -211,6 +211,25 @@ class Views(DeskCase):
         self.assertEqual((s["trades"], s["open"], s["wins"]), (1, 1, 1))
         self.assertAlmostEqual(s["equity"], round(100 - 20 + back, 2), places=2)
 
+    def test_l1_card_shows_the_prediction_distribution_and_takes_after_warm_up(self):
+        out = self.home / "learner" / "out"
+        t = MS.L1_T0 + 100
+        preds = [-8.0, -6.0, -5.5, -5.0, -4.0, -3.5, -3.0, -2.0, -1.0, 2.0]          # 10 after warm-up, one above 0
+        rows = [{"key": "w%d" % i, "entry_ts": t + i, "pred": 0.0, "take": False, "warmup": True} for i in range(3)]
+        rows += [{"key": "k%d" % i, "entry_ts": t + 10 + i, "pred": v, "take": v > 0, "warmup": False} for i, v in enumerate(preds)]
+        _lines(out / "predictions.jsonl", rows, torn='{"key": "torn", "pred": 99')
+        st = self.cards()["l1"]["preds"]
+        self.assertEqual(st, {"n": 10, "warmup": 3, "median": -3.75, "p90": -1.0, "max": 2.0, "takes": 1})
+
+    def test_l1_card_with_no_predictions_yet(self):
+        self.assertEqual(self.cards()["l1"]["preds"], {"n": 0, "warmup": 0, "median": None, "p90": None, "max": None, "takes": 0})
+        self.assertNotIn("preds", self.cards()["c1"])
+
+    def test_the_page_shows_the_l1_prediction_line(self):
+        js = (Path(MS.__file__).parent / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("function predLine(p)", js)
+        self.assertIn("${predLine(a.preds)}", js)
+
     def test_c1_and_c1s_are_20_a_copy_from_their_own_logs(self):
         home = self.home / "copy"
         _lines(home / "fills.jsonl", [
