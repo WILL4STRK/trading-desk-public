@@ -33,6 +33,7 @@ from . import memoon as MN
 from . import memoonpilot as MP
 from . import memereentry as MR
 from . import memequick as QK
+from . import memeyellow as YL
 from . import notify
 from . import settings as S
 from .paths import ROOT, data_dir
@@ -189,7 +190,8 @@ LEARN = ("hype", "breakout", "calm_aged", "dip_aged", "aged_liquid", "news")
 BOOKS = tuple((r, (r,), "screen") for r in R.POLICIES) + (("careful", LEARN, "evidence"),
                                                            ("migration", ("migration",), "strict"),
                                                            ("moonshot", ("moonshot",), "screen"),
-                                                           ("quick", ("quick",), "screen"))
+                                                           ("quick", ("quick",), "screen"),
+                                                           ("yellow", ("yellow",), "screen"))   # P10 coins pass the plain check
 DELAYED = {"migration": ("migration", "migrations.jsonl"), "migration_base": (None, "migrations.jsonl"),
            "moonshot": ("moonshot", "moonshots.jsonl"), "moonshot_base": (None, "moonshots.jsonl")}  # policy: (book, log)
 PRACTICE_DRAWDOWN_PCT = 15
@@ -538,6 +540,20 @@ def _quick_error(s, now, err):
     if not isinstance(book, dict):
         book = s[QK.STATE_KEY] = {}
     book["error"] = f"{_iso(now)}: {type(err).__name__}: {err}"
+
+
+def _yellow_error(s, now, err):
+    """Rule P10's guard, like P9's: a failure is kept on its own record and never stops the core scan."""
+    book = s.get(YL.STATE_KEY)
+    if not isinstance(book, dict):
+        book = s[YL.STATE_KEY] = {}
+    book["error"] = f"{_iso(now)}: {type(err).__name__}: {err}"
+
+
+def _cant_sell(sc):
+    """The Terminal's can't-sell block (desk/memeterminal.py), imported here because that module imports this one."""
+    from .memeterminal import cant_sell
+    return cant_sell(sc)
 
 
 def _exit_rule(entry_px, entry_ts, px, liq, now, entry_liq=None):
@@ -914,6 +930,11 @@ def _run(now, fetch, demo=False):
         except Exception as err:
             dec[QK.POLICY] = False
             _quick_error(s, now, err)
+        try:                                                                     # P10 (docs/MEME.md s.21)
+            dec.update(YL.decide(dec.get("all"), t["chain"], screens.get(k), _cant_sell(screens.get(k))))
+        except Exception as err:
+            dec.update(dict.fromkeys(YL.POLICIES, False))
+            _yellow_error(s, now, err)
         for name, yes in dec.items():
             if not yes or (k, name) in open_sh or now < t["cool"].get(name, 0) or not t.get("px") or _dead(t.get("liq")):
                 continue
@@ -1155,7 +1176,7 @@ def forward(rows=None):
         _fw_cache.update(sig=sig, out=out)
         return out
     out = {}
-    for p in R.POLICIES + M.POLICIES + MN.POLICIES + QK.POLICIES:
+    for p in R.POLICIES + M.POLICIES + MN.POLICIES + QK.POLICIES + YL.POLICIES:
         mine = [x for x in rows if x["policy"] == p]
         out[p] = stats(mine)
         out[p + "+screen"] = stats([x for x in mine if x.get("screen") == "pass"])
@@ -1166,6 +1187,9 @@ def forward(rows=None):
     p0 = [x for x in rows if x["policy"] == "all"]
     out["quick_control"] = stats(QK.since([x for x in p0 if x.get("screen") == "pass"], start))
     out["quick_all"] = stats(QK.since(p0, start))
+    # P10's comparison period (docs/MEME.md s.21): from the first shadow of any of its four lines
+    y0 = min((x["ts"] for x in rows if x["policy"] in YL.POLICIES and x.get("ts") is not None), default=None)
+    out[YL.EVERYTHING] = stats(YL.since(p0, y0))
     return out
 
 
@@ -1185,6 +1209,8 @@ def _bar_for(k, v, fw):
         return False                      # a control is a comparator, never a candidate
     if k.startswith("quick_"):
         return False                      # a comparator, never a candidate
+    if k.startswith("yellow"):            # only P10's own line is a candidate; its controls are comparators
+        return k == YL.POLICY and bar(v, fw.get(YL.EVERYTHING), fw.get(YL.CLEAN), YL.MIN_PER_SLICE)
     if k.startswith("quick"):
         return bar(v, fw.get("quick_all"), fw.get("quick_control"), QK.MIN_PER_SLICE)
     if k.startswith("moonshot"):
@@ -1316,7 +1342,7 @@ def _view_fresh():
         distributions[name] = bins
     model_results = {
         name: {"passed": _bar_for(name, fw.get(name) or {}, fw)}
-        for name in R.POLICIES + M.POLICIES + MN.POLICIES + QK.POLICIES
+        for name in R.POLICIES + M.POLICIES + MN.POLICIES + QK.POLICIES + (YL.POLICY,)
         if name not in ("all", "migration_base", "moonshot_base")
     }
     model_results["careful"] = {"stats": stats(careful),
@@ -1348,6 +1374,7 @@ def _view_fresh():
             "migrations": migration_funnel(),
             "moonshots": moonshot_funnel(),
             "quick": quick_view(rows, fw, s),
+            "yellow": yellow_view(rows, fw, s),
             "forward": fw, "verdict": verdict(fw, pol, [{"key": t["key"], "net_pct": t["ret_pct"], "ts": t["ts"]} for t in closed]), "cost_pct": st["meme_cost_pct"],
             "rules": {"stop": R.STOP_PCT, "target": R.TARGET_PCT, "hold_min": R.HOLD_MIN},
             "checked": s.get("checked"), "error": s.get("error"), "paper_only": True}
@@ -1407,6 +1434,23 @@ def quick_view(rows, fw, s):
             "rules": {"stop": QK.STOP_PCT, "target": QK.TARGET_PCT, "hold_min": QK.HOLD_MIN}}
 
 
+def yellow_view(rows, fw, s):
+    """Rule P10's card (docs/MEME.md section 21): its closed shadows against the clean, heavy-warning and danger
+    controls and buy-everything, all from the first shadow of the four lines, and how its trades ended."""
+    lines = {p: fw.get(p) or {} for p in YL.POLICIES}
+    mine = [x for x in rows if x["policy"] == YL.POLICY]
+    ends = {}
+    for x in mine:
+        ends[x.get("why")] = ends.get(x.get("why"), 0) + 1
+    shadows = s.get("shadows") or []
+    return {"stats": lines[YL.POLICY], "controls": {p: lines[p] for p in YL.CONTROLS},
+            "everything": fw.get(YL.EVERYTHING) or {}, "ends": ends,
+            "open": {p: len([x for x in shadows if x.get("policy") == p]) for p in YL.POLICIES},
+            "passed": _bar_for(YL.POLICY, lines[YL.POLICY], fw), "min_per_slice": YL.MIN_PER_SLICE,
+            "error": (s.get(YL.STATE_KEY) or {}).get("error"),
+            "rules": {"stop": R.STOP_PCT, "target": R.TARGET_PCT, "hold_min": R.HOLD_MIN, "warn_max": YL.WARN_MAX}}
+
+
 BOOK_NAMES = {"careful": "Careful: any rule, strict check, no research filter"}
 
 
@@ -1442,7 +1486,7 @@ def lines(v=None):
          % (v["tracked"], v["discoveries"], v["screens"]["pass"], v["screens"]["fail"], v["screens"]["unknown"], v["cost_pct"]),
          "  Forward record (closed shadows, net of cost, stop %d%% / target +%d%% / %d min):"
          % (v["rules"]["stop"], v["rules"]["target"], v["rules"]["hold_min"])]
-    for p in R.POLICIES + M.POLICIES + MN.POLICIES + QK.POLICIES:
+    for p in R.POLICIES + M.POLICIES + MN.POLICIES + QK.POLICIES + YL.POLICIES:
         for name in (p, p + "+screen", p + "+strict", p + "+evidence"):
             x = v["forward"][name]
             if not x["n"] and name != p:

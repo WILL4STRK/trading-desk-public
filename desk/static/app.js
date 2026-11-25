@@ -639,10 +639,10 @@ const MEME_FIELDS = [
   ["meme_ntfy_max_per_hour","Most alerts an hour","Over this, alerts are dropped and one \"N alerts skipped\" push follows at the next free slot."],
 ];
 const RULE_NAME = {careful:"Careful: strict check, no research filter", learn:"Learning: any of the six rules", auto:"The backtest's pick"};
-const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative", migration:"After migration, steady flow (P7)", migration_base:"After migration, any (P7 control)", moonshot:"Moonshot: young coin taking off (P8)", moonshot_base:"Young coin, any (P8 control)", quick:"Quick: +10% / -5% / 30 min (P9)"};
+const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative", migration:"After migration, steady flow (P7)", migration_base:"After migration, any (P7 control)", moonshot:"Moonshot: young coin taking off (P8)", moonshot_base:"Young coin, any (P8 control)", quick:"Quick: +10% / -5% / 30 min (P9)", yellow:"Yellow: P0 on coins with only 1 or 2 warnings (P10)", yellow_clean:"P0 on clean coins (P10 control a)", yellow_heavy:"P0 on coins with 3+ warnings (P10 control b)", yellow_danger:"P0 on coins with a danger flag (P10 control c)"};
 const VARIANTS = [["", "any coin"], ["+screen", "passed the check"], ["+strict", "passed the strict check"], ["+evidence", "check + research filters"]];
 // Display-only plain names for internal tags. Values sent to the API and saved in settings never change.
-const RULE_SHORT = {all:"Buy everything", hype:"Hype", breakout:"Breakout", calm_aged:"Calm, 1–7 days", dip_aged:"Dip, 1–7 days", aged_liquid:"Aged and liquid, 3–14 days", news:"News or trend", quick:"Quick (P9)", careful:"Careful", learn:"Learning", auto:"Backtest's pick", main:"Main account"};
+const RULE_SHORT = {all:"Buy everything", hype:"Hype", breakout:"Breakout", calm_aged:"Calm, 1–7 days", dip_aged:"Dip, 1–7 days", aged_liquid:"Aged and liquid, 3–14 days", news:"News or trend", quick:"Quick (P9)", yellow:"Yellow (P10)", careful:"Careful", learn:"Learning", auto:"Backtest's pick", main:"Main account"};
 const EXIT_NAME = {sl:"Stop", stop:"Stop", tp:"Target", target:"Target", trail:"Trailing stop", time:"Time limit", eod:"End of run", rug:"Pool pulled", "liquidity pulled":"Liquidity pulled"};
 const cap1 = s => { s = String(s ?? ""); return s.charAt(0).toUpperCase() + s.slice(1); };
 const pretty = s => cap1(String(s ?? "").replace(/[-_]+/g, " ").trim());
@@ -685,6 +685,7 @@ async function loadMeme() {
   renderPracticeCurves(m);
   renderMemeFunnels(m);
   renderMemeQuick(m);
+  renderMemeYellow(m);
   const rng = (lo, hi) => lo == null ? "" : `<small style="display:block;color:var(--label2)">${lo}% to ${hi}%</small>`;
   const fr = x => !x || !x.n ? `<td colspan="7" style="text-align:left;color:var(--label2)">0 closed · too few</td>` :
     `<td class="num">${x.n} / ${x.tokens}${memeThin(x.n)}</td><td class="num ${tone(x.mean)}">${pctS(x.mean)}${rng(x.mean_lo, x.mean_hi)}</td><td class="num ${tone(x.median)}">${pctS(x.median)}</td><td class="num">${x.win_pct}%${rng(x.win_lo, x.win_hi)}</td><td class="num ${tone(x.mean_no_top3)}">${pctS(x.mean_no_top3)}</td><td class="num">${(x.folds || []).length ? x.folds_pos + " of 4" : "–"}</td><td class="num neg">${pctS(x.tail5)}</td>`;
@@ -733,7 +734,7 @@ const MEME_MODEL_ROWS = [
   ["breakout", "P2", "Breakout"], ["calm_aged", "P3", "Calm aged"],
   ["dip_aged", "P4", "Aged dip"], ["aged_liquid", "P5", "Aged and liquid"],
   ["news", "P6", "News"], ["migration", "P7", "Migration"],
-  ["moonshot", "P8", "Moonshot"], ["quick", "P9", "Quick"], ["careful", "", "Careful"],
+  ["moonshot", "P8", "Moonshot"], ["quick", "P9", "Quick"], ["yellow", "P10", "Yellow"], ["careful", "", "Careful"],
 ];
 const memeThin = n => n < 30 ? '<span class="tag weak">Too few</span>' : "";
 function memeUtc(value) {
@@ -763,9 +764,9 @@ function renderMemeModels(m) {
     const x = memeModelStats(m, key), n = x.n || 0, coins = x.tokens || 0;
     const sliceCount = (x.folds_n || []).filter(count => count > 0).length;
     const positive = x.folds_pos || 0, min = m.model_min_per_slice || 10;
-    const controlKey = key === "migration" ? "migration_base" : key === "moonshot" ? "moonshot_base" : key === "quick" ? "quick_control" : "all";
+    const controlKey = key === "migration" ? "migration_base" : key === "moonshot" ? "moonshot_base" : key === "quick" ? "quick_control" : key === "yellow" ? "yellow_clean" : "all";
     const control = m.forward[controlKey] || {};
-    const controlName = controlKey === "all" ? "P0 · Buy everything" : key === "quick" ? "Same entries, P0 exits" : id + "b · " + (key === "migration" ? "Graduates" : "Young coins");
+    const controlName = controlKey === "all" ? "P0 · Buy everything" : key === "quick" ? "Same entries, P0 exits" : key === "yellow" ? "P10a · Clean coins" : id + "b · " + (key === "migration" ? "Graduates" : "Young coins");
     const status = key === "all" ? "Control" : m.model_results?.[key]?.passed ? "Passed"
       : n < 100 || coins < 50 || sliceCount < 4 ? "Collecting" : "Testing";
     const ci = x.mean_lo == null || x.mean_hi == null ? "95% range unavailable" : `95% ${pctS(x.mean_lo)} to ${pctS(x.mean_hi)}`;
@@ -894,6 +895,21 @@ function renderMemeQuick(m) {
     + row("Buy everything, same window", `${pctS((q.everything || {}).mean)} · n=${(q.everything || {}).n || 0}`)
     + `<p class="mm-source">Closed shadows since the first P9 entry · ${x.folds_pos || 0} / 4 slices positive · min 10 trades/slice (${(x.folds_n || [0, 0, 0, 0]).join(" / ")})${dex ? " · venues: " + dex : ""}. Rule in docs/MEME.md §15.</p>`
     + (q.error ? `<p class="mm-source">Last P9 error: ${esc(q.error)}</p>` : "");
+}
+function renderMemeYellow(m) {
+  const y = m.yellow || {}, x = y.stats || {}, c = y.controls || {}, e = y.ends || {}, o = y.open || {}, n = x.n || 0;
+  const row = (label, value) => `<div class="mm-funnel-row"><div class="mm-funnel-stat"><span>${label}</span><b class="num">${value}</b></div></div>`;
+  const line = s => `${pctS((s || {}).mean)} · n=${(s || {}).n || 0} · ${(s || {}).tokens || 0} coins${((s || {}).n || 0) < 30 ? " · too few" : ""}`;
+  $("#m-yellow").innerHTML = row("Closed shadows", `${n} · ${o.yellow || 0} open`)
+    + row("Net mean", `${pctS(x.mean)}${x.mean_lo == null ? "" : ` · 95% ${pctS(x.mean_lo)} to ${pctS(x.mean_hi)}`}`)
+    + row("Median · win rate", `${pctS(x.median)} · ${x.win_pct == null ? "–" : x.win_pct + "%"}`)
+    + row("Ended at target / stop / time", `${e.target || 0} / ${e.stop || 0} / ${e.time || 0}${(e.rug || 0) ? ` · dead pool ${e.rug}` : ""}`)
+    + row("a · Clean coins (must beat)", line(c.yellow_clean))
+    + row("b · 3+ warnings", line(c.yellow_heavy))
+    + row("c · Danger flag", line(c.yellow_danger))
+    + row("Buy everything, same window (must beat)", line(y.everything))
+    + `<p class="mm-source">P0 entries on coins whose latest screen has 0 danger and 1 or 2 warn-level flags and no can't-sell block; unknown screens never buy. Exits ${y.rules?.stop ?? -15}% / +${y.rules?.target ?? 30}% / ${(y.rules?.hold_min ?? 240) / 60} h. ${x.folds_pos || 0} / 4 slices positive · min ${y.min_per_slice || 10} trades/slice (${(x.folds_n || [0, 0, 0, 0]).join(" / ")}) · ${y.passed ? "passed the bar" : "not passed"}. Rule in docs/MEME.md §21.</p>`
+    + (y.error ? `<p class="mm-source">Last P10 error: ${esc(y.error)}</p>` : "");
 }
 function drawMemeResearchPlots() {
   if (!MM || !$("#v-meme").classList.contains("on")) return;
