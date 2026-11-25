@@ -632,6 +632,7 @@ const MEME_FIELDS = [
   ["meme_max_open","Most coins held at once",""],
   ["meme_cost_pct","Round-trip cost, %","Fees, priority fee, MEV and spread, in and out together. Measured near 4% in real trading; price impact is added on top. Ethereum is charged at least 6% (gas)."],
   ["meme_chains","Chains","Any of: solana base bsc ethereum.","area"],
+  ["meme_attention","Rule P11 Helius reads","P11 reads distinct buyers from Helius on its own key (C:\Trading\secrets\helius-p11.key) under a 30,000-credit daily cap. Off until the Helius plan is decided.","select",["false","true"]],
   ["meme_search_new","Also search for brand-new pools","Adds DexScreener search results under a day old to the coins it watches. Same rules and checks.","select",["true","false"]],
   ["meme_news_words","News you are watching","One phrase per line, like GTA 6 launch. A coin named after one counts for the news rule.","area"],
   ["meme_ntfy","Phone alerts for paper trades","One ntfy push per practice buy and sell. off, main (the main account only) or all (every practice account). Never for shadows. Paper only, not advice. Test it from Settings with Send test meme alert.","select",["off","main","all"]],
@@ -639,10 +640,10 @@ const MEME_FIELDS = [
   ["meme_ntfy_max_per_hour","Most alerts an hour","Over this, alerts are dropped and one \"N alerts skipped\" push follows at the next free slot."],
 ];
 const RULE_NAME = {careful:"Careful: strict check, no research filter", learn:"Learning: any of the six rules", auto:"The backtest's pick"};
-const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative", migration:"After migration, steady flow (P7)", migration_base:"After migration, any (P7 control)", moonshot:"Moonshot: young coin taking off (P8)", moonshot_base:"Young coin, any (P8 control)", quick:"Quick: +10% / -5% / 30 min (P9)"};
+const RULE_INFO = {all:"Buy everything (the baseline)", hype:"Hype (the old memebot rule)", breakout:"Breakout (the stocks rule)", calm_aged:"Calm, 1 to 7 days old", dip_aged:"Dip, 1 to 7 days old", aged_liquid:"Aged and liquid, 3 to 14 days", news:"In the news or a trending narrative", migration:"After migration, steady flow (P7)", migration_base:"After migration, any (P7 control)", moonshot:"Moonshot: young coin taking off (P8)", moonshot_base:"Young coin, any (P8 control)", quick:"Quick: +10% / -5% / 30 min (P9)", attention:"Attention: P0 on boosted (paid) coins with many distinct buyers (P11)", attention_count:"Boosted, raw buy count instead of buyers (P11 control b)", attention_crowd:"Many buyers, not boosted, sampled (P11 control c)"};
 const VARIANTS = [["", "any coin"], ["+screen", "passed the check"], ["+strict", "passed the strict check"], ["+evidence", "check + research filters"]];
 // Display-only plain names for internal tags. Values sent to the API and saved in settings never change.
-const RULE_SHORT = {all:"Buy everything", hype:"Hype", breakout:"Breakout", calm_aged:"Calm, 1–7 days", dip_aged:"Dip, 1–7 days", aged_liquid:"Aged and liquid, 3–14 days", news:"News or trend", quick:"Quick (P9)", careful:"Careful", learn:"Learning", auto:"Backtest's pick", main:"Main account"};
+const RULE_SHORT = {all:"Buy everything", hype:"Hype", breakout:"Breakout", calm_aged:"Calm, 1–7 days", dip_aged:"Dip, 1–7 days", aged_liquid:"Aged and liquid, 3–14 days", news:"News or trend", quick:"Quick (P9)", attention:"Attention (P11)", careful:"Careful", learn:"Learning", auto:"Backtest's pick", main:"Main account"};
 const EXIT_NAME = {sl:"Stop", stop:"Stop", tp:"Target", target:"Target", trail:"Trailing stop", time:"Time limit", eod:"End of run", rug:"Pool pulled", "liquidity pulled":"Liquidity pulled"};
 const cap1 = s => { s = String(s ?? ""); return s.charAt(0).toUpperCase() + s.slice(1); };
 const pretty = s => cap1(String(s ?? "").replace(/[-_]+/g, " ").trim());
@@ -685,6 +686,7 @@ async function loadMeme() {
   renderPracticeCurves(m);
   renderMemeFunnels(m);
   renderMemeQuick(m);
+  renderMemeAttention(m);
   const rng = (lo, hi) => lo == null ? "" : `<small style="display:block;color:var(--label2)">${lo}% to ${hi}%</small>`;
   const fr = x => !x || !x.n ? `<td colspan="7" style="text-align:left;color:var(--label2)">0 closed · too few</td>` :
     `<td class="num">${x.n} / ${x.tokens}${memeThin(x.n)}</td><td class="num ${tone(x.mean)}">${pctS(x.mean)}${rng(x.mean_lo, x.mean_hi)}</td><td class="num ${tone(x.median)}">${pctS(x.median)}</td><td class="num">${x.win_pct}%${rng(x.win_lo, x.win_hi)}</td><td class="num ${tone(x.mean_no_top3)}">${pctS(x.mean_no_top3)}</td><td class="num">${(x.folds || []).length ? x.folds_pos + " of 4" : "–"}</td><td class="num neg">${pctS(x.tail5)}</td>`;
@@ -733,7 +735,7 @@ const MEME_MODEL_ROWS = [
   ["breakout", "P2", "Breakout"], ["calm_aged", "P3", "Calm aged"],
   ["dip_aged", "P4", "Aged dip"], ["aged_liquid", "P5", "Aged and liquid"],
   ["news", "P6", "News"], ["migration", "P7", "Migration"],
-  ["moonshot", "P8", "Moonshot"], ["quick", "P9", "Quick"], ["careful", "", "Careful"],
+  ["moonshot", "P8", "Moonshot"], ["quick", "P9", "Quick"], ["attention", "P11", "Attention"], ["careful", "", "Careful"],
 ];
 const memeThin = n => n < 30 ? '<span class="tag weak">Too few</span>' : "";
 function memeUtc(value) {
@@ -763,9 +765,9 @@ function renderMemeModels(m) {
     const x = memeModelStats(m, key), n = x.n || 0, coins = x.tokens || 0;
     const sliceCount = (x.folds_n || []).filter(count => count > 0).length;
     const positive = x.folds_pos || 0, min = m.model_min_per_slice || 10;
-    const controlKey = key === "migration" ? "migration_base" : key === "moonshot" ? "moonshot_base" : key === "quick" ? "quick_control" : "all";
+    const controlKey = key === "migration" ? "migration_base" : key === "moonshot" ? "moonshot_base" : key === "quick" ? "quick_control" : key === "attention" ? "attention_count" : "all";
     const control = m.forward[controlKey] || {};
-    const controlName = controlKey === "all" ? "P0 · Buy everything" : key === "quick" ? "Same entries, P0 exits" : id + "b · " + (key === "migration" ? "Graduates" : "Young coins");
+    const controlName = controlKey === "all" ? "P0 · Buy everything" : key === "quick" ? "Same entries, P0 exits" : key === "attention" ? "P11b · Raw buy count" : id + "b · " + (key === "migration" ? "Graduates" : "Young coins");
     const status = key === "all" ? "Control" : m.model_results?.[key]?.passed ? "Passed"
       : n < 100 || coins < 50 || sliceCount < 4 ? "Collecting" : "Testing";
     const ci = x.mean_lo == null || x.mean_hi == null ? "95% range unavailable" : `95% ${pctS(x.mean_lo)} to ${pctS(x.mean_hi)}`;
@@ -894,6 +896,23 @@ function renderMemeQuick(m) {
     + row("Buy everything, same window", `${pctS((q.everything || {}).mean)} · n=${(q.everything || {}).n || 0}`)
     + `<p class="mm-source">Closed shadows since the first P9 entry · ${x.folds_pos || 0} / 4 slices positive · min 10 trades/slice (${(x.folds_n || [0, 0, 0, 0]).join(" / ")})${dex ? " · venues: " + dex : ""}. Rule in docs/MEME.md §15.</p>`
     + (q.error ? `<p class="mm-source">Last P9 error: ${esc(q.error)}</p>` : "");
+}
+function renderMemeAttention(m) {
+  const a = m.attention || {}, x = a.stats || {}, c = a.controls || {}, e = a.ends || {}, o = a.open || {}, h = a.helius || {}, r = a.rules || {}, n = x.n || 0;
+  const row = (label, value) => `<div class="mm-funnel-row"><div class="mm-funnel-stat"><span>${label}</span><b class="num">${value}</b></div></div>`;
+  const line = s => `${pctS((s || {}).mean)} · n=${(s || {}).n || 0} · ${(s || {}).tokens || 0} coins${((s || {}).n || 0) < 30 ? " · too few" : ""}`;
+  const state = !a.on ? "Off (setting meme_attention)" : !a.key ? "On, but no P11 key file" : "On";
+  $("#m-attention").innerHTML = row("Status", state)
+    + row("Closed shadows", `${n} · ${o.attention || 0} open`)
+    + row("Net mean", `${pctS(x.mean)}${x.mean_lo == null ? "" : ` · 95% ${pctS(x.mean_lo)} to ${pctS(x.mean_hi)}`}`)
+    + row("Median · win rate", `${pctS(x.median)} · ${x.win_pct == null ? "–" : x.win_pct + "%"}`)
+    + row("Ended at target / stop / time", `${e.target || 0} / ${e.stop || 0} / ${e.time || 0}${(e.rug || 0) ? ` · dead pool ${e.rug}` : ""}`)
+    + row("a · Buy everything, same window (must beat)", line(a.everything))
+    + row("b · Raw buy count (must beat)", line(c.attention_count))
+    + row("c · Many buyers, not boosted", line(c.attention_crowd))
+    + row("Helius today", `${(h.credits || 0).toLocaleString()} / ${(h.cap || 30000).toLocaleString()} credits · ${h.reads || 0} reads${h.capped ? ` · ${h.capped} skipped at cap` : ""}`)
+    + `<p class="mm-source">P0 entries on busy (m5 buys ≥ ${r.min_m5_buys ?? 20}) ${(r.dexes || ["pumpfun", "pumpswap"]).join("/")} coins that are boosted on DexScreener. A boost is <b>paid promotion</b>, not views. Buys when distinct buyers per covered minute ≥ ${r.n_bpm ?? 34.66} (last ≤ 300 transactions; creator and bot-like wallets excluded). b uses m5 buys ≥ ${r.n_buys ?? 370}; c is a ${Math.round((r.sample ?? 0.15) * 100)}% seeded sample of not-boosted coins. Exits ${r.stop ?? -15}% / +${r.target ?? 30}% / ${(r.hold_min ?? 240) / 60} h. ${x.folds_pos || 0} / 4 slices positive · min ${a.min_per_slice || 10} trades/slice (${(x.folds_n || [0, 0, 0, 0]).join(" / ")}) · ${a.passed ? "passed the bar" : "not passed"}. Rule in docs/MEME.md §22.</p>`
+    + (a.error ? `<p class="mm-source">Last P11 error: ${esc(a.error)}</p>` : "");
 }
 function drawMemeResearchPlots() {
   if (!MM || !$("#v-meme").classList.contains("on")) return;

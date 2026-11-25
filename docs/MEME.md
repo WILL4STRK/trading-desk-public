@@ -1034,3 +1034,122 @@ liquidity, age. Every non-exact match is counted and reported.
   before any scan runs.
 
 Nothing else in section 20 changes: the coins, buyers, exclusions, copy rules, pass bar and T20 stay as written.
+
+## 22. Rule P11: attention, P0's entries on boosted coins that many distinct wallets are buying (pre-registered 2026-11-25, before any P11 code and before any outcome was looked at)
+
+**Question.** Do P0's own entries do better on coins that are being **paid to be promoted** on DexScreener and are bought
+by many distinct wallets at the same time than buying everything, or than the same rule with DexScreener's raw buy count
+in place of distinct buyers? Paper only. No wallet, key-signing or order path. "No edge" is an allowed and the likely
+answer (section 0). This section is written and pushed before any P11 code exists. Sections 2 to 21 are unchanged.
+
+**What this tests, plainly.** The attention signal is DexScreener's `boosts.active` on the coin's pair. A boost is
+**paid promotion**: someone bought it. This rule tests paid promotion together with distinct buyers. It does **not**
+test organic attention or page views. DexScreener's documented API (docs.dexscreener.com, read 2026-11-25) has no page
+views, no trending rank and no trending score; its docs say page visitors feed a "Trending Score" used only on the website
+and app. No scraper is used, and none may be added under this section.
+
+**What was seen before this section (counts only, no price change, return, exit or account figure).** Two one-hour
+read-only probes on 2026-11-25 over the desk's 250 tracked Solana coins:
+- DexScreener, 979 coin-time points (one per coin every 15 minutes): m5 buys median 0, p90 17, p95 82, p99 755; 9.2 %
+  of points had m5 buys >= 20; `boosts.active` > 0 on 9.0 %; 22 % of the m5-buys->=20 points were boosted.
+- Helius, 285 pool reads (68 on coins with m5 buys >= 20, and one sweep of every coin): distinct buyers per 15 minutes
+  on the m5-buys->=20 coins p25 22, median 107, p75 228, p90 293; rank correlation with m5 buys 0.39.
+- The 68 m5-buys->=20 reads again, with the same end times, cut to the last 300 transactions (the frozen read below),
+  to set N and N_b: 53 of the 68 reads returned the full 300 (median covered time 209 seconds); bpm p25 3.0, median 11.0, p75 34.66, p90 72.5; DexScreener m5 buys at the same points p25 50, median 136, p75 370, p90 571; bot-like wallets 5.3 % of buying wallets. Pool kinds: PumpSwap 53, pump.fun 8, Meteora 4 (5.9 %), Raydium 2, Orca 1. The rerun file `rerun300.jsonl` has SHA-1 `c1406ab6`.
+About 14,360 Helius credits were spent on these probes, all from the main key's 20,000-credit study cap.
+
+### 22.A Definitions
+
+- **Decision.** Exactly P0's decision (section 3): hour volume >= $20k, one decision point per coin every 15 minutes,
+  the same fill (the snapshot price at the decision), the same guards (no buy of a coin with no price or whose pool
+  already reports under $1,000, none while that coin's shadow in this line is open, none inside the 60-minute cooldown
+  after that line's last exit on the coin). Solana only.
+- **Busy.** The coin's DexScreener snapshot at the decision has `txns.m5.buys` >= **20**.
+- **Pool kind.** The tracked pool's DexScreener `dexId` at the decision is `pumpfun` or `pumpswap`. Meteora was 5.9 % of the rerun reads, under section 22's 10 % line, so P11 and its controls (b) and (c) are restricted to these two kinds; Meteora, Raydium, Orca and every other kind buy in none of them. (a) is P0 as is.
+- **Boosted.** The snapshot's `boosts.active` > 0. **Not boosted**: `boosts.active` is 0 or missing.
+- **Decision round.** `floor(decision time / 900)`, the UTC quarter hour the decision falls in.
+- **Control (c) sample.** A busy, not-boosted coin is sampled in a round when
+  `random.Random("22:%d:%s" % (round, coin key)).random() < 0.15` (coin key = `solana:<mint>`). The seed is fixed by
+  22, the round and the coin, so every draw can be re-made from the record. About 15 % of such coins are read each round.
+- **The read (Helius).** One `getTransactionsForAddress` call on the coin's tracked pool: `transactionDetails: "full"`,
+  `sortOrder: "desc"`, `limit: 300`, `encoding: "json"`, `maxSupportedTransactionVersion: 1`, filters
+  `blockTime >= decision - 900` and `< decision`, `status: "succeeded"`. At most 300 transactions, no further page.
+- **A buy.** In one successful transaction, a signer whose balance of the coin rises while the summed balance of the
+  coin held by non-signers (the pool or its vault) falls. Any quote token counts, not only SOL. A sell is the reverse.
+- **Excluded wallets.** The pool; the coin's **creator** (the fee payer of the mint's earliest transaction, one
+  `getTransactionsForAddress` call on the mint, `sortOrder: "asc"`, `limit: 1`, cached per coin); and **bot-like**
+  wallets in the read: more than 5 buys and sells of this coin, or a buy and a sell in the same slot.
+- **Covered time.** 900 seconds when the read returns fewer than 300 transactions; otherwise
+  `max(60, decision time - oldest block time in the read)`.
+- **Buyers per covered minute (bpm).** Distinct buying wallets after the exclusions, times 60, divided by the covered time
+  in seconds.
+- **N = 34.66** buyers per covered minute: the 75th percentile of bpm over the 68 rerun reads above (all pool kinds;
+  nearest rank: the value at 0-based index 51 = floor(0.75 x 68) of the sorted values, 34.6602), frozen here.
+- **N_b = 370** m5 buys: the 75th percentile of DexScreener m5 buys at the same 68 decision points (the same
+  nearest rank, index 51), frozen here (control b).
+
+### 22.B Lines (shadow lines, the same decision, guards, exits, cost and clock)
+
+- **P11 `attention`:** P0's decision on a busy, boosted coin on a pump.fun or PumpSwap pool with **bpm >= N**.
+- **(a) `attention_all`, comparator:** P0 (`all`, no screen) entries at or after the start below. Must beat.
+- **(b) `attention_count`:** P0's decision on a busy, boosted coin on a pump.fun or PumpSwap pool with DexScreener **m5 buys >= N_b**
+  (no Helius read). Tests whether distinct buyers add anything over the raw buy count. Must beat.
+- **(c) `attention_crowd`:** P0's decision on a busy, **not-boosted**, sampled coin on a pump.fun or PumpSwap pool with **bpm >= N**.
+  Crowd without the paid signal. Reported, not required.
+
+A coin can be in P11 and (b) at once. Each P11-family shadow records at entry: `boosts.active`, m5 buys, the read's
+transaction count, covered seconds, buyers, bot-like wallets, bpm, the round, and whether the coin was sampled.
+
+**Reads are made only when they can matter:** a busy boosted coin on a pump.fun or PumpSwap pool at a P0 decision (for P11) when P11 has no
+open shadow and no cooldown on it, and a busy, not-boosted, sampled coin (for c) under the same test for (c). (b) never
+reads.
+
+**Exits and cost.** Section 3's primary exits (stop -15 %, target +30 %, 4 hours, from the buy price before costs; stop
+first when one sample or candle touches both; replayed from 5-minute candles after a gap, as section 4) and section 2's
+cost (3.5 % round trip, half each side; a pool under $1,000 or without a price is -100 %). Shadows are net of the
+round-trip cost only; the practice account also pays price impact on each side.
+
+**The start.** The comparison period starts at the first shadow of any of P11, (b) or (c). Every line, and (a), is
+counted on entries at or after it. Older P0 history is not used.
+
+### 22.C Practice account
+
+Its own $100 account (`attention`), desk sizing (20 % of equity a position, at most 4 open, one position per coin),
+P11's entries only, gated by the plain safety screen (section 3, `pass`) like the other practice books. A shadow is
+recorded for every entry whether or not the account can take it. The pass bar is read on the shadows.
+
+### 22.D Pass bar (section 5 plus section 8's slices), on P11's closed shadows
+
+At least 100 trades on at least 50 distinct coins; mean and median net return above 0; mean above 0 without its 3 best
+trades; positive mean in at least 3 of 4 equal time slices of its own entries, with at least 10 trades in every slice;
+and a mean above **both** (a) and (b). The 95 % range of the mean, by whole coins, is reported. A pass earns only a fresh
+forward test and a separate pre-registration; it changes no other rule.
+
+### 22.E Helius budget and running
+
+- **Own key, own cap.** P11 reads only with its own key file (`C:\Trading\secrets\helius-p11.key`), never the C1/C2
+  key. Its cap is **30,000 credits a UTC day**, a hard stop: a read is not sent when the day's credits plus 40 would pass
+  30,000. Credits are counted as Helius bills them (full mode: 10 per 100 transactions returned, rounded up, minimum 10;
+  failed calls free). Every read is logged (`attention_reads.jsonl`: time, coin, round, reason, transactions, credits,
+  the day's total, buyers, bot-like, covered seconds, bpm). Coins that needed a read but met the cap are counted per day
+  and shown; they buy in neither P11 nor (c), a stated bias on capped days.
+- **Off by default.** Setting `meme_attention` is off and no P11-family line can fire while it is off or the key file is
+  missing. It starts only after the user's Helius plan decision (2026-12-01) and after the D1 read (section 17, after
+  2026-11-30 07:24 UTC); the code deploys only after the D1 read.
+- **Guarded.** A read uses a 15-second timeout, at most one request a second, and no retry inside the scan. A P11 error
+  is kept on its own record (`attention_v1`) and never stops the scan, like P9 and P10. A failed read means no P11 or (c)
+  decision for that coin at that point.
+
+### 22.F Limits, stated now
+
+- **Fresh-wallet bundlers can fake uniqueness.** One coin in the probe had 296 buyers in 15 minutes and none bot-like.
+  Many new wallets funded by one source look like many buyers here; this section does not trace funding.
+- **Meteora pools parse poorly.** Their swaps often move balances through accounts this buy definition does not see (in
+  the probe one Meteora pool gave 3 buys from 299 transactions). They were 5.9 % of the rerun reads, so P11 is restricted to pump.fun and PumpSwap pools (22.A) and Meteora's parsing does not enter any line. The restriction also drops the few Raydium and Orca pools (3 of 68). On PumpSwap and pump.fun only, the same p75 would have been 36.92; N stays 34.66 as frozen from all 68.
+- **Paid promotion is not views.** See above. A result here says nothing about organic attention.
+- **The 300-transaction read** covers less than 15 minutes on busy pools; bpm corrects for the covered time but a short
+  burst can dominate it.
+- **The (c) sample is small** (about 15 % of busy not-boosted coins); it is reported, not required.
+
+**Changes.** Changing any number or definition in this section after a result is seen restarts the count and is logged
+in docs/CHANGES.md.

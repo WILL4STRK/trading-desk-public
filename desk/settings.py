@@ -72,6 +72,7 @@ DEFAULTS = {
     "meme_paused": False,            # no new paper entries; open ones still close by the rules
     "meme_practice_drawdown": False, # opt in to a separate main-account drawdown experiment
     "meme_reentry_shadow": False,    # opt in to the paired Careful re-entry study
+    "meme_attention": False,         # rule P11 (docs/MEME.md s.22): Helius reads on its own key and daily cap; off until the user's plan decision
     "meme_starting_balance": 100.0,  # changing it starts the memecoin accounts over
     "meme_position_pct": 20.0,       # of the account's value, per position
     "meme_max_open": 4,
@@ -173,7 +174,7 @@ def validate(raw):
     if s["directions"] not in ("long", "short", "both"):
         raise SettingsError("directions must be long, short or both")
     for k in ("pdt_guard", "scan_universe", "paused", "short_approved", "auto_paper", "auto_paper_weak", "auto_watchlist", "watchlist_agent", "breaking_news",
-              "meme_enabled", "meme_paused", "meme_search_new", "meme_practice_drawdown", "meme_reentry_shadow",
+              "meme_enabled", "meme_paused", "meme_search_new", "meme_practice_drawdown", "meme_reentry_shadow", "meme_attention",
               "meme_terminal_allow_unsellable"):
         if not isinstance(s[k], bool):
             raise SettingsError("%s must be true or false" % k)
