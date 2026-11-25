@@ -53,7 +53,8 @@ CURVE_MAX = 400             # points sent to the page per season
 BOOK_LABELS = {"main": "Main account", "all": "Buy everything", "careful": "Careful", "hype": "Hype",
                "breakout": "Breakout", "calm_aged": "Calm, 1-7 days", "dip_aged": "Dip, 1-7 days",
                "aged_liquid": "Aged and liquid", "news": "News or trend", "migration": "Migration (P7)",
-               "moonshot": "Moonshot (P8)", "quick": "Quick (P9)"}
+               "moonshot": "Moonshot (P8)", "quick": "Quick (P9)",
+               "attention": "Attention (P11)"}
 VIEWS = {
     "l1": {"label": "L1 learner", "study": "docs/MEME.md section 18",
            "starts": "Starts when its study starts: the learner's first scored take after its 300-close warm-up."},
