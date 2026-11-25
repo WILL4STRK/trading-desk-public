@@ -38,15 +38,35 @@ class Flags(DeskCase):
         self.assertEqual((d, len(w)), ([], 2))
         d, w = YL.flags("solana", sol([("Low Liquidity", "danger")]))
         self.assertEqual((len(d), w), (1, []))
-        d, _ = YL.flags("solana", sol(score=31))                          # the plain check's score limit is a danger flag
-        self.assertEqual(d, ["RugCheck risk 31/100"])
-        self.assertEqual(YL.flags("solana", sol(score=30))[0], [])        # 30 is no flag
         _, w = YL.flags("solana", sol(strict="fail", strict_why=["top 10 holders 45%"]))
-        self.assertEqual(w, ["strict: top 10 holders 45%"])
-        # a RugCheck holder warning and a strict holder reason are two flags (two sources)
-        _, w = YL.flags("solana", sol([("High holder concentration", "warn")], strict="fail",
-                                      strict_why=["top 10 holders 45%"]))
-        self.assertEqual(len(w), 2)
+        self.assertEqual(w, ["holder concentration"])
+
+    def test_the_score_is_a_danger_flag_only_without_a_risk_list(self):            # section 21.1 item 1
+        d, w = YL.flags("solana", sol([("Copycat token", "warn")], score=55))
+        self.assertEqual((d, len(w)), ([], 1))                                    # the risks already carry the score
+        self.assertEqual(YL.group("solana", sol([("Copycat token", "warn")], score=55), []), YL.POLICY)
+        self.assertEqual(len(YL.flags("solana", sol(score=31))[0]), 1)           # no risk list: one danger flag
+        self.assertEqual(YL.flags("solana", sol(score=30))[0], [])               # 30 is no flag
+        no_list = sol(score=40)
+        no_list["report"].pop("risks")
+        self.assertEqual(YL.group("solana", no_list, []), YL.DANGER)
+
+    def test_one_warn_flag_per_topic(self):                                        # section 21.1 item 2
+        holders = sol([("High holder concentration", "warn"), ("Single holder ownership", "warn"),
+                       ("High holder correlation", "warn")], strict="fail",
+                      strict_why=["top 10 holders 45%", "creator holds 8%"])
+        self.assertEqual(YL.flags("solana", holders)[1], ["holder concentration"])
+        lock = sol([("Large Amount of LP Unlocked", "warn")], strict="fail", strict_why=["pool 12% locked"])
+        self.assertEqual(YL.flags("solana", lock)[1], ["LP lock"])
+        self.assertEqual(YL.flags("bsc", evm(strict_why=["LP 0% locked", "creator and owner hold 9%",
+                                                         "top 10 holders 60%"]))[1], ["LP lock", "holder concentration"])
+        mixed = sol([("Copycat token", "warn"), ("Mutable metadata", "warn"), ("High ownership", "warn")],
+                    strict="fail", strict_why=["top 10 holders 45%"])
+        self.assertEqual(YL.group("solana", mixed, []), YL.HEAVY)                   # three topics
+        self.assertEqual(YL.counts("solana", mixed), {"danger": 0, "warn": 3})
+        self.assertIsNone(YL.counts("solana", sol(strict="unknown")))
+        self.assertEqual(YL.reason_topic("owner power: is mintable"), "strict: owner power: is mintable")
+        self.assertEqual(YL.reason_topic("top 10 holders 31%"), YL.HOLDERS)
 
     def test_evm_plain_reasons_are_danger_and_strict_reasons_are_warn(self):
         d, w = YL.flags("bsc", evm(why=["honeypot", "sell tax 20%"]))
@@ -65,6 +85,7 @@ class Flags(DeskCase):
         two = sol([("Copycat token", "warn")], strict="fail", strict_why=["pool 0% locked"])
         self.assertEqual(YL.group("solana", two, []), YL.POLICY)
         three = sol([("Copycat token", "warn"), ("Mutable metadata", "warn")], strict="fail", strict_why=["pool 0% locked"])
+        self.assertEqual(len(YL.flags("solana", three)[1]), 3)
         self.assertEqual(YL.group("solana", three, []), YL.HEAVY)
         self.assertEqual(YL.group("solana", sol([("Low Liquidity", "danger"), ("Copycat token", "warn")]), []), YL.DANGER)
         self.assertIsNone(YL.group("solana", sol([("Copycat token", "warn")]), ["blocked"]))
@@ -142,6 +163,8 @@ class Forward(DeskCase):
         sh = [x for x in s["shadows"] if x["policy"] == "yellow"][0]
         self.assertEqual((sh["screen"], sh["strict"], sh["px"]), ("pass", "pass", 1.0))
         self.assertNotIn("dex", sh)
+        self.assertEqual(sh["yl"], {"danger": 0, "warn": 1})                         # counts at the decision
+        self.assertNotIn("yl", [x for x in s["shadows"] if x["policy"] == "all"][0])
         pos = s["books"]["yellow"]["positions"][0]
         self.assertAlmostEqual(pos["cost"], 20.0)                                    # 20 % of $100
         self.assertAlmostEqual(pos["fill"], 1.0 * (1 + 0.0175 + 20 / 50000))         # desk cost plus price impact
@@ -159,10 +182,23 @@ class Forward(DeskCase):
         self.assertEqual(self.lines(), ["yellow_danger"])
         self.assertEqual(meme.load()["books"]["yellow"]["positions"], [])
 
-    def test_three_warnings_are_control_b(self):
+    def test_three_topics_are_control_b(self):
         self.api.rug = rug([("Mutable metadata", "warn"), ("Copycat token", "warn")], lock=0, top=50.0)
         self.run_at(T0)
-        self.assertEqual(self.lines(), ["yellow_heavy"])                             # 2 RugCheck + 2 strict reasons
+        self.assertEqual(self.lines(), ["yellow_heavy"])                             # 2 RugCheck topics + holders + LP lock
+
+    def test_holder_findings_count_once(self):
+        self.api.rug = rug([("High holder concentration", "warn"), ("Copycat token", "warn")], top=50.0)
+        self.run_at(T0)
+        self.assertEqual(self.lines(), ["yellow"])                                   # holders once + Copycat: 2 topics
+
+    def test_a_high_score_with_only_warnings_is_p10_and_its_book_buys(self):
+        self.api.rug = rug([("Mutable metadata", "warn")], score=55)                # plain check fails on the score
+        self.run_at(T0)
+        s = meme.load()
+        self.assertEqual(self.lines(), ["yellow"])
+        self.assertEqual([x for x in s["shadows"] if x["policy"] == "yellow"][0]["screen"], "fail")
+        self.assertEqual(len(s["books"]["yellow"]["positions"]), 1)                 # P10's own decision is the gate
 
     def test_cant_sell_and_unknown_screens_buy_in_no_line(self):
         self.api.rug = rug([("Freeze Authority still enabled", "danger")])

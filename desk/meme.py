@@ -191,13 +191,15 @@ BOOKS = tuple((r, (r,), "screen") for r in R.POLICIES) + (("careful", LEARN, "ev
                                                            ("migration", ("migration",), "strict"),
                                                            ("moonshot", ("moonshot",), "screen"),
                                                            ("quick", ("quick",), "screen"),
-                                                           ("yellow", ("yellow",), "screen"))   # P10 coins pass the plain check
+                                                           ("yellow", ("yellow",), "own"))   # P10's decision is its own gate (s.21.1)
 DELAYED = {"migration": ("migration", "migrations.jsonl"), "migration_base": (None, "migrations.jsonl"),
            "moonshot": ("moonshot", "moonshots.jsonl"), "moonshot_base": (None, "moonshots.jsonl")}  # policy: (book, log)
 PRACTICE_DRAWDOWN_PCT = 15
 
 
 def _book_ok(how, sc, veto):
+    if how == "own":
+        return True                       # the rule's decision already holds its screen test (P10, docs/MEME.md s.21.1)
     if how == "screen":
         return sc.get("verdict") == "pass"
     return sc.get("verdict") == "pass" and sc.get("strict") == "pass" and veto == []
@@ -930,8 +932,10 @@ def _run(now, fetch, demo=False):
         except Exception as err:
             dec[QK.POLICY] = False
             _quick_error(s, now, err)
-        try:                                                                     # P10 (docs/MEME.md s.21)
+        yl = None
+        try:                                                                     # P10 (docs/MEME.md s.21, 21.1)
             dec.update(YL.decide(dec.get("all"), t["chain"], screens.get(k), _cant_sell(screens.get(k))))
+            yl = YL.counts(t["chain"], screens.get(k))                           # the screen as stored now
         except Exception as err:
             dec.update(dict.fromkeys(YL.POLICIES, False))
             _yellow_error(s, now, err)
@@ -943,7 +947,8 @@ def _run(now, fetch, demo=False):
                             "strict": sc.get("strict", "unknown"), "news": p["_news"],
                             "veto": R.vetoes(f, now - (t.get("last_promo") or -1e12) < 86400),
                             "f": {x: (round(y, 3) if isinstance(y, float) else y) for x, y in f.items()},
-                            **({"dex": p.get("dexId")} if name in QK.POLICIES else {})})
+                            **({"dex": p.get("dexId")} if name in QK.POLICIES else {}),
+                            **({"yl": yl} if name in YL.POLICIES else {})})
             out["shadows_opened"] += 1
         veto = R.vetoes(f, now - (t.get("last_promo") or -1e12) < 86400)
         plan = [("main", acct, LEARN if pol in ("learn", "careful") else (pol,), "evidence" if pol == "careful" else "screen")] + [(n, books[n], rules, how)

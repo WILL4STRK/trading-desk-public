@@ -901,7 +901,7 @@ function renderMemeYellow(m) {
     + row("b · 3+ warnings", line(c.yellow_heavy))
     + row("c · Danger flag", line(c.yellow_danger))
     + row("Buy everything, same window (must beat)", line(y.everything))
-    + `<p class="mm-source">P0 entries on coins whose latest screen has 0 danger and 1 or 2 warn-level flags and no can't-sell block; unknown screens never buy. Exits ${y.rules?.stop ?? -15}% / +${y.rules?.target ?? 30}% / ${(y.rules?.hold_min ?? 240) / 60} h. ${x.folds_pos || 0} / 4 slices positive · min ${y.min_per_slice || 10} trades/slice (${(x.folds_n || [0, 0, 0, 0]).join(" / ")}) · ${y.passed ? "passed the bar" : "not passed"}. Rule in docs/MEME.md §21.</p>`
+    + `<p class="mm-source">P0 entries on coins whose latest screen has 0 danger flags and 1 or 2 warning topics and no can't-sell block; unknown screens never buy. Exits ${y.rules?.stop ?? -15}% / +${y.rules?.target ?? 30}% / ${(y.rules?.hold_min ?? 240) / 60} h. ${x.folds_pos || 0} / 4 slices positive · min ${y.min_per_slice || 10} trades/slice (${(x.folds_n || [0, 0, 0, 0]).join(" / ")}) · ${y.passed ? "passed the bar" : "not passed"}. Rule in docs/MEME.md §21.</p>`
     + (y.error ? `<p class="mm-source">Last P10 error: ${esc(y.error)}</p>` : "");
 }
 function drawMemeResearchPlots() {
